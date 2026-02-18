@@ -1,0 +1,60 @@
+// Copyright 2026 matter-cli contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// Package identify implements the Matter Identify cluster (0x0003).
+package identify
+
+import "github.com/p0fi/matter-cli/internal/clusters"
+
+const (
+	// ID is the Matter cluster ID for Identify.
+	ID uint32 = 0x0003
+	// Name is the CLI-friendly cluster name.
+	Name = "identify"
+	// DisplayName is the human-friendly cluster name.
+	DisplayName = "Identify"
+)
+
+// Attribute IDs.
+const (
+	AttrIdentifyTime uint32 = 0x0000
+	AttrIdentifyType uint32 = 0x0001
+)
+
+// Command IDs.
+const (
+	CmdIdentify        uint32 = 0x00
+	CmdTriggerEffect   uint32 = 0x40
+)
+
+// IdentifyRequest is the request payload for the Identify command.
+type IdentifyRequest struct {
+	IdentifyTime uint16 `tlv:"0,uint"`
+}
+
+// TriggerEffectRequest is the request payload for the TriggerEffect command.
+type TriggerEffectRequest struct {
+	EffectIdentifier uint8 `tlv:"0,uint"`
+	EffectVariant    uint8 `tlv:"1,uint"`
+}
+
+func init() {
+	clusters.Global.Register(clusters.ClusterInfo{
+		ID:          ID,
+		Name:        Name,
+		DisplayName: DisplayName,
+		Attributes: []clusters.AttributeInfo{
+			{ID: AttrIdentifyTime, Name: "identify-time", DisplayName: "IdentifyTime", Type: "uint16", Readable: true, Writable: true},
+			{ID: AttrIdentifyType, Name: "identify-type", DisplayName: "IdentifyType", Type: "enum8", Readable: true},
+		},
+		Commands: []clusters.CommandInfo{
+			{ID: CmdIdentify, Name: "identify", DisplayName: "Identify", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "identify-time", DisplayName: "IdentifyTime", Type: "uint16"},
+			}},
+			{ID: CmdTriggerEffect, Name: "trigger-effect", DisplayName: "TriggerEffect", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "effect-identifier", DisplayName: "EffectIdentifier", Type: "enum8"},
+				{ID: 1, Name: "effect-variant", DisplayName: "EffectVariant", Type: "enum8"},
+			}},
+		},
+	})
+}

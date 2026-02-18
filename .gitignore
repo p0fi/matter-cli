@@ -1,0 +1,44 @@
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+*.prof
+__debug_bin*
+
+# Go workspace
+vendor/
+
+# IDE / editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.*.un~
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Session daemon runtime files
+daemon.sock
+daemon.pid
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
