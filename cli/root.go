@@ -78,6 +78,7 @@ func init() {
 	rootCmd.ValidArgsFunction = completion.TargetCompletionFunc()
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
+	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newConfigCmd(), groupTools))
 
 	// Apply styled help template.
