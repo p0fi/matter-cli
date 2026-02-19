@@ -1,0 +1,56 @@
+[
+  {
+    "label": "Build",
+    "command": "make build",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Install",
+    "command": "make install",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Build & Install",
+    "command": "make build-install",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Test",
+    "command": "make test",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Test with Coverage",
+    "command": "make test-cover",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Vet",
+    "command": "make vet",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Lint",
+    "command": "make lint",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Format",
+    "command": "make fmt",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+  {
+    "label": "Clean",
+    "command": "make clean",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+  },
+]

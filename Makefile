@@ -8,10 +8,15 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE    := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS := -ldflags "-X $(MODULE)/cli.version=$(VERSION) -X $(MODULE)/cli.commit=$(COMMIT) -X $(MODULE)/cli.date=$(DATE)"
 
-.PHONY: build test lint clean fmt vet
+.PHONY: build install build-install test lint clean fmt vet
 
 build:
 	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/matter/
+
+install:
+	go install $(LDFLAGS) ./cmd/matter/
+
+build-install: build install
 
 test:
 	go test ./... -race -count=1
