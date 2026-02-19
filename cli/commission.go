@@ -84,7 +84,8 @@ func newCommissionCodeCmd() *cobra.Command {
 		Use:   "code <setup-code>",
 		Short: "Commission a device using a QR or manual pairing code",
 		Example: `  matter commission code "MT:Y3.13OTB00KA0648G00"
-  matter commission code "34970112332" --node 5`,
+  matter commission code "34970112332" --node 5
+  matter @5 commission code "MT:Y3.13OTB00KA0648G00"`,
 		Args: cobra.ExactArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -92,6 +93,7 @@ func newCommissionCodeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, _ := cmd.Flags().GetUint64("node")
 			if nodeID == 0 {
+				// For commission, node ID is optional — auto-assign if not given.
 				var err error
 				nodeID, err = nextNodeID()
 				if err != nil {
@@ -165,6 +167,7 @@ func newCommissionIPCmd() *cobra.Command {
 		Use:   "ip <address>",
 		Short: "Commission a device at a known IP address",
 		Example: `  matter commission ip 192.168.1.100 --setup-pin 12345678
+  matter @5 commission ip 192.168.1.100 --setup-pin 12345678
   matter commission ip 192.168.1.100 --setup-pin 12345678 --node 5`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -320,11 +323,12 @@ func newCommissionForgetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "forget",
 		Short: "Remove a commissioned device from local storage",
-		Example: `  matter commission forget --node 1`,
+		Example: `  matter @1 commission forget
+  matter commission forget --node 1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
+			nodeID, _, err := requireTarget(cmd)
+			if err != nil {
+				return err
 			}
 
 			s, err := openStore()

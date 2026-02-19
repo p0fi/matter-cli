@@ -21,74 +21,24 @@ func init() {
 func newDeviceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "device",
-		Short: "Manage commissioned devices",
+		Short: "Inspect and manage individual devices",
 	}
-	cmd.AddCommand(newDeviceLsCmd())
 	cmd.AddCommand(newDeviceInspectCmd())
 	cmd.AddCommand(newDeviceAliasCmd())
 	return cmd
-}
-
-func newDeviceLsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "ls",
-		Short: "List commissioned devices",
-		Example: `  matter device ls
-  matter device ls --format json`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer s.Close()
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			nodes, err := s.ListNodes(fabricID)
-			if err != nil {
-				return fmt.Errorf("listing nodes: %w", err)
-			}
-			if len(nodes) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No commissioned devices found."))
-				return nil
-			}
-
-			format, _ := cmd.Flags().GetString("format")
-			f := output.New(format)
-
-			if _, ok := f.(*output.TableFormatter); ok {
-				td := &output.TableData{
-					Headers: []string{"NODE", "NAME", "VENDOR", "PRODUCT", "ENDPOINTS", "LAST SEEN"},
-				}
-				for _, n := range nodes {
-					td.Rows = append(td.Rows, []string{
-						fmt.Sprintf("%d", n.ID),
-						n.Name,
-						fmt.Sprintf("0x%04X", n.VendorID),
-						fmt.Sprintf("0x%04X", n.ProductID),
-						fmt.Sprintf("%d", len(n.Endpoints)),
-						formatLastSeen(n.LastSeen),
-					})
-				}
-				return f.Format(cmd.OutOrStdout(), td)
-			}
-			return f.Format(cmd.OutOrStdout(), nodes)
-		},
-	}
 }
 
 func newDeviceInspectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "inspect",
 		Short: "Inspect a commissioned device",
-		Example: `  matter device inspect --node 1
-  matter device inspect -n 1 --format json`,
+		Example: `  matter @1 device inspect
+  matter @kitchen device inspect
+  matter device inspect --node 1 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
+			nodeID, _, err := requireTarget(cmd)
+			if err != nil {
+				return err
 			}
 
 			s, err := openStore()
@@ -120,11 +70,12 @@ func newDeviceAliasCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "alias",
 		Short: "Set a friendly name for a device",
-		Example: `  matter device alias --node 1 --name "Kitchen Light"`,
+		Example: `  matter @1 device alias --name "Kitchen Light"
+  matter device alias --node 1 --name "Kitchen Light"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
+			nodeID, _, err := requireTarget(cmd)
+			if err != nil {
+				return err
 			}
 			name, _ := cmd.Flags().GetString("name")
 			if name == "" {

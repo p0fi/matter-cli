@@ -27,7 +27,8 @@ func newInteractiveCmd() *cobra.Command {
 		Long: `Start an interactive REPL session for controlling Matter devices.
 
 Commands in interactive mode mirror the CLI commands:
-  use node <id> endpoint <id>   Set the default node and endpoint
+  use @node/endpoint            Set the default target (e.g. use @1/1, use @kitchen)
+  use node <id> endpoint <id>   Legacy syntax for setting default target
   on-off toggle                 Invoke a cluster command
   cluster read ...              Read an attribute
   exit / quit                   Exit the REPL`,
@@ -98,16 +99,49 @@ func runREPL(cmd *cobra.Command) error {
 func printREPLHelp(cmd *cobra.Command) {
 	w := cmd.OutOrStdout()
 	fmt.Fprintln(w, output.Header("Available commands:"))
-	fmt.Fprintf(w, "  %s  %s\n", output.Bold("use node <id> [endpoint <id>]"), output.Muted("Set default node and endpoint"))
+	fmt.Fprintf(w, "  %s           %s\n", output.Bold("use @node/endpoint"), output.Muted("Set default target (e.g. use @1/1, use @kitchen)"))
 	fmt.Fprintf(w, "  %s  %s\n", output.Bold("cluster read/write/invoke ..."), output.Muted("Interact with clusters"))
 	fmt.Fprintf(w, "  %s            %s\n", output.Bold("<cluster> <command>"), output.Muted("Shorthand (e.g. 'on-off toggle')"))
-	fmt.Fprintf(w, "  %s            %s\n", output.Bold("device ls / inspect"), output.Muted("Device management"))
+	fmt.Fprintf(w, "  %s       %s\n", output.Bold("fabric ls / device inspect"), output.Muted("Fabric & device management"))
 	fmt.Fprintf(w, "  %s                           %s\n", output.Bold("help"), output.Muted("Show this help"))
 	fmt.Fprintf(w, "  %s                           %s\n", output.Bold("exit / quit"), output.Muted("Exit the REPL"))
 }
 
 func handleUse(cmd *cobra.Command, state *replState, line string) {
 	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		if state.nodeID != 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Current target: %s\n",
+				output.SuccessIcon(), output.Bold(targetHint(state.nodeID, state.endpoint)))
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s No target set. Usage: %s\n",
+				output.Muted("●"), output.Bold("use @node/endpoint"))
+		}
+		return
+	}
+
+	// Try @target syntax first (e.g. "use @1/1", "use @kitchen").
+	arg := parts[1]
+	if IsTargetArg(arg) || (len(parts) == 2 && !strings.ContainsAny(arg, " ")) {
+		// Allow "use 1/1" without @ prefix for convenience in the REPL.
+		targetStr := arg
+		if !strings.HasPrefix(targetStr, "@") {
+			targetStr = "@" + targetStr
+		}
+		t, err := ParseTarget(targetStr)
+		if err == nil {
+			state.nodeID = t.NodeID
+			if t.EndpointSet {
+				state.endpoint = t.Endpoint
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Target set to %s\n",
+				output.SuccessIcon(), output.Bold(targetHint(state.nodeID, state.endpoint)))
+			return
+		}
+		// Fall through to legacy parsing if @target parsing fails.
+	}
+
+	// Legacy syntax: "use node <id> endpoint <id>"
 	for i := 1; i < len(parts); i++ {
 		switch parts[i] {
 		case "node":
@@ -132,8 +166,8 @@ func handleUse(cmd *cobra.Command, state *replState, line string) {
 			}
 		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s Context set: node %s, endpoint %s\n",
-		output.SuccessIcon(), output.Bold(fmt.Sprintf("%d", state.nodeID)), output.Bold(fmt.Sprintf("%d", state.endpoint)))
+	fmt.Fprintf(cmd.OutOrStdout(), "%s Target set to %s\n",
+		output.SuccessIcon(), output.Bold(targetHint(state.nodeID, state.endpoint)))
 }
 
 func injectNodeFlags(args []string, state *replState) []string {

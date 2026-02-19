@@ -155,17 +155,17 @@ func newClusterReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read a cluster attribute",
-		Example: `  matter cluster read --node 1 -e 1 --cluster on-off --attribute on-off
-  matter cluster read -n 1 -e 1 --cluster level-control --attribute current-level`,
+		Example: `  matter @1/1 cluster read --cluster on-off --attribute on-off
+  matter @kitchen cluster read --cluster level-control --attribute current-level
+  matter cluster read --node 1 -e 1 --cluster on-off --attribute on-off`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			endpoint, _ := cmd.Flags().GetUint16("endpoint")
+			nodeID, endpoint, err := requireTarget(cmd)
+			if err != nil {
+				return err
+			}
 			clusterName, _ := cmd.Flags().GetString("cluster")
 			attrName, _ := cmd.Flags().GetString("attribute")
 
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
-			}
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
 			}
@@ -517,18 +517,18 @@ func newClusterWriteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "write",
 		Short: "Write a cluster attribute",
-		Example: `  matter cluster write --node 1 -e 1 --cluster on-off --attribute on-time --value 300
-  matter cluster write -n 1 -e 1 --cluster fan-control --attribute fan-mode --value 0`,
+		Example: `  matter @1/1 cluster write --cluster on-off --attribute on-time --value 300
+  matter @kitchen cluster write --cluster fan-control --attribute fan-mode --value 0
+  matter cluster write --node 1 -e 1 --cluster on-off --attribute on-time --value 300`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			endpoint, _ := cmd.Flags().GetUint16("endpoint")
+			nodeID, endpoint, err := requireTarget(cmd)
+			if err != nil {
+				return err
+			}
 			clusterName, _ := cmd.Flags().GetString("cluster")
 			attrName, _ := cmd.Flags().GetString("attribute")
 			value, _ := cmd.Flags().GetString("value")
 
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
-			}
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
 			}
@@ -724,17 +724,17 @@ func newClusterInvokeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "invoke",
 		Short: "Invoke a cluster command",
-		Example: `  matter cluster invoke --node 1 -e 1 --cluster on-off --command toggle
-  matter cluster invoke -n 1 -e 1 --cluster identify --command identify -F identify-time=10`,
+		Example: `  matter @1/1 cluster invoke --cluster on-off --command toggle
+  matter @kitchen cluster invoke --cluster identify --command identify -F identify-time=10
+  matter cluster invoke --node 1 -e 1 --cluster on-off --command toggle`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			endpoint, _ := cmd.Flags().GetUint16("endpoint")
+			nodeID, endpoint, err := requireTarget(cmd)
+			if err != nil {
+				return err
+			}
 			clusterName, _ := cmd.Flags().GetString("cluster")
 			commandName, _ := cmd.Flags().GetString("command")
 
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
-			}
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
 			}
@@ -766,18 +766,18 @@ func newClusterSubscribeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
-		Example: `  matter cluster subscribe --node 1 -e 1 --cluster on-off --attribute on-off --min 1 --max 10`,
+		Example: `  matter @1/1 cluster subscribe --cluster on-off --attribute on-off --min 1 --max 10
+  matter cluster subscribe --node 1 -e 1 --cluster on-off --attribute on-off --min 1 --max 10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
-			endpoint, _ := cmd.Flags().GetUint16("endpoint")
+			nodeID, endpoint, err := requireTarget(cmd)
+			if err != nil {
+				return err
+			}
 			clusterName, _ := cmd.Flags().GetString("cluster")
 			attrName, _ := cmd.Flags().GetString("attribute")
 			minInt, _ := cmd.Flags().GetUint16("min")
 			maxInt, _ := cmd.Flags().GetUint16("max")
 
-			if nodeID == 0 {
-				return fmt.Errorf("--node/-n is required")
-			}
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
 			}
@@ -863,10 +863,9 @@ func registerShorthandClusters() {
 				Short: fmt.Sprintf("Invoke %s.%s", clCopy.DisplayName, ciCopy.DisplayName),
 				Args:  cobra.ArbitraryArgs,
 				RunE: func(cmd *cobra.Command, args []string) error {
-					nodeID, _ := cmd.Flags().GetUint64("node")
-					endpoint, _ := cmd.Flags().GetUint16("endpoint")
-					if nodeID == 0 {
-						return fmt.Errorf("--node/-n is required")
+					nodeID, endpoint, err := requireTarget(cmd)
+					if err != nil {
+						return err
 					}
 					return invokeCommand(cmd, nodeID, endpoint, &clCopy, &ciCopy)
 				},
@@ -891,10 +890,9 @@ func registerShorthandClusters() {
 				return names, cobra.ShellCompDirectiveNoFileComp
 			},
 			RunE: func(cmd *cobra.Command, args []string) error {
-				nodeID, _ := cmd.Flags().GetUint64("node")
-				endpoint, _ := cmd.Flags().GetUint16("endpoint")
-				if nodeID == 0 {
-					return fmt.Errorf("--node/-n is required")
+				nodeID, endpoint, err := requireTarget(cmd)
+				if err != nil {
+					return err
 				}
 				attrName := args[0]
 				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)
@@ -926,10 +924,9 @@ func registerShorthandClusters() {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			},
 			RunE: func(cmd *cobra.Command, args []string) error {
-				nodeID, _ := cmd.Flags().GetUint64("node")
-				endpoint, _ := cmd.Flags().GetUint16("endpoint")
-				if nodeID == 0 {
-					return fmt.Errorf("--node/-n is required")
+				nodeID, endpoint, err := requireTarget(cmd)
+				if err != nil {
+					return err
 				}
 				attrName := args[0]
 				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)

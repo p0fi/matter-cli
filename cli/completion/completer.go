@@ -3,7 +3,8 @@
 
 // Package completion provides dynamic shell completion helpers for matter-cli.
 // It uses the cluster registry and store to generate context-aware completions
-// for cluster names, attribute names, command names, and node IDs.
+// for cluster names, attribute names, command names, node IDs, and @target
+// tokens.
 package completion
 
 import (
@@ -253,5 +254,102 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			}
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// TargetCompletionFunc returns a cobra ValidArgsFunction that completes
+// @target tokens. When the user types "@" and presses Tab, this returns
+// all known nodes formatted as @nodeID/endpoint suggestions. Both numeric
+// IDs and device aliases (friendly names) are offered.
+//
+// Examples of completions produced:
+//
+//	@1/1    Kitchen Light (endpoint 1)
+//	@2/1    Front Door Lock (endpoint 1)
+//	@kitchen/1  Kitchen Light (node 1)
+//
+// This function is intended to be registered on the root command's
+// ValidArgsFunction so that @target can be completed at any position.
+func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		// Only complete if the user is typing a @target token.
+		if !strings.HasPrefix(toComplete, "@") {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		dbPath, err := store.DefaultDBPath()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		s, err := store.NewBoltStore(dbPath)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		defer s.Close()
+
+		fabricID := viper.GetUint64("default-fabric-id")
+		if fabricID == 0 {
+			fabricID = 1
+		}
+
+		nodes, err := s.ListNodes(fabricID)
+		if err != nil || len(nodes) == 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		// Strip the "@" prefix from what the user typed so far for matching.
+		partial := toComplete[1:]
+
+		var completions []string
+		for _, n := range nodes {
+			nodeStr := fmt.Sprintf("%d", n.ID)
+
+			// Find the first non-root endpoint to use as default.
+			var defaultEP uint16 = 1
+			for _, ep := range n.Endpoints {
+				if ep.ID > 0 {
+					defaultEP = ep.ID
+					break
+				}
+			}
+
+			// Offer @nodeID and @nodeID/endpoint completions.
+			idTarget := fmt.Sprintf("@%s/%d", nodeStr, defaultEP)
+			idDesc := n.Name
+			if idDesc == "" {
+				idDesc = fmt.Sprintf("Node %s", nodeStr)
+			}
+			if partial == "" || strings.HasPrefix(nodeStr, partial) {
+				completions = append(completions,
+					fmt.Sprintf("%s\t%s", idTarget, idDesc))
+			}
+
+			// Also offer @alias completions if the node has a name.
+			if n.Name != "" {
+				aliasLower := strings.ToLower(n.Name)
+				aliasKebab := strings.ReplaceAll(aliasLower, " ", "-")
+				aliasTarget := fmt.Sprintf("@%s/%d", aliasKebab, defaultEP)
+				if partial == "" || strings.HasPrefix(aliasKebab, strings.ToLower(partial)) {
+					completions = append(completions,
+						fmt.Sprintf("%s\t%s (node %s)", aliasTarget, n.Name, nodeStr))
+				}
+			}
+
+			// If the user typed @nodeID/ already, offer per-endpoint completions.
+			if strings.HasPrefix(partial, nodeStr+"/") {
+				epPartial := partial[len(nodeStr)+1:]
+				for _, ep := range n.Endpoints {
+					epStr := fmt.Sprintf("%d", ep.ID)
+					if epPartial == "" || strings.HasPrefix(epStr, epPartial) {
+						epDesc := endpointDescription(ep)
+						completions = append(completions,
+							fmt.Sprintf("@%s/%s\t%s", nodeStr, epStr, epDesc))
+					}
+				}
+			}
+		}
+
+		return completions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
 	}
 }

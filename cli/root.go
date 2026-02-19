@@ -42,6 +42,9 @@ var rootCmd = &cobra.Command{
 		if err := setupLogging(cmd); err != nil {
 			return err
 		}
+		// Apply the @target resolution chain: inline @target → flags →
+		// MATTER_TARGET env → sticky default from config.
+		resolveTarget(cmd)
 		return maybeStartDaemon(cmd)
 	},
 	SilenceUsage:  true,
@@ -61,14 +64,18 @@ func init() {
 	pf := rootCmd.PersistentFlags()
 	pf.StringP("format", "f", "", "output format: json, table, yaml (default: table for TTY, json for pipes)")
 	pf.BoolP("verbose", "v", false, "enable verbose/debug logging")
-	pf.Uint64P("node", "n", 0, "target node ID")
-	pf.Uint16P("endpoint", "e", 0, "target endpoint ID")
+	pf.Uint64P("node", "n", 0, "target node ID (prefer @node/endpoint syntax)")
+	pf.Uint16P("endpoint", "e", 0, "target endpoint ID (prefer @node/endpoint syntax)")
 	pf.StringP("keep-alive", "K", "", "start/reuse a background session daemon with the given idle timeout (e.g. 5m, 30m, 1h)")
 
 	_ = viper.BindPFlag("format", pf.Lookup("format"))
 
 	_ = rootCmd.RegisterFlagCompletionFunc("node", completion.NodeIDCompletionFunc())
 	_ = rootCmd.RegisterFlagCompletionFunc("endpoint", completion.EndpointIDCompletionFunc())
+
+	// Enable @target completion on the root command so that typing "@" then
+	// Tab at any position offers device targets.
+	rootCmd.ValidArgsFunction = completion.TargetCompletionFunc()
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newConfigCmd(), groupTools))
@@ -78,7 +85,19 @@ func init() {
 }
 
 // Execute runs the root command. It is the main entry point called from main.go.
+//
+// Before handing off to cobra, it scans os.Args for an @target token (e.g.
+// "@1/2", "@kitchen") and extracts it so that cobra never sees it. The parsed
+// target is stored in extractedTarget and applied during PersistentPreRunE via
+// resolveTarget().
 func Execute() error {
+	if len(os.Args) > 1 {
+		cleaned, target := ExtractTargetFromArgs(os.Args[1:])
+		if target != nil {
+			extractedTarget = target
+			rootCmd.SetArgs(cleaned)
+		}
+	}
 	return rootCmd.Execute()
 }
 
