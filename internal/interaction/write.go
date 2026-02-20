@@ -8,13 +8,14 @@ package interaction
 // SuppressResponse and TimedRequest are non-pointer bools so they are always
 // encoded on the wire (as false) — the CHIP SDK WriteHandler requires both
 // fields to be present and returns INVALID_ACTION if either is absent.
-// WriteRequests uses "listarray" (TLV ARRAY outer + LIST inner) because CHIP
-// SDK's AttributeDataIBs::Builder/Parser uses kTLVType_Array for the outer
-// container while each AttributeDataIB element is a kTLVType_List.
+// WriteRequests uses "array" (TLV ARRAY outer + STRUCT inner) to match what
+// matter.js and chip-tool send: TlvArray(TlvObject(...)) → Array of Structs.
+// CHIP SDK AttributeDataIB::Parser::Init accepts both STRUCT and LIST inner
+// elements, but interop devices may only be tested with STRUCT encoding.
 type WriteRequest struct {
 	SuppressResponse    bool             `tlv:"0,bool"`
 	TimedRequest        bool             `tlv:"1,bool"`
-	WriteRequests       []AttributeWrite `tlv:"2,listarray"`
+	WriteRequests       []AttributeWrite `tlv:"2,array"`
 	MoreChunkedMessages *bool            `tlv:"3,bool"`
 }
 
