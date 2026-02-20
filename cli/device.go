@@ -8,10 +8,16 @@ import (
 	"time"
 
 	"github.com/p0fi/matter-cli/cli/output"
+	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// completionStoreTimeout is the maximum time to wait for a BoltDB lock when
+// opening the store directly from completion paths (only reached when no
+// daemon is running, so no lock contention is expected).
+const completionStoreTimeout = 100 * time.Millisecond
 
 func init() {
 	rootCmd.AddCommand(withGroup(newDeviceCmd(), groupDevices))
@@ -41,17 +47,11 @@ func newDeviceInspectCmd() *cobra.Command {
 				return err
 			}
 
-			s, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer s.Close()
-
 			fabricID := viper.GetUint64("default-fabric-id")
 			if fabricID == 0 {
 				fabricID = 1
 			}
-			node, err := s.GetNode(fabricID, nodeID)
+			node, err := getNodeForCompletion(fabricID, nodeID)
 			if err != nil {
 				return fmt.Errorf("getting node %d: %w", nodeID, err)
 			}
@@ -82,22 +82,16 @@ func newDeviceAliasCmd() *cobra.Command {
 				return fmt.Errorf("--name is required")
 			}
 
-			s, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer s.Close()
-
 			fabricID := viper.GetUint64("default-fabric-id")
 			if fabricID == 0 {
 				fabricID = 1
 			}
-			node, err := s.GetNode(fabricID, nodeID)
+			node, err := getNodeForCompletion(fabricID, nodeID)
 			if err != nil {
 				return fmt.Errorf("getting node %d: %w", nodeID, err)
 			}
 			node.Name = name
-			if err := s.SaveNode(fabricID, node); err != nil {
+			if err := saveNode(fabricID, node); err != nil {
 				return fmt.Errorf("saving node %d: %w", nodeID, err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s Node %s aliased to %s\n",
@@ -120,6 +114,83 @@ func openStore() (store.Store, error) {
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
 	return s, nil
+}
+
+// openStoreForCompletion is like openStore but uses a short timeout. Only used
+// as a fallback when no daemon is running (so no lock contention expected).
+func openStoreForCompletion() (store.Store, error) {
+	dbPath, err := store.DefaultDBPath()
+	if err != nil {
+		return nil, fmt.Errorf("determining store path: %w", err)
+	}
+	s, err := store.NewBoltStoreTimeout(dbPath, completionStoreTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("opening store: %w", err)
+	}
+	return s, nil
+}
+
+// listNodesForCompletion returns all commissioned nodes for use in shell
+// completion and target-resolution code paths. When a session daemon is
+// running it queries the daemon via its Unix socket (avoiding the BoltDB
+// exclusive lock that the daemon holds). Otherwise it opens the DB directly.
+func listNodesForCompletion(fabricID uint64) ([]*store.Node, error) {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.ListNodes(fabricID)
+	}
+	s, err := openStoreForCompletion()
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	return s.ListNodes(fabricID)
+}
+
+// getNodeForCompletion is like listNodesForCompletion but returns a single
+// node by ID, searching the full node list returned by the daemon or store.
+func getNodeForCompletion(fabricID, nodeID uint64) (*store.Node, error) {
+	nodes, err := listNodesForCompletion(fabricID)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range nodes {
+		if n.ID == nodeID {
+			return n, nil
+		}
+	}
+	return nil, fmt.Errorf("node %d not found in fabric %d", nodeID, fabricID)
+}
+
+// getFabric returns the fabric record, querying the daemon if it is running
+// (to avoid contending on the BoltDB exclusive lock), otherwise opening the
+// store directly.
+func getFabric(fabricID uint64) (*store.Fabric, error) {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.GetFabric(fabricID)
+	}
+	s, err := openStore()
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	return s.GetFabric(fabricID)
+}
+
+// saveNode persists a node record, routing through the daemon when it is
+// running so that the BoltDB exclusive lock held by the daemon is respected.
+func saveNode(fabricID uint64, node *store.Node) error {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.SaveNode(fabricID, node)
+	}
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.SaveNode(fabricID, node)
 }
 
 func formatLastSeen(t time.Time) string {

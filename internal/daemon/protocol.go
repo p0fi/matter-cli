@@ -14,12 +14,15 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/p0fi/matter-cli/internal/store"
 )
 
 // Request is the top-level JSON envelope sent from the CLI to the daemon.
 type Request struct {
 	// Type identifies the kind of request. One of: "ping", "invoke", "read",
-	// "write", "subscribe", "shutdown", "status".
+	// "write", "subscribe", "shutdown", "status", "list-nodes", "get-fabric",
+	// "save-node".
 	Type string `json:"type"`
 
 	// NodeID is the target node for device operations.
@@ -44,6 +47,9 @@ type Request struct {
 
 	// Subscribe fields.
 	Subscribe *SubscribeReq `json:"subscribe,omitempty"`
+
+	// SaveNode carries the node to persist (for "save-node" requests).
+	SaveNode *store.Node `json:"save_node,omitempty"`
 }
 
 // InvokeReq carries the parameters for an invoke request.
@@ -111,6 +117,24 @@ type Response struct {
 
 	// Status result (for "status" and "ping" requests).
 	Status *StatusResp `json:"status,omitempty"`
+
+	// Nodes result (for "list-nodes" requests).
+	Nodes *NodesResp `json:"nodes,omitempty"`
+
+	// Fabric result (for "get-fabric" requests).
+	Fabric *FabricResp `json:"fabric,omitempty"`
+}
+
+// NodesResp carries the commissioned node list. It is returned by "list-nodes"
+// requests so that shell completion subprocesses can query the daemon for node
+// data instead of trying to open the BoltDB file that the daemon has locked.
+type NodesResp struct {
+	Nodes []*store.Node `json:"nodes"`
+}
+
+// FabricResp carries a single fabric record (for "get-fabric" requests).
+type FabricResp struct {
+	Fabric *store.Fabric `json:"fabric"`
 }
 
 // InvokeResp carries the result of an invoke request.

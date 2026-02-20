@@ -11,6 +11,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+func fabricID() uint64 {
+	id := viper.GetUint64("default-fabric-id")
+	if id == 0 {
+		return 1
+	}
+	return id
+}
+
 func init() {
 	rootCmd.AddCommand(withGroup(newFabricCmd(), groupDevices))
 }
@@ -37,17 +45,7 @@ func newFabricLsCmd() *cobra.Command {
   matter fabric ls --format json
   matter fabric ls -f yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer s.Close()
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			nodes, err := s.ListNodes(fabricID)
+			nodes, err := listNodesForCompletion(fabricID())
 			if err != nil {
 				return fmt.Errorf("listing nodes: %w", err)
 			}
@@ -89,19 +87,10 @@ func newFabricInfoCmd() *cobra.Command {
 		Example: `  matter fabric info
   matter fabric info --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := openStore()
+			fid := fabricID()
+			fabric, err := getFabric(fid)
 			if err != nil {
-				return err
-			}
-			defer s.Close()
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			fabric, err := s.GetFabric(fabricID)
-			if err != nil {
-				return fmt.Errorf("getting fabric %d: %w", fabricID, err)
+				return fmt.Errorf("getting fabric %d: %w", fid, err)
 			}
 
 			format, _ := cmd.Flags().GetString("format")
@@ -116,8 +105,7 @@ func newFabricInfoCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %s      %s\n", output.Label("Index:"), output.Value(fmt.Sprintf("%d", fabric.FabricIndex)))
 				fmt.Fprintf(w, "  %s    %s\n", output.Label("Created:"), output.Muted(fabric.CreatedAt.Format("2006-01-02 15:04:05")))
 
-				nodes, err := s.ListNodes(fabricID)
-				if err == nil {
+				if nodes, err := listNodesForCompletion(fid); err == nil {
 					fmt.Fprintf(w, "  %s    %s\n", output.Label("Devices:"), output.Value(fmt.Sprintf("%d", len(nodes))))
 				}
 				return nil

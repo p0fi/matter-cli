@@ -265,6 +265,15 @@ func (s *Server) handleRequest(ctx context.Context, req *Request) Response {
 		}()
 		return Response{OK: true}
 
+	case "list-nodes":
+		return s.handleListNodes(req)
+
+	case "get-fabric":
+		return s.handleGetFabric(req)
+
+	case "save-node":
+		return s.handleSaveNode(req)
+
 	case "invoke":
 		return s.handleInvoke(ctx, req)
 
@@ -277,6 +286,51 @@ func (s *Server) handleRequest(ctx context.Context, req *Request) Response {
 	default:
 		return Response{OK: false, Error: fmt.Sprintf("unknown request type %q", req.Type)}
 	}
+}
+
+// handleListNodes serves a "list-nodes" request. This is used by shell
+// completion subprocesses that cannot open the BoltDB file directly because
+// this daemon process holds the exclusive file lock.
+func (s *Server) handleListNodes(req *Request) Response {
+	fabricID := req.FabricID
+	if fabricID == 0 {
+		fabricID = s.fabricID
+	}
+	nodes, err := s.store.ListNodes(fabricID)
+	if err != nil {
+		return Response{OK: false, Error: fmt.Sprintf("listing nodes: %v", err)}
+	}
+	return Response{OK: true, Nodes: &NodesResp{Nodes: nodes}}
+}
+
+// handleGetFabric serves a "get-fabric" request.
+func (s *Server) handleGetFabric(req *Request) Response {
+	fabricID := req.FabricID
+	if fabricID == 0 {
+		fabricID = s.fabricID
+	}
+	fabric, err := s.store.GetFabric(fabricID)
+	if err != nil {
+		return Response{OK: false, Error: fmt.Sprintf("getting fabric: %v", err)}
+	}
+	return Response{OK: true, Fabric: &FabricResp{Fabric: fabric}}
+}
+
+// handleSaveNode serves a "save-node" request, persisting the supplied node
+// record. This allows CLI commands (e.g. device alias) to update node data
+// while the daemon holds the exclusive BoltDB lock.
+func (s *Server) handleSaveNode(req *Request) Response {
+	if req.SaveNode == nil {
+		return Response{OK: false, Error: "save-node request missing save_node field"}
+	}
+	fabricID := req.FabricID
+	if fabricID == 0 {
+		fabricID = s.fabricID
+	}
+	if err := s.store.SaveNode(fabricID, req.SaveNode); err != nil {
+		return Response{OK: false, Error: fmt.Sprintf("saving node: %v", err)}
+	}
+	return Response{OK: true}
 }
 
 // getOrCreateSession returns a cached CASE session for the given node, or

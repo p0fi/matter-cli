@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -42,10 +43,29 @@ func DefaultDBPath() (string, error) {
 // NewBoltStore opens or creates a BoltDB-backed store at the given path. The
 // parent directory is created automatically if it does not exist.
 func NewBoltStore(path string) (*BoltStore, error) {
+	return newBoltStore(path, 0)
+}
+
+// NewBoltStoreTimeout opens or creates a BoltDB-backed store at the given path
+// with a lock-acquisition timeout. If the database file is locked by another
+// process and the timeout elapses before the lock is obtained, an error is
+// returned immediately. A timeout of 0 means wait indefinitely.
+//
+// Use this for code paths where blocking is unacceptable (e.g. shell
+// completion subprocesses) so they degrade gracefully instead of hanging.
+func NewBoltStoreTimeout(path string, timeout time.Duration) (*BoltStore, error) {
+	return newBoltStore(path, timeout)
+}
+
+func newBoltStore(path string, timeout time.Duration) (*BoltStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("store: create config dir: %w", err)
 	}
-	db, err := bolt.Open(path, 0o600, nil)
+	var opts *bolt.Options
+	if timeout > 0 {
+		opts = &bolt.Options{Timeout: timeout}
+	}
+	db, err := bolt.Open(path, 0o600, opts)
 	if err != nil {
 		return nil, fmt.Errorf("store: open database: %w", err)
 	}

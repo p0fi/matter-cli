@@ -101,30 +101,21 @@ func ParseTarget(s string) (*Target, error) {
 // returns the matching target. The alias is matched case-insensitively
 // against stored node names.
 func resolveAlias(alias string) (*Target, error) {
-	dbPath, err := store.DefaultDBPath()
-	if err != nil {
-		return nil, fmt.Errorf("determining store path: %w", err)
-	}
-
-	s, err := store.NewBoltStore(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening store: %w", err)
-	}
-	defer s.Close()
-
 	fabricID := viper.GetUint64("default-fabric-id")
 	if fabricID == 0 {
 		fabricID = 1
 	}
 
-	nodes, err := s.ListNodes(fabricID)
+	nodes, err := listNodesForCompletion(fabricID)
 	if err != nil {
 		return nil, fmt.Errorf("listing nodes: %w", err)
 	}
 
 	lower := strings.ToLower(alias)
 	for _, n := range nodes {
-		if strings.ToLower(n.Name) == lower {
+		nodeLower := strings.ToLower(n.Name)
+		nodeKebab := strings.ReplaceAll(nodeLower, " ", "-")
+		if nodeLower == lower || nodeKebab == lower {
 			t := &Target{NodeID: n.ID}
 			// Use the first non-root endpoint as default if the device has one.
 			if defaultEp, ok := inferDefaultEndpoint(n); ok {

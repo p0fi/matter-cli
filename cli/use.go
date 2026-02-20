@@ -139,18 +139,14 @@ func showCurrentTarget(cmd *cobra.Command) error {
 		output.SuccessIcon(), output.Bold(targetDisplay))
 
 	// Try to look up the device name for a friendlier display.
-	s, err := openStore()
-	if err == nil {
-		defer s.Close()
-		fabricID := viper.GetUint64("default-fabric-id")
-		if fabricID == 0 {
-			fabricID = 1
-		}
-		if node, err := s.GetNode(fabricID, nodeID); err == nil && node.Name != "" {
-			fmt.Fprintf(w, "  %s %s %s\n",
-				output.Label("Device:"), output.Value(node.Name),
-				output.Muted(fmt.Sprintf("(node %d)", nodeID)))
-		}
+	fid := viper.GetUint64("default-fabric-id")
+	if fid == 0 {
+		fid = 1
+	}
+	if node, err := getNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
+		fmt.Fprintf(w, "  %s %s %s\n",
+			output.Label("Device:"), output.Value(node.Name),
+			output.Muted(fmt.Sprintf("(node %d)", nodeID)))
 	}
 
 	return nil

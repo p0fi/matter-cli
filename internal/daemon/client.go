@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/p0fi/matter-cli/internal/store"
 )
 
 // Client connects to a running daemon over its Unix domain socket and sends
@@ -64,6 +66,64 @@ func (c *Client) Status() (*StatusResp, error) {
 		return nil, fmt.Errorf("daemon: status failed: %s", resp.Error)
 	}
 	return resp.Status, nil
+}
+
+// ListNodes returns all commissioned nodes for the given fabric. If fabricID
+// is 0, the daemon uses its configured default fabric. This is called by shell
+// completion subprocesses so they can obtain node data without trying to open
+// the BoltDB file that the daemon holds locked.
+func (c *Client) ListNodes(fabricID uint64) ([]*store.Node, error) {
+	resp, err := c.send(Request{
+		Type:     "list-nodes",
+		FabricID: fabricID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon: list-nodes: %s", resp.Error)
+	}
+	if resp.Nodes == nil {
+		return nil, nil
+	}
+	return resp.Nodes.Nodes, nil
+}
+
+// GetFabric returns the fabric record for the given fabric ID. If fabricID is
+// 0, the daemon uses its configured default. Used by CLI commands that display
+// fabric information while the daemon holds the BoltDB lock.
+func (c *Client) GetFabric(fabricID uint64) (*store.Fabric, error) {
+	resp, err := c.send(Request{
+		Type:     "get-fabric",
+		FabricID: fabricID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon: get-fabric: %s", resp.Error)
+	}
+	if resp.Fabric == nil {
+		return nil, fmt.Errorf("daemon: get-fabric: empty response")
+	}
+	return resp.Fabric.Fabric, nil
+}
+
+// SaveNode persists a node record via the daemon. Used by CLI commands (e.g.
+// device alias) that need to write node data while the daemon holds the lock.
+func (c *Client) SaveNode(fabricID uint64, node *store.Node) error {
+	resp, err := c.send(Request{
+		Type:     "save-node",
+		FabricID: fabricID,
+		SaveNode: node,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("daemon: save-node: %s", resp.Error)
+	}
+	return nil
 }
 
 // Shutdown asks the daemon to shut down gracefully.

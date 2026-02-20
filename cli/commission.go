@@ -13,6 +13,7 @@ import (
 	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/commissioning"
 	"github.com/p0fi/matter-cli/internal/controller"
+	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -27,6 +28,18 @@ func newCommissionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "commission",
 		Short: "Commission Matter devices",
+		// Commissioning needs exclusive write access to the database. Refuse
+		// early if a session daemon is running so the user gets a clear message
+		// instead of a cryptic lock-timeout error.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if daemon.NewClient("").IsRunning() {
+				return fmt.Errorf(
+					"a session daemon is running and holds the database lock\n" +
+						"Stop it first with: matter session stop")
+			}
+			// Run the root PersistentPreRunE (logging setup, target resolution).
+			return cmd.Root().PersistentPreRunE(cmd, args)
+		},
 	}
 	cmd.AddCommand(newCommissionCodeCmd())
 	cmd.AddCommand(newCommissionIPCmd())

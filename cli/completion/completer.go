@@ -9,13 +9,42 @@ package completion
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/p0fi/matter-cli/internal/clusters"
+	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// completionTimeout is the maximum time to wait for the database lock when
+// the daemon is not running (so no contention is expected). Only used as a
+// fallback; when the daemon is running we query it via its Unix socket instead.
+const completionTimeout = 100 * time.Millisecond
+
+// listNodes returns all commissioned nodes for use in completion functions.
+// When the session daemon is running it queries the daemon via its Unix socket
+// so that the BoltDB file lock held by the daemon is not contended. When no
+// daemon is running, it opens the database directly with a short timeout.
+func listNodes(fabricID uint64) ([]*store.Node, error) {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.ListNodes(fabricID)
+	}
+	dbPath, err := store.DefaultDBPath()
+	if err != nil {
+		return nil, err
+	}
+	s, err := store.NewBoltStoreTimeout(dbPath, completionTimeout)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	return s.ListNodes(fabricID)
+}
 
 // ClusterNameCompletion returns a cobra ValidArgsFunction that completes
 // cluster names from the global cluster registry.
@@ -95,24 +124,23 @@ func EndpointIDCompletionFunc() func(cmd *cobra.Command, args []string, toComple
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		dbPath, err := store.DefaultDBPath()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		s, err := store.NewBoltStore(dbPath)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		defer s.Close()
-
 		fabricID := viper.GetUint64("default-fabric-id")
 		if fabricID == 0 {
 			fabricID = 1
 		}
 
-		node, err := s.GetNode(fabricID, nodeID)
+		nodes, err := listNodes(fabricID)
 		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var node *store.Node
+		for _, n := range nodes {
+			if n.ID == nodeID {
+				node = n
+				break
+			}
+		}
+		if node == nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
@@ -166,37 +194,52 @@ func deviceTypeName(ep store.Endpoint) string {
 	}
 	id := ep.DeviceTypes[0].ID
 
-	// Well-known Matter device type IDs from the Matter Application Cluster spec.
+	// Well-known Matter device type IDs from the Matter Device Library spec.
 	names := map[uint32]string{
+		// Infrastructure
 		0x0016: "Root Node",
 		0x0019: "Bridged Node",
 		0x000E: "Aggregator",
 		0x000F: "Power Source",
+		// Lighting
 		0x0100: "On/Off Light",
 		0x0101: "Dimmable Light",
 		0x0102: "Color Temperature Light",
 		0x0103: "Extended Color Light",
+		// Plugs & outlets
 		0x0104: "On/Off Plug-in Unit",
 		0x0105: "Dimmable Plug-in Unit",
+		// Switches & controls
 		0x010A: "On/Off Light Switch",
 		0x010B: "Dimmer Switch",
 		0x010C: "Color Dimmer Switch",
 		0x010D: "Generic Switch",
+		0x0840: "Control Bridge",
+		0x0050: "On/Off Sensor",
+		// Window coverings
 		0x0202: "Window Covering",
+		0x0203: "Window Covering Controller",
+		// HVAC & fans
 		0x0300: "Heating/Cooling Unit",
 		0x0301: "Thermostat",
 		0x002B: "Fan",
-		0x0303: "Air Purifier",
+		// Air quality (Matter 1.2+)
+		0x002C: "Air Quality Sensor",
+		0x002D: "Air Purifier",
+		// Access control
 		0x000A: "Door Lock",
 		0x000B: "Door Lock Controller",
+		// Sensors
 		0x0015: "Contact Sensor",
 		0x0106: "Light Sensor",
 		0x0107: "Occupancy Sensor",
 		0x0302: "Temperature Sensor",
+		0x0303: "Pump",
+		0x0304: "Pump Controller",
 		0x0305: "Pressure Sensor",
 		0x0306: "Flow Sensor",
 		0x0307: "Humidity Sensor",
-		0x0044: "Air Quality Sensor",
+		// Appliances
 		0x0070: "Refrigerator",
 		0x0071: "Temperature Controlled Cabinet",
 		0x0072: "Room Air Conditioner",
@@ -223,24 +266,12 @@ func deviceTypeName(ep store.Endpoint) string {
 // shell completion experience is not disrupted.
 func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		dbPath, err := store.DefaultDBPath()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		s, err := store.NewBoltStore(dbPath)
-		if err != nil {
-			// Store doesn't exist yet — no nodes to complete.
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		defer s.Close()
-
 		fabricID := viper.GetUint64("default-fabric-id")
 		if fabricID == 0 {
 			fabricID = 1
 		}
 
-		nodes, err := s.ListNodes(fabricID)
+		nodes, err := listNodes(fabricID)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -277,79 +308,60 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		dbPath, err := store.DefaultDBPath()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		s, err := store.NewBoltStore(dbPath)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		defer s.Close()
-
 		fabricID := viper.GetUint64("default-fabric-id")
 		if fabricID == 0 {
 			fabricID = 1
 		}
 
-		nodes, err := s.ListNodes(fabricID)
+		nodes, err := listNodes(fabricID)
 		if err != nil || len(nodes) == 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		// Strip the "@" prefix from what the user typed so far for matching.
-		partial := toComplete[1:]
+		// Sort nodes by ID so completions are presented in a stable,
+		// predictable order regardless of commissioning sequence.
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+
+		// Strip "@" and split into name-part and optional endpoint-part.
+		partial := strings.ToLower(toComplete[1:])
+		namePart, epPart, hasSlash := strings.Cut(partial, "/")
 
 		var completions []string
 		for _, n := range nodes {
 			nodeStr := fmt.Sprintf("%d", n.ID)
 
-			// Find the first non-root endpoint to use as default.
-			var defaultEP uint16 = 1
-			for _, ep := range n.Endpoints {
-				if ep.ID > 0 {
-					defaultEP = ep.ID
-					break
-				}
-			}
-
-			// Offer @nodeID and @nodeID/endpoint completions.
-			idTarget := fmt.Sprintf("@%s/%d", nodeStr, defaultEP)
-			idDesc := n.Name
-			if idDesc == "" {
-				idDesc = fmt.Sprintf("Node %s", nodeStr)
-			}
-			if partial == "" || strings.HasPrefix(nodeStr, partial) {
-				completions = append(completions,
-					fmt.Sprintf("%s\t%s", idTarget, idDesc))
-			}
-
-			// Also offer @alias completions if the node has a name.
+			// Canonical alias: kebab-case name when available, numeric otherwise.
+			alias := nodeStr
 			if n.Name != "" {
-				aliasLower := strings.ToLower(n.Name)
-				aliasKebab := strings.ReplaceAll(aliasLower, " ", "-")
-				aliasTarget := fmt.Sprintf("@%s/%d", aliasKebab, defaultEP)
-				if partial == "" || strings.HasPrefix(aliasKebab, strings.ToLower(partial)) {
-					completions = append(completions,
-						fmt.Sprintf("%s\t%s (node %s)", aliasTarget, n.Name, nodeStr))
-				}
+				alias = strings.ReplaceAll(strings.ToLower(n.Name), " ", "-")
 			}
 
-			// If the user typed @nodeID/ already, offer per-endpoint completions.
-			if strings.HasPrefix(partial, nodeStr+"/") {
-				epPartial := partial[len(nodeStr)+1:]
-				for _, ep := range n.Endpoints {
-					epStr := fmt.Sprintf("%d", ep.ID)
-					if epPartial == "" || strings.HasPrefix(epStr, epPartial) {
-						epDesc := endpointDescription(ep)
-						completions = append(completions,
-							fmt.Sprintf("@%s/%s\t%s", nodeStr, epStr, epDesc))
-					}
+			// Filter by the name/ID part the user has typed so far.
+			nameMatches := namePart == "" ||
+				strings.HasPrefix(alias, namePart) ||
+				strings.HasPrefix(nodeStr, namePart)
+			if !nameMatches {
+				continue
+			}
+
+			// Emit one completion per non-root (ID > 0) endpoint.
+			for _, ep := range n.Endpoints {
+				if ep.ID == 0 {
+					continue // skip root endpoint
 				}
+				epStr := fmt.Sprintf("%d", ep.ID)
+
+				// If the user typed a "/" and started an endpoint prefix, filter.
+				if hasSlash && !strings.HasPrefix(epStr, epPart) {
+					continue
+				}
+
+				target := fmt.Sprintf("@%s/%s", alias, epStr)
+				desc := fmt.Sprintf("[%s] %s", nodeStr, endpointDescription(ep))
+				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
 			}
 		}
 
-		return completions, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+		return completions, cobra.ShellCompDirectiveNoFileComp
 	}
 }
