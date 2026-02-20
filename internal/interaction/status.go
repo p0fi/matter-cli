@@ -7,23 +7,26 @@
 // protocol.Exchange abstraction.
 package interaction
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ProtocolID is the Matter protocol identifier for the Interaction Model.
 const ProtocolID uint16 = 0x0001
 
 // IM opcodes as defined in the Matter specification (Chapter 8).
 const (
-	OpcodeStatusResponse   byte = 0x01
-	OpcodeReadRequest      byte = 0x02
-	OpcodeSubscribeRequest byte = 0x03
+	OpcodeStatusResponse    byte = 0x01
+	OpcodeReadRequest       byte = 0x02
+	OpcodeSubscribeRequest  byte = 0x03
 	OpcodeSubscribeResponse byte = 0x04
-	OpcodeReportData       byte = 0x05
-	OpcodeWriteRequest     byte = 0x06
-	OpcodeWriteResponse    byte = 0x07
-	OpcodeInvokeRequest    byte = 0x08
-	OpcodeInvokeResponse   byte = 0x09
-	OpcodeTimedRequest     byte = 0x0A
+	OpcodeReportData        byte = 0x05
+	OpcodeWriteRequest      byte = 0x06
+	OpcodeWriteResponse     byte = 0x07
+	OpcodeInvokeRequest     byte = 0x08
+	OpcodeInvokeResponse    byte = 0x09
+	OpcodeTimedRequest      byte = 0x0A
 )
 
 // StatusCode represents an Interaction Model status code from the Matter specification.
@@ -148,10 +151,11 @@ func (e *StatusError) Error() string {
 		e.GeneralCode, uint8(e.GeneralCode))
 }
 
-// IsStatus returns true if the error is a StatusError with the given code.
+// IsStatus returns true if err (or any error in its chain) is a StatusError
+// with the given code.  It uses errors.As so it works with wrapped errors too.
 func IsStatus(err error, code StatusCode) bool {
-	se, ok := err.(*StatusError)
-	if !ok {
+	var se *StatusError
+	if !errors.As(err, &se) {
 		return false
 	}
 	return se.GeneralCode == code
