@@ -1,0 +1,352 @@
+// Copyright 2026 matter-cli contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build !noble
+
+// This file is part of the BLE transport layer for Matter commissioning over
+// Bluetooth Low Energy. It defines the platform-agnostic GATT abstractions and
+// the BLEScanner which discovers commissionable Matter devices by scanning for
+// advertisements on the Matter service UUID (0xFFF6).
+//
+// All types in this file are independent of tinygo.org/x/bluetooth so that
+// tests can use a pure-Go mock adapter without CGo or hardware.
+//
+// Build tag:
+//   - default (no tag): BLE support compiled in.
+//   - noble: BLE support excluded; see ble_disabled.go for stubs.
+package transport
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"sort"
+	"sync"
+)
+
+// ─── BLE service / characteristic UUID constants ─────────────────────────────
+
+// Matter BLE service and characteristic UUIDs as defined in Matter spec §5.5.
+
+const (
+	// MatterServiceUUID is the 128-bit UUID for the Matter BLE service.
+	MatterServiceUUID BLEUUID = "0000fff6-0000-1000-8000-00805f9b34fb"
+
+	// MatterC1UUID is the commissioner-to-device write characteristic UUID.
+	MatterC1UUID BLEUUID = "18ee2ef5-263d-4559-959f-4f9c429f9d11"
+
+	// MatterC2UUID is the device-to-commissioner indicate characteristic UUID.
+	MatterC2UUID BLEUUID = "18ee2ef5-263d-4559-959f-4f9c429f9d12"
+
+	// MatterC3UUID is the optional additional-data read characteristic UUID.
+	MatterC3UUID BLEUUID = "64630238-8772-45f2-b87d-748a83218f04"
+)
+
+// ─── Opaque platform address and UUID types ───────────────────────────────────
+
+// BLEAddress is a platform-specific opaque device identifier.
+//
+// On Linux it is a "AA:BB:CC:DD:EE:FF" string (Bluetooth MAC address).
+// On macOS it is a CoreBluetooth-assigned UUID string of the form
+// "12345678-1234-1234-1234-123456789ABC" because CoreBluetooth does not expose
+// hardware MAC addresses.
+//
+// Addresses obtained from BLEScanner.Scan or BLEScanner.FindByDiscriminator
+// should be treated as opaque tokens and passed directly to bleAdapter.Connect
+// or DialBLE without modification.
+type BLEAddress string
+
+// String returns the string representation of the address.
+func (a BLEAddress) String() string { return string(a) }
+
+// Network returns the network name for use with net.Addr.
+func (a BLEAddress) Network() string { return "ble" }
+
+// BLEUUID is a 128-bit Bluetooth UUID represented in lowercase canonical form
+// "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx".
+type BLEUUID string
+
+// String returns the canonical lowercase UUID string.
+func (u BLEUUID) String() string { return string(u) }
+
+// ─── Advertisement payload ────────────────────────────────────────────────────
+
+// BLEScanAdvertisement is the raw event delivered by the adapter layer for
+// each observed BLE advertisement. It is an adapter-agnostic type; the real
+// tinygo adapter and the mock adapter both produce values of this type.
+type BLEScanAdvertisement struct {
+	// Address is the advertising device's opaque platform identifier.
+	Address BLEAddress
+
+	// RSSI is the received signal strength in dBm.
+	RSSI int16
+
+	// LocalName is the Bluetooth device name from the advertisement, if present.
+	LocalName string
+
+	// ServiceData maps service UUID (canonical lowercase string) to the raw
+	// service data bytes carried in the advertisement.
+	ServiceData map[BLEUUID][]byte
+}
+
+// ─── Scan result ──────────────────────────────────────────────────────────────
+
+// ScanResult is a fully parsed commissionable Matter device discovered by BLE scan.
+// Fields are populated by parsing the Matter-specific service data on UUID 0xFFF6.
+type ScanResult struct {
+	// Address is the opaque platform address, suitable for passing to DialBLE.
+	Address BLEAddress
+
+	// Discriminator is the 12-bit commissioning discriminator from the
+	// advertisement payload (Matter spec §5.4.2.5.6, bits [11:0]).
+	Discriminator uint16
+
+	// VendorID is the 16-bit vendor identifier from the advertisement.
+	VendorID uint16
+
+	// ProductID is the 16-bit product identifier from the advertisement.
+	ProductID uint16
+
+	// RSSI is the signal strength at the time the advertisement was seen.
+	RSSI int16
+
+	// Name is the Bluetooth local name from the advertisement, if present.
+	Name string
+}
+
+// ─── GATT abstraction interfaces ─────────────────────────────────────────────
+//
+// These interfaces isolate the BLE stack (tinygo.org/x/bluetooth on real
+// hardware, a mock double in tests) from the rest of the transport layer.
+// All methods use our own BLEAddress / BLEUUID types so callers need not
+// import tinygo.
+
+// bleAdapter is the platform BLE adapter abstraction used by BLEScanner and
+// BLEConn. The real implementation wraps tinygo.org/x/bluetooth; tests use
+// a mock.
+type bleAdapter interface {
+	// Enable initialises the BLE adapter. Must be called before Scan or Connect.
+	Enable() error
+
+	// Scan starts a BLE scan and invokes cb for each observed advertisement.
+	// It runs until the context is cancelled, after which it returns ctx.Err().
+	// If StopScan is called explicitly, Scan returns nil.
+	// Only one concurrent scan is supported; a second call returns an error.
+	Scan(ctx context.Context, cb func(BLEScanAdvertisement)) error
+
+	// StopScan stops an in-progress scan. Safe to call from within cb.
+	StopScan() error
+
+	// Connect establishes a GATT connection to the device at addr.
+	// Returns a bleDevice ready for service/characteristic discovery.
+	Connect(ctx context.Context, addr BLEAddress) (bleDevice, error)
+}
+
+// bleDevice represents an open GATT connection to a remote BLE device.
+type bleDevice interface {
+	// DiscoverServices discovers GATT services. Pass nil to discover all; pass
+	// a list of UUIDs to filter to specific services.
+	DiscoverServices(uuids []BLEUUID) ([]bleService, error)
+
+	// Disconnect closes the GATT connection.
+	Disconnect() error
+}
+
+// bleService represents a single GATT service on a connected device.
+type bleService interface {
+	// UUID returns the 128-bit UUID identifying this service.
+	UUID() BLEUUID
+
+	// DiscoverCharacteristics discovers characteristics within the service.
+	// Pass nil to discover all; pass a list of UUIDs to filter.
+	DiscoverCharacteristics(uuids []BLEUUID) ([]bleCharacteristic, error)
+}
+
+// bleCharacteristic represents a single GATT characteristic.
+type bleCharacteristic interface {
+	// UUID returns the 128-bit UUID identifying this characteristic.
+	UUID() BLEUUID
+
+	// Write performs a GATT Write (or Write Without Response) to the
+	// characteristic. Returns the number of bytes written and any error.
+	Write(data []byte) (int, error)
+
+	// EnableNotifications registers cb to be called whenever the remote device
+	// sends an indication or notification on this characteristic.
+	// Calling EnableNotifications a second time replaces the previous callback.
+	EnableNotifications(cb func(data []byte)) error
+}
+
+// ─── BLEScanner ──────────────────────────────────────────────────────────────
+
+// BLEScanner scans for Matter devices advertising on the Matter BLE service
+// UUID (0xFFF6) and parses the Matter-specific advertisement service data into
+// ScanResult values.
+//
+// Use NewBLEScanner to create a scanner. Provide a bleAdapter implementation:
+// on real hardware use NewDefaultBLEAdapter(); in tests use a mockBLEAdapter.
+type BLEScanner struct {
+	adapter bleAdapter
+}
+
+// NewBLEScanner creates a new BLEScanner backed by the given adapter.
+// The adapter must not be nil.
+func NewBLEScanner(adapter bleAdapter) *BLEScanner {
+	if adapter == nil {
+		panic("transport: NewBLEScanner called with nil adapter")
+	}
+	return &BLEScanner{adapter: adapter}
+}
+
+// Scan scans for commissionable Matter devices until ctx is cancelled.
+//
+// It returns a deduplicated list of discovered devices sorted by RSSI
+// descending (strongest signal first). The function blocks until ctx is
+// done and returns a non-nil error only if the underlying adapter scan fails.
+//
+// If ctx is cancelled cleanly, Scan returns (results, nil) — the context
+// cancellation is the normal termination mechanism.
+//
+// Example (scan for 10 seconds):
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+//	defer cancel()
+//	results, err := scanner.Scan(ctx)
+func (s *BLEScanner) Scan(ctx context.Context) ([]ScanResult, error) {
+	var mu sync.Mutex
+	// seen deduplicates by address; we keep the highest-RSSI observation.
+	seen := make(map[BLEAddress]*ScanResult)
+
+	scanErr := s.adapter.Scan(ctx, func(adv BLEScanAdvertisement) {
+		sr, ok := parseMatterAdvertisement(adv)
+		if !ok {
+			return // not a Matter advertisement
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if existing, dup := seen[adv.Address]; dup {
+			// Update RSSI if this sighting is stronger.
+			if sr.RSSI > existing.RSSI {
+				existing.RSSI = sr.RSSI
+			}
+			return
+		}
+		seen[adv.Address] = &sr
+	})
+
+	// A cancelled context is the normal way to end a scan — not an error.
+	if scanErr == context.Canceled || scanErr == context.DeadlineExceeded {
+		scanErr = nil
+	}
+
+	mu.Lock()
+	results := make([]ScanResult, 0, len(seen))
+	for _, r := range seen {
+		results = append(results, *r)
+	}
+	mu.Unlock()
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RSSI > results[j].RSSI
+	})
+
+	return results, scanErr
+}
+
+// FindByDiscriminator scans until a device with the given 12-bit discriminator
+// is found or the context is cancelled.
+//
+// Returns a pointer to the matching ScanResult, or an error if no device was
+// found before the context expired.
+func (s *BLEScanner) FindByDiscriminator(ctx context.Context, discriminator uint16) (*ScanResult, error) {
+	found := make(chan ScanResult, 1)
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	scanErr := s.adapter.Scan(scanCtx, func(adv BLEScanAdvertisement) {
+		sr, ok := parseMatterAdvertisement(adv)
+		if !ok {
+			return
+		}
+		if sr.Discriminator != discriminator {
+			return
+		}
+		// Non-blocking send: if the channel already has a result, ignore.
+		select {
+		case found <- sr:
+			cancel() // stop the scan
+		default:
+		}
+	})
+
+	// A context cancellation is the normal stop mechanism.
+	if scanErr == context.Canceled || scanErr == context.DeadlineExceeded {
+		scanErr = nil
+	}
+	if scanErr != nil {
+		return nil, fmt.Errorf("BLE scan: %w", scanErr)
+	}
+
+	select {
+	case sr := <-found:
+		return &sr, nil
+	default:
+		// Scan ended without finding the discriminator.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("BLE scan timed out: no device with discriminator %d found", discriminator)
+		}
+		return nil, fmt.Errorf("BLE scan ended: no device with discriminator %d found", discriminator)
+	}
+}
+
+// ─── Matter advertisement parser ─────────────────────────────────────────────
+
+// matterAdvOpCode is the OpCode byte expected in a Matter commissionable
+// advertisement service data payload (Matter spec §5.4.2.5.6, byte 0 = 0x00).
+const matterAdvOpCode = uint8(0x00)
+
+// matterAdvMinLen is the minimum length of a valid Matter service data payload.
+// Byte layout: [opcode:1][disc+ver:2][VID:2][PID:2][flags:1] = 8 bytes minimum
+// (The spec shows 8 bytes; byte 7 is the Additional Data flag byte.)
+const matterAdvMinLen = 8
+
+// parseMatterAdvertisement attempts to parse a Matter commissioning
+// advertisement from adv.  It returns the ScanResult and ok=true if the
+// advertisement contains a valid Matter service data payload on UUID 0xFFF6,
+// or the zero value and ok=false otherwise.
+//
+// Wire layout per Matter spec §5.4.2.5.6:
+//
+//	Byte 0:     OpCode     (must be 0x00)
+//	Byte 1–2:  Discriminator [11:0] + version nibble [15:12] (uint16 LE)
+//	Byte 3–4:  Vendor ID  (uint16 LE)
+//	Byte 5–6:  Product ID (uint16 LE)
+//	Byte 7:    Additional Data flag (bit 0 = C3 data present)
+func parseMatterAdvertisement(adv BLEScanAdvertisement) (ScanResult, bool) {
+	data, ok := adv.ServiceData[MatterServiceUUID]
+	if !ok {
+		return ScanResult{}, false
+	}
+	if len(data) < matterAdvMinLen {
+		return ScanResult{}, false
+	}
+	if data[0] != matterAdvOpCode {
+		return ScanResult{}, false
+	}
+
+	discAndVer := binary.LittleEndian.Uint16(data[1:3])
+	discriminator := discAndVer & 0x0FFF // bits [11:0]
+
+	vendorID := binary.LittleEndian.Uint16(data[3:5])
+	productID := binary.LittleEndian.Uint16(data[5:7])
+
+	return ScanResult{
+		Address:       adv.Address,
+		Discriminator: discriminator,
+		VendorID:      vendorID,
+		ProductID:     productID,
+		RSSI:          adv.RSSI,
+		Name:          adv.LocalName,
+	}, true
+}
