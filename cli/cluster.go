@@ -256,8 +256,7 @@ func newClusterReadCmd() *cobra.Command {
 		Use:   "read",
 		Short: "Read a cluster attribute",
 		Example: `  matter @1/1 cluster read --cluster on-off --attribute on-off
-  matter @kitchen cluster read --cluster level-control --attribute current-level
-  matter cluster read --node 1 -e 1 --cluster on-off --attribute on-off`,
+  matter @kitchen cluster read --cluster level-control --attribute current-level`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -618,8 +617,7 @@ func newClusterWriteCmd() *cobra.Command {
 		Use:   "write",
 		Short: "Write a cluster attribute",
 		Example: `  matter @1/1 cluster write --cluster on-off --attribute on-time --value 300
-  matter @kitchen cluster write --cluster fan-control --attribute fan-mode --value 0
-  matter cluster write --node 1 -e 1 --cluster on-off --attribute on-time --value 300`,
+  matter @kitchen cluster write --cluster fan-control --attribute fan-mode --value 0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -883,8 +881,7 @@ func newClusterInvokeCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Invoke a cluster command",
 		Example: `  matter @1/1 cluster invoke --cluster on-off --command toggle
-  matter @kitchen cluster invoke --cluster identify --command identify -F identify-time=10
-  matter cluster invoke --node 1 -e 1 --cluster on-off --command toggle`,
+  matter @kitchen cluster invoke --cluster identify --command identify -F identify-time=10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -925,7 +922,7 @@ func newClusterSubscribeCmd() *cobra.Command {
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
 		Example: `  matter @1/1 cluster subscribe --cluster on-off --attribute on-off --min 1 --max 10
-  matter cluster subscribe --node 1 -e 1 --cluster on-off --attribute on-off --min 1 --max 10`,
+  matter @kitchen cluster subscribe --cluster on-off --attribute on-off --min 1 --max 10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {

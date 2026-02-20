@@ -45,12 +45,12 @@ var rootCmd = &cobra.Command{
 		if err := setupLogging(cmd); err != nil {
 			return err
 		}
-		// Apply the @target resolution chain: inline @target → flags →
+		// Apply the @target resolution chain: inline @target →
 		// MATTER_TARGET env → sticky default from config.
-		resolveTarget(cmd)
+		resolveTarget()
 		// Hide shorthand cluster commands not present on the target endpoint
 		// so that tab-completion only offers relevant commands.
-		filterShorthandCommands(extractedTarget)
+		filterShorthandCommands(resolvedTarget)
 		return maybeStartDaemon(cmd)
 	},
 	SilenceUsage:  true,
@@ -72,22 +72,17 @@ func init() {
 
 	// Register command groups.
 	rootCmd.AddGroup(
-		&cobra.Group{ID: groupDevices, Title: "Device Commands:"},
-		&cobra.Group{ID: groupClusters, Title: "Cluster Commands:"},
-		&cobra.Group{ID: groupTools, Title: "Tools:"},
+		&cobra.Group{ID: groupDevices, Title: "DEVICE COMMANDS"},
+		&cobra.Group{ID: groupClusters, Title: "CLUSTER COMMANDS"},
+		&cobra.Group{ID: groupTools, Title: "TOOLS"},
 	)
 
 	pf := rootCmd.PersistentFlags()
 	pf.StringP("format", "f", "", "output format: json, table, yaml (default: table for TTY, json for pipes)")
 	pf.BoolP("verbose", "v", false, "enable verbose/debug logging")
-	pf.Uint64P("node", "n", 0, "target node ID (prefer @node/endpoint syntax)")
-	pf.Uint16P("endpoint", "e", 0, "target endpoint ID (prefer @node/endpoint syntax)")
 	pf.StringP("keep-alive", "K", "", "start/reuse a background session daemon with the given idle timeout (e.g. 5m, 30m, 1h)")
 
 	_ = viper.BindPFlag("format", pf.Lookup("format"))
-
-	_ = rootCmd.RegisterFlagCompletionFunc("node", completion.NodeIDCompletionFunc())
-	_ = rootCmd.RegisterFlagCompletionFunc("endpoint", completion.EndpointIDCompletionFunc())
 
 	// Enable @target completion on the root command so that typing "@" then
 	// Tab at any position offers device targets.
@@ -239,7 +234,7 @@ func styleCmdPad(padding int, name string) string {
 // Template funcs styleHeader, styleBold, styleDim, styleCmd, and styleFlags
 // are registered in init() via cobra.AddTemplateFuncs.
 func styledUsageTemplate() string {
-	return `{{ "Usage:" | styleHeader }}
+	return `{{ "USAGE" | styleHeader }}
   {{ .UseLine | styleBold }}{{if .HasAvailableSubCommands}} [command]{{end}}
 {{- if gt (len .Aliases) 0}}
 
@@ -248,7 +243,7 @@ func styledUsageTemplate() string {
 {{- end}}
 {{- if .HasExample}}
 
-{{ "Examples:" | styleHeader }}
+{{ "EXAMPLES" | styleHeader }}
 {{ .Example | styleDim }}
 {{- end}}
 {{- if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{range $group := .Groups}}
@@ -258,17 +253,17 @@ func styledUsageTemplate() string {
 {{end}}{{end}}{{end}}
 {{- if not .AllChildCommandsHaveGroup}}
 
-{{ "Additional Commands:" | styleHeader }}
+{{ "ADDITIONAL COMMANDS" | styleHeader }}
 {{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad .NamePadding}} {{.Short}}
 {{end}}{{end}}{{end}}{{end}}
 {{- if .HasAvailableLocalFlags}}
 
-{{ "Flags:" | styleHeader }}
+{{ "FLAGS" | styleHeader }}
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces | styleFlags}}
 {{- end}}
 {{- if .HasAvailableInheritedFlags}}
 
-{{ "Global Flags:" | styleHeader }}
+{{ "GLOBAL FLAGS" | styleHeader }}
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces | styleFlags}}
 {{- end}}
 

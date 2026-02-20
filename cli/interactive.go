@@ -27,11 +27,10 @@ func newInteractiveCmd() *cobra.Command {
 		Long: `Start an interactive REPL session for controlling Matter devices.
 
 Commands in interactive mode mirror the CLI commands:
-  use @node/endpoint            Set the default target (e.g. use @1/1, use @kitchen)
-  use node <id> endpoint <id>   Legacy syntax for setting default target
-  on-off toggle                 Invoke a cluster command
-  cluster read ...              Read an attribute
-  exit / quit                   Exit the REPL`,
+  use @node/endpoint   Set the default target (e.g. use @1/1, use @kitchen)
+  on-off toggle        Invoke a cluster command
+  cluster read ...     Read an attribute
+  exit / quit          Exit the REPL`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runREPL(cmd)
 		},
@@ -81,7 +80,7 @@ func runREPL(cmd *cobra.Command) error {
 			// Dispatch to the cobra command tree by injecting current context.
 			replArgs := strings.Fields(line)
 			if state.nodeID != 0 {
-				replArgs = injectNodeFlags(replArgs, state)
+				replArgs = injectTarget(replArgs, state)
 			}
 			replCmd := &cobra.Command{Use: "matter"}
 			replCmd.SetOut(cmd.OutOrStdout())
@@ -99,7 +98,7 @@ func runREPL(cmd *cobra.Command) error {
 func printREPLHelp(cmd *cobra.Command) {
 	w := cmd.OutOrStdout()
 	fmt.Fprintln(w, output.Header("Available commands:"))
-	fmt.Fprintf(w, "  %s           %s\n", output.Bold("use @node/endpoint"), output.Muted("Set default target (e.g. use @1/1, use @kitchen)"))
+	fmt.Fprintf(w, "  %s              %s\n", output.Bold("use @node/endpoint"), output.Muted("Set default target (e.g. use @1/1, use @kitchen)"))
 	fmt.Fprintf(w, "  %s  %s\n", output.Bold("cluster read/write/invoke ..."), output.Muted("Interact with clusters"))
 	fmt.Fprintf(w, "  %s            %s\n", output.Bold("<cluster> <command>"), output.Muted("Shorthand (e.g. 'on-off toggle')"))
 	fmt.Fprintf(w, "  %s       %s\n", output.Bold("fabric ls / device inspect"), output.Muted("Fabric & device management"))
@@ -141,51 +140,22 @@ func handleUse(cmd *cobra.Command, state *replState, line string) {
 		// Fall through to legacy parsing if @target parsing fails.
 	}
 
-	// Legacy syntax: "use node <id> endpoint <id>"
-	for i := 1; i < len(parts); i++ {
-		switch parts[i] {
-		case "node":
-			if i+1 < len(parts) {
-				i++
-				var n uint64
-				if _, err := fmt.Sscanf(parts[i], "%d", &n); err == nil {
-					state.nodeID = n
-				} else {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Invalid node ID: %s\n", parts[i])
-				}
-			}
-		case "endpoint":
-			if i+1 < len(parts) {
-				i++
-				var e uint16
-				if _, err := fmt.Sscanf(parts[i], "%d", &e); err == nil {
-					state.endpoint = e
-				} else {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Invalid endpoint ID: %s\n", parts[i])
-				}
-			}
-		}
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s Target set to %s\n",
-		output.SuccessIcon(), output.Bold(targetHint(state.nodeID, state.endpoint)))
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s Invalid target %q — use @node/endpoint syntax (e.g. use @1/1)\n",
+		output.WarningIcon(), arg)
 }
 
-func injectNodeFlags(args []string, state *replState) []string {
-	hasNode := false
-	hasEndpoint := false
+// injectTarget prepends an @node/endpoint token to the argument list so that
+// REPL commands automatically target the currently selected device. If the
+// args already contain an @target token the list is returned unchanged.
+func injectTarget(args []string, state *replState) []string {
 	for _, a := range args {
-		if a == "--node" || a == "-n" {
-			hasNode = true
-		}
-		if a == "--endpoint" || a == "-e" {
-			hasEndpoint = true
+		if strings.HasPrefix(a, "@") && len(a) > 1 {
+			return args // already has a target
 		}
 	}
-	if !hasNode {
-		args = append(args, "--node", fmt.Sprintf("%d", state.nodeID))
-	}
-	if !hasEndpoint {
-		args = append(args, "--endpoint", fmt.Sprintf("%d", state.endpoint))
-	}
-	return args
+	target := fmt.Sprintf("@%d/%d", state.nodeID, state.endpoint)
+	result := make([]string, 0, len(args)+1)
+	result = append(result, target)
+	result = append(result, args...)
+	return result
 }

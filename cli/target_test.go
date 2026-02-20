@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/store"
-	"github.com/spf13/cobra"
 )
 
 func TestParseTarget(t *testing.T) {
@@ -370,11 +369,12 @@ func TestIsPastDoubleDash(t *testing.T) {
 }
 
 func TestRequireTarget_NoTarget(t *testing.T) {
-	cmd := &cobra.Command{Use: "test"}
-	cmd.PersistentFlags().Uint64P("node", "n", 0, "node ID")
-	cmd.PersistentFlags().Uint16P("endpoint", "e", 0, "endpoint ID")
+	// Ensure no resolved target is set for this test.
+	prev := resolvedTarget
+	resolvedTarget = nil
+	defer func() { resolvedTarget = prev }()
 
-	_, _, err := requireTarget(cmd)
+	_, _, err := requireTarget(nil)
 	if err == nil {
 		t.Fatal("requireTarget() with no target should return error")
 	}
@@ -384,7 +384,6 @@ func TestRequireTarget_NoTarget(t *testing.T) {
 		"no target specified",
 		"@1/1",
 		"@kitchen",
-		"--node",
 		"matter use",
 		"MATTER_TARGET",
 	}
@@ -396,14 +395,11 @@ func TestRequireTarget_NoTarget(t *testing.T) {
 }
 
 func TestRequireTarget_WithNode(t *testing.T) {
-	cmd := &cobra.Command{Use: "test"}
-	cmd.Flags().Uint64P("node", "n", 0, "node ID")
-	cmd.Flags().Uint16P("endpoint", "e", 0, "endpoint ID")
+	prev := resolvedTarget
+	resolvedTarget = &Target{NodeID: 42, Endpoint: 3, EndpointSet: true}
+	defer func() { resolvedTarget = prev }()
 
-	_ = cmd.Flags().Set("node", "42")
-	_ = cmd.Flags().Set("endpoint", "3")
-
-	nodeID, endpoint, err := requireTarget(cmd)
+	nodeID, endpoint, err := requireTarget(nil)
 	if err != nil {
 		t.Fatalf("requireTarget() unexpected error: %v", err)
 	}

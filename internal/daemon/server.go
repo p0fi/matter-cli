@@ -274,6 +274,9 @@ func (s *Server) handleRequest(ctx context.Context, req *Request) Response {
 	case "save-node":
 		return s.handleSaveNode(req)
 
+	case "delete-node":
+		return s.handleDeleteNode(req)
+
 	case "invoke":
 		return s.handleInvoke(ctx, req)
 
@@ -330,6 +333,24 @@ func (s *Server) handleSaveNode(req *Request) Response {
 	if err := s.store.SaveNode(fabricID, req.SaveNode); err != nil {
 		return Response{OK: false, Error: fmt.Sprintf("saving node: %v", err)}
 	}
+	return Response{OK: true}
+}
+
+// handleDeleteNode serves a "delete-node" request, removing the named node
+// from the store and evicting any cached session for it.
+func (s *Server) handleDeleteNode(req *Request) Response {
+	if req.NodeID == 0 {
+		return Response{OK: false, Error: "delete-node request missing node_id"}
+	}
+	fabricID := req.FabricID
+	if fabricID == 0 {
+		fabricID = s.fabricID
+	}
+	if err := s.store.DeleteNode(fabricID, req.NodeID); err != nil {
+		return Response{OK: false, Error: fmt.Sprintf("deleting node: %v", err)}
+	}
+	// Evict any cached session so stale state is not left behind.
+	s.evictSession(req.NodeID)
 	return Response{OK: true}
 }
 

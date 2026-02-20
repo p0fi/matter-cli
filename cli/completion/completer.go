@@ -94,70 +94,7 @@ func CommandNameCompletion(registry *clusters.Registry) func(cmd *cobra.Command,
 	}
 }
 
-// NodeIDCompletion returns a cobra ValidArgsFunction that completes node IDs
-// from the given store using the specified fabric ID.
-func NodeIDCompletion(s store.Store, fabricID uint64) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		nodes, err := s.ListNodes(fabricID)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveError
-		}
-		names := make([]string, len(nodes))
-		for i, n := range nodes {
-			names[i] = fmt.Sprintf("%d\t%s", n.ID, n.Name)
-		}
-		return names, cobra.ShellCompDirectiveNoFileComp
-	}
-}
 
-// EndpointIDCompletionFunc returns a cobra completion function that lazily
-// opens the store at completion time, reads the --node flag from the command
-// being completed, looks up that node, and returns its endpoint IDs with
-// human-friendly descriptions (device type and cluster summary).
-//
-// If the --node flag is not set or the node cannot be found, the function
-// returns an empty list so the shell completion experience is not disrupted.
-func EndpointIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		nodeID, err := cmd.Flags().GetUint64("node")
-		if err != nil || nodeID == 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		fabricID := viper.GetUint64("default-fabric-id")
-		if fabricID == 0 {
-			fabricID = 1
-		}
-
-		nodes, err := listNodes(fabricID)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		var node *store.Node
-		for _, n := range nodes {
-			if n.ID == nodeID {
-				node = n
-				break
-			}
-		}
-		if node == nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		var completions []string
-		for _, ep := range node.Endpoints {
-			epStr := fmt.Sprintf("%d", ep.ID)
-			if toComplete != "" && !strings.HasPrefix(epStr, toComplete) {
-				continue
-			}
-
-			// Build a description from device type and cluster names.
-			desc := endpointDescription(ep)
-			completions = append(completions, fmt.Sprintf("%s\t%s", epStr, desc))
-		}
-		return completions, cobra.ShellCompDirectiveNoFileComp
-	}
-}
 
 // endpointDescription builds a human-friendly description for an endpoint,
 // using its device type name (if known) and a summary of its server clusters.

@@ -39,8 +39,7 @@ func newDeviceInspectCmd() *cobra.Command {
 		Use:   "inspect",
 		Short: "Inspect a commissioned device",
 		Example: `  matter @1 device inspect
-  matter @kitchen device inspect
-  matter device inspect --node 1 --format json`,
+  matter @kitchen device inspect`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, _, err := requireTarget(cmd)
 			if err != nil {
@@ -70,8 +69,7 @@ func newDeviceAliasCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "alias",
 		Short: "Set a friendly name for a device",
-		Example: `  matter @1 device alias --name "Kitchen Light"
-  matter device alias --node 1 --name "Kitchen Light"`,
+		Example: `  matter @1 device alias --name "Kitchen Light"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, _, err := requireTarget(cmd)
 			if err != nil {
@@ -191,6 +189,22 @@ func saveNode(fabricID uint64, node *store.Node) error {
 	}
 	defer s.Close()
 	return s.SaveNode(fabricID, node)
+}
+
+// deleteNode removes a node record from the store, routing through the daemon
+// when it is running so that the BoltDB exclusive lock is respected. The daemon
+// also evicts any cached CASE session for the node.
+func deleteNode(fabricID, nodeID uint64) error {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.DeleteNode(fabricID, nodeID)
+	}
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.DeleteNode(fabricID, nodeID)
 }
 
 func formatLastSeen(t time.Time) string {

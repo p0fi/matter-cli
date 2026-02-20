@@ -26,8 +26,13 @@ type Target struct {
 
 // extractedTarget holds the target parsed from os.Args during Execute().
 // It is set before cobra processes the args so that PersistentPreRunE can
-// apply it as a fallback when --node was not explicitly provided.
+// apply it via resolveTarget.
 var extractedTarget *Target
+
+// resolvedTarget is the final resolved target after the full resolution chain
+// has been applied in resolveTarget. It is set during PersistentPreRunE and
+// read by requireTarget.
+var resolvedTarget *Target
 
 // noTargetError is the error message shown when no target is specified and
 // a command requires one. It lists all available methods for specifying a
@@ -189,83 +194,66 @@ func isPastDoubleDash(args []string, idx int) bool {
 	return false
 }
 
-// applyTargetToFlags sets the --node and --endpoint persistent flags on the
-// command from the given target, but only if those flags were not already
-// explicitly set by the user via CLI flags.
-func applyTargetToFlags(cmd *cobra.Command, t *Target) {
-	if t == nil {
-		return
-	}
-	flags := cmd.Flags()
-	if !flags.Changed("node") {
-		_ = flags.Set("node", strconv.FormatUint(t.NodeID, 10))
-	}
-	if !flags.Changed("endpoint") && t.EndpointSet {
-		_ = flags.Set("endpoint", strconv.FormatUint(uint64(t.Endpoint), 10))
-	}
-}
-
-// resolveTarget applies the target resolution chain in priority order:
-//  1. Explicit --node / --endpoint flags (already set by cobra)
-//  2. @target extracted from args (stored in extractedTarget)
-//  3. MATTER_TARGET environment variable
-//  4. Sticky default from config (default-node / default-endpoint)
+// resolveTarget applies the target resolution chain in priority order and
+// stores the result in the package-level resolvedTarget variable:
+//
+//  1. @target extracted from os.Args (stored in extractedTarget)
+//  2. MATTER_TARGET environment variable
+//  3. Sticky default from config (default-node / default-endpoint)
 //
 // This is called from PersistentPreRunE on the root command so that all
 // subcommands benefit from target resolution without any changes.
-func resolveTarget(cmd *cobra.Command) {
-	flags := cmd.Flags()
+func resolveTarget() {
+	// Reset from any previous invocation (relevant in tests / REPL mode).
+	resolvedTarget = nil
 
-	// Priority 1: explicit flags — if --node was passed, nothing to do.
-	if flags.Changed("node") {
-		return
-	}
-
-	// Priority 2: @target extracted from os.Args before cobra parsed.
+	// Priority 1: @target extracted from os.Args before cobra parsed.
 	if extractedTarget != nil {
-		applyTargetToFlags(cmd, extractedTarget)
+		resolvedTarget = extractedTarget
 		return
 	}
 
-	// Priority 3: MATTER_TARGET environment variable.
+	// Priority 2: MATTER_TARGET environment variable.
 	if envTarget := os.Getenv("MATTER_TARGET"); envTarget != "" {
 		t, err := ParseTarget(envTarget)
 		if err == nil {
-			applyTargetToFlags(cmd, t)
+			resolvedTarget = t
 			return
 		}
 		// Invalid env var — ignore silently, fall through to config.
 	}
 
-	// Priority 4: sticky defaults from config file.
+	// Priority 3: sticky defaults from config file.
 	if defaultNode := viper.GetUint64("default-node"); defaultNode != 0 {
-		_ = flags.Set("node", strconv.FormatUint(defaultNode, 10))
+		t := &Target{NodeID: defaultNode}
 		if defaultEp := viper.GetUint64("default-endpoint"); defaultEp != 0 {
-			if !flags.Changed("endpoint") {
-				_ = flags.Set("endpoint", strconv.FormatUint(defaultEp, 10))
-			}
+			t.Endpoint = uint16(defaultEp)
+			t.EndpointSet = true
 		}
+		resolvedTarget = t
 	}
 }
 
-// requireTarget reads the --node and --endpoint flags from the command and
-// returns them. If --node is still 0 after target resolution, it returns a
-// helpful error listing all the ways to specify a target.
+// requireTarget returns the resolved device target (node ID and endpoint).
+// If no target has been resolved, it returns a helpful error listing all the
+// ways to specify a target.
 //
-// Commands that need a device target should call this instead of reading
-// the flags directly:
+// Commands that need a device target should call this at the top of their
+// RunE function:
 //
 //	nodeID, endpoint, err := requireTarget(cmd)
 //	if err != nil {
 //	    return err
 //	}
-func requireTarget(cmd *cobra.Command) (uint64, uint16, error) {
-	nodeID, _ := cmd.Flags().GetUint64("node")
-	endpoint, _ := cmd.Flags().GetUint16("endpoint")
-	if nodeID == 0 {
+//
+// The cmd parameter is accepted for call-site compatibility but is not used;
+// target resolution always reads from the resolvedTarget package variable set
+// during PersistentPreRunE.
+func requireTarget(_ *cobra.Command) (uint64, uint16, error) {
+	if resolvedTarget == nil || resolvedTarget.NodeID == 0 {
 		return 0, 0, fmt.Errorf(noTargetError)
 	}
-	return nodeID, endpoint, nil
+	return resolvedTarget.NodeID, resolvedTarget.Endpoint, nil
 }
 
 // targetHint returns a short string showing the resolved target for use in

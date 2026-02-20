@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -32,6 +33,7 @@ func newFabricCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newFabricLsCmd())
 	cmd.AddCommand(newFabricInfoCmd())
+	cmd.AddCommand(newFabricRemoveCmd())
 	return cmd
 }
 
@@ -111,6 +113,63 @@ func newFabricInfoCmd() *cobra.Command {
 				return nil
 			}
 			return f.Format(cmd.OutOrStdout(), fabric)
+		},
+	}
+}
+
+// newFabricRemoveCmd creates `matter fabric remove` which removes a
+// commissioned device from the local fabric database. The target device is
+// specified using the standard @target syntax, either as a positional argument
+// or as an inline token before the subcommand:
+//
+//	matter fabric remove @1
+//	matter fabric remove @kitchen
+//	matter @1 fabric remove
+func newFabricRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove @target",
+		Short: "Remove a commissioned device from the fabric",
+		Example: `  matter fabric remove @1
+  matter fabric remove @kitchen
+  matter @1 fabric remove`,
+		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: completion.TargetCompletionFunc(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Support both `matter fabric remove @1` (positional arg) and
+			// `matter @1 fabric remove` (inline @target resolved via PersistentPreRunE).
+			if len(args) == 1 {
+				raw := args[0]
+				if !IsTargetArg(raw) {
+					raw = "@" + raw
+				}
+				t, err := ParseTarget(raw)
+				if err != nil {
+					return fmt.Errorf("invalid target %q: %w", args[0], err)
+				}
+				resolvedTarget = t
+			}
+
+			nodeID, _, err := requireTarget(cmd)
+			if err != nil {
+				return err
+			}
+
+			fid := fabricID()
+
+			// Look up the node name before deleting for a friendlier confirmation.
+			node, lookupErr := getNodeForCompletion(fid, nodeID)
+
+			if err := deleteNode(fid, nodeID); err != nil {
+				return fmt.Errorf("removing node %d: %w", nodeID, err)
+			}
+
+			label := fmt.Sprintf("%d", nodeID)
+			if lookupErr == nil && node.Name != "" {
+				label = fmt.Sprintf("%s (node %d)", node.Name, nodeID)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Removed %s from fabric.\n",
+				output.SuccessIcon(), output.Bold(label))
+			return nil
 		},
 	}
 }

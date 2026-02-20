@@ -22,7 +22,7 @@ import (
 type Request struct {
 	// Type identifies the kind of request. One of: "ping", "invoke", "read",
 	// "write", "subscribe", "shutdown", "status", "list-nodes", "get-fabric",
-	// "save-node".
+	// "save-node", "delete-node".
 	Type string `json:"type"`
 
 	// NodeID is the target node for device operations.

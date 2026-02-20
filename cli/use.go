@@ -19,7 +19,7 @@ func init() {
 // newUseCmd creates the `matter use` command for setting a sticky default
 // target (node and endpoint). Once set, all subsequent commands that require
 // a device target will use this default unless overridden by an inline
-// @target, explicit --node/--endpoint flags, or the MATTER_TARGET env var.
+// @target or the MATTER_TARGET env var.
 //
 // Examples:
 //
@@ -33,13 +33,12 @@ func newUseCmd() *cobra.Command {
 		Use:   "use [@target]",
 		Short: "Set or show the default device target",
 		Long: `Set a sticky default device target so you don't have to specify @target
-or --node/--endpoint on every command.
+on every command.
 
 The target is persisted in your config file and used by all subsequent
 commands unless overridden by:
   1. An inline @target argument
-  2. Explicit --node / --endpoint flags
-  3. The MATTER_TARGET environment variable
+  2. The MATTER_TARGET environment variable
 
 Use --clear to remove the sticky default, or --show to display it.`,
 		Example: `  matter use @1/1              Set node 1, endpoint 1 as default

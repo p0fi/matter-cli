@@ -126,6 +126,24 @@ func (c *Client) SaveNode(fabricID uint64, node *store.Node) error {
 	return nil
 }
 
+// DeleteNode removes a node record via the daemon. Used by CLI commands (e.g.
+// fabric remove) that need to delete node data while the daemon holds the lock.
+// Any cached session for the node is also evicted on the daemon side.
+func (c *Client) DeleteNode(fabricID, nodeID uint64) error {
+	resp, err := c.send(Request{
+		Type:     "delete-node",
+		FabricID: fabricID,
+		NodeID:   nodeID,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("daemon: delete-node: %s", resp.Error)
+	}
+	return nil
+}
+
 // Shutdown asks the daemon to shut down gracefully.
 func (c *Client) Shutdown() error {
 	resp, err := c.send(Request{Type: "shutdown"})

@@ -43,7 +43,6 @@ func newCommissionCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newCommissionCodeCmd())
 	cmd.AddCommand(newCommissionIPCmd())
-	cmd.AddCommand(newCommissionForgetCmd())
 	return cmd
 }
 
@@ -97,16 +96,20 @@ func newCommissionCodeCmd() *cobra.Command {
 		Use:   "code <setup-code>",
 		Short: "Commission a device using a QR or manual pairing code",
 		Example: `  matter commission code "MT:Y3.13OTB00KA0648G00"
-  matter commission code "34970112332" --node 5
   matter @5 commission code "MT:Y3.13OTB00KA0648G00"`,
 		Args: cobra.ExactArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
+			// Node ID is optional for commissioning — if a @target was given
+			// (e.g. matter @5 commission code "...") use its node ID, otherwise
+			// auto-assign the next available ID.
+			var nodeID uint64
+			if resolvedTarget != nil {
+				nodeID = resolvedTarget.NodeID
+			}
 			if nodeID == 0 {
-				// For commission, node ID is optional — auto-assign if not given.
 				var err error
 				nodeID, err = nextNodeID()
 				if err != nil {
@@ -180,11 +183,13 @@ func newCommissionIPCmd() *cobra.Command {
 		Use:   "ip <address>",
 		Short: "Commission a device at a known IP address",
 		Example: `  matter commission ip 192.168.1.100 --setup-pin 12345678
-  matter @5 commission ip 192.168.1.100 --setup-pin 12345678
-  matter commission ip 192.168.1.100 --setup-pin 12345678 --node 5`,
+  matter @5 commission ip 192.168.1.100 --setup-pin 12345678`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _ := cmd.Flags().GetUint64("node")
+			var nodeID uint64
+			if resolvedTarget != nil {
+				nodeID = resolvedTarget.NodeID
+			}
 			if nodeID == 0 {
 				var err error
 				nodeID, err = nextNodeID()
@@ -330,37 +335,4 @@ func buildNodeFromResult(nodeID uint64, result *commissioning.CommissioningResul
 		node.Endpoints = append(node.Endpoints, storeEp)
 	}
 	return node
-}
-
-func newCommissionForgetCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "forget",
-		Short: "Remove a commissioned device from local storage",
-		Example: `  matter @1 commission forget
-  matter commission forget --node 1`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _, err := requireTarget(cmd)
-			if err != nil {
-				return err
-			}
-
-			s, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer s.Close()
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			if err := s.DeleteNode(fabricID, nodeID); err != nil {
-				return fmt.Errorf("removing node %d: %w", nodeID, err)
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Node %s removed.\n",
-				output.SuccessIcon(), output.Bold(fmt.Sprintf("%d", nodeID)))
-			return nil
-		},
-	}
 }
