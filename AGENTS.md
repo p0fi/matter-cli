@@ -1362,3 +1362,31 @@ If a commit includes a new feature, the commit should include the tests for that
 6. **Package boundaries are contracts.** Each agent owns their package's public API. If you need to change another agent's API, document the change needed and coordinate — do not reach into their internals.
 
 7. **Every public function and type must have a godoc comment.** No exceptions.
+
+8. **CRITICAL — Never call `openStore()` or `store.NewBoltStore()` directly in CLI commands.** The session daemon (`-K` flag) holds an exclusive BoltDB `flock` for its entire lifetime. Any direct `bolt.Open()` call from the CLI will hang forever while the daemon is running. **Always use the daemon-aware helpers defined in `cli/device.go` instead:**
+
+   | Need | Helper to use |
+   |------|---------------|
+   | List all nodes | `listNodesForCompletion(fabricID)` |
+   | Get a single node | `getNodeForCompletion(fabricID, nodeID)` |
+   | Get fabric info | `getFabric(fabricID)` |
+   | Save / update a node | `saveNode(fabricID, node)` |
+
+   These helpers call `daemon.NewClient("").IsRunning()` first. When the daemon is running they proxy the request through its Unix socket (the daemon already holds the DB open and serves the data). When no daemon is running they open the DB directly.
+
+   **Shell completion functions** (in `cli/completion/completer.go`) have an equivalent `listNodes(fabricID)` helper — use it instead of opening the store directly there too.
+
+   **Commands that need exclusive write access** (e.g. commissioning, which must create a `controller.Controller` that reads fabric key material directly from the store) cannot be proxied through the daemon and must refuse early when the daemon is running:
+   ```go
+   if daemon.NewClient("").IsRunning() {
+       return fmt.Errorf(
+           "a session daemon is running and holds the database lock\n" +
+               "Stop it first with: matter session stop")
+   }
+   ```
+
+   **Adding a new store operation not covered by the helpers above:** extend the daemon protocol rather than bypassing it:
+   1. Add request/response types to `internal/daemon/protocol.go`
+   2. Add a handler (`handleXxx`) in `internal/daemon/server.go`
+   3. Add a client method in `internal/daemon/client.go`
+   4. Add a daemon-aware helper in `cli/device.go` that checks `IsRunning()` and falls back to `openStore()` when no daemon is present
