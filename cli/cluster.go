@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 
@@ -46,9 +48,107 @@ import (
 	"github.com/spf13/viper"
 )
 
+// shorthandCmds is the list of top-level shorthand cluster commands registered
+// by registerShorthandClusters. filterShorthandCommands iterates this slice
+// instead of rootCmd.Commands() to avoid a variable-initialization cycle.
+var shorthandCmds []*cobra.Command
+
+// allRootCommands returns all top-level commands. It is set in init() to avoid
+// a variable-initialization cycle: rootCmd → PersistentPreRunE →
+// filterShorthandCommands → rootCmd.
+var allRootCommands func() []*cobra.Command
+
 func init() {
+	allRootCommands = func() []*cobra.Command { return rootCmd.Commands() }
 	rootCmd.AddCommand(withGroup(newClusterCmd(), groupClusters))
 	registerShorthandClusters()
+}
+
+// targetUnawareCommands lists top-level commands that do not make sense when
+// a device target is already selected (e.g. @air-2000i/1). They are hidden
+// from completion and help output whenever a target is resolved.
+var targetUnawareCommands = map[string]bool{
+	"commission":  true,
+	"discover":    true,
+	"fabric":      true,
+	"use":         true,
+	"completion":  true,
+	"config":      true,
+	"payload":     true,
+	"session":     true,
+	"version":     true,
+	"interactive": true,
+}
+
+// filterShorthandCommands hides commands that are irrelevant for the resolved
+// target:
+//   - Top-level management commands (commission, fabric, discover, …) are
+//     hidden whenever any target is set, because they operate on the fabric
+//     as a whole rather than on a specific device.
+//   - Shorthand cluster commands are hidden when the target endpoint is known
+//     and the cluster is not present on that endpoint.
+//
+// Nothing is hidden when the target lacks a node ID, and shorthand filtering
+// is skipped when the endpoint is unset or the store is unreachable.
+func filterShorthandCommands(t *Target) {
+	if t == nil || t.NodeID == 0 {
+		return
+	}
+
+	// Hide management commands that don't apply to a specific device target.
+	for _, cmd := range shorthandCmds {
+		if targetUnawareCommands[cmd.Name()] {
+			cmd.Hidden = true
+		}
+	}
+	// Also hide them in the full root command list (covers non-cluster cmds).
+	for _, cmd := range allRootCommands() {
+		if targetUnawareCommands[cmd.Name()] {
+			cmd.Hidden = true
+		}
+	}
+
+	// Filter shorthand cluster commands by endpoint if we know it.
+	if !t.EndpointSet {
+		return
+	}
+
+	fabricID := viper.GetUint64("default-fabric-id")
+	if fabricID == 0 {
+		fabricID = 1
+	}
+
+	node, err := getNodeForCompletion(fabricID, t.NodeID)
+	if err != nil {
+		return
+	}
+
+	// Collect the server cluster IDs on the target endpoint.
+	clusterIDs := make(map[uint32]bool)
+	for _, ep := range node.Endpoints {
+		if ep.ID == t.Endpoint {
+			for _, cl := range ep.Clusters {
+				if cl.Side == "server" || cl.Side == "" {
+					clusterIDs[cl.ID] = true
+				}
+			}
+			break
+		}
+	}
+	if len(clusterIDs) == 0 {
+		return
+	}
+
+	// Hide shorthand cluster commands whose cluster is absent from the endpoint.
+	for _, cmd := range shorthandCmds {
+		cl, ok := clusters.Global.ClusterByName(cmd.Name())
+		if !ok {
+			continue
+		}
+		if !clusterIDs[cl.ID] {
+			cmd.Hidden = true
+		}
+	}
 }
 
 // connectToNode opens the store, looks up the node's last address, creates a
@@ -636,6 +736,64 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 	return nil
 }
 
+// subscribeAttribute establishes a subscription to an attribute on a remote
+// node and streams reports to stdout until the context is cancelled (Ctrl+C)
+// or an error occurs.
+func subscribeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo, minInterval, maxInterval uint16) error {
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
+
+	stepper.Step(fmt.Sprintf("Subscribing to %s/%s on node %s endpoint %s %s",
+		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
+		output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
+		output.Muted(fmt.Sprintf("(0x%04X/0x%04X) [%d..%d]s", cl.ID, attr.ID, minInterval, maxInterval))))
+
+	// Intercept SIGINT so Ctrl+C cancels the subscription cleanly.
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+
+	client, session, cleanup, err := connectToNode(ctx, nodeID)
+	if err != nil {
+		stepper.Fail(fmt.Sprintf("Failed to connect: %v", err))
+		return err
+	}
+	defer cleanup()
+
+	path := interaction.NewAttributePath(endpoint, cl.ID, attr.ID)
+	sub, err := client.Subscribe(ctx, session, []interaction.AttributePath{path}, minInterval, maxInterval)
+	if err != nil {
+		stepper.Fail(fmt.Sprintf("Subscribe failed: %v", err))
+		return fmt.Errorf("subscribing to attribute: %w", err)
+	}
+	defer sub.Cancel()
+
+	stepper.Success(fmt.Sprintf("Subscribed (ID %d) — streaming changes, Ctrl+C to stop", sub.ID))
+
+	for {
+		select {
+		case reports, ok := <-sub.Reports:
+			if !ok {
+				return nil
+			}
+			for _, r := range reports {
+				if r.Data != nil {
+					value := decodeTLVValue(r.Data.Data)
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s/%s = %s\n",
+						output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
+						output.Success(value))
+				}
+			}
+		case err, ok := <-sub.Errors:
+			if !ok {
+				return nil
+			}
+			return fmt.Errorf("subscription error: %w", err)
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
 // encodeTLVValue encodes a string value into raw TLV bytes based on the attribute type.
 func encodeTLVValue(attrType, value string) ([]byte, error) {
 	w := tlv.NewWriter()
@@ -794,12 +952,7 @@ func newClusterSubscribeCmd() *cobra.Command {
 				return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clusterName)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Subscribing to %s/%s on node %s endpoint %s %s\n",
-				output.InfoIcon(), output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-				output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
-				output.Muted(fmt.Sprintf("[%d..%d]s", minInt, maxInt)))
-			fmt.Fprintln(cmd.ErrOrStderr(), output.Warning("subscribe not yet implemented"))
-			return nil
+			return subscribeAttribute(cmd, nodeID, endpoint, cl, attr, minInt, maxInt)
 		},
 	}
 	cmd.Flags().String("cluster", "", "cluster name or ID")
@@ -942,5 +1095,6 @@ func registerShorthandClusters() {
 		cmd.AddCommand(writeCmd)
 
 		rootCmd.AddCommand(withGroup(cmd, groupClusters))
+		shorthandCmds = append(shorthandCmds, cmd)
 	}
 }

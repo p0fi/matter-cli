@@ -6,9 +6,11 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/p0fi/matter-cli/cli/output"
@@ -70,7 +72,7 @@ func generateCompletion(cmd *cobra.Command, shell string) error {
 	case "bash":
 		return root.GenBashCompletionV2(w, true)
 	case "zsh":
-		return root.GenZshCompletion(w)
+		return genZshCompletion(root, w)
 	case "fish":
 		return root.GenFishCompletion(w, true)
 	case "powershell":
@@ -93,7 +95,7 @@ func installCompletion(cmd *cobra.Command, shell string) error {
 			return fmt.Errorf("generating bash completion: %w", err)
 		}
 	case "zsh":
-		if err := root.GenZshCompletion(&buf); err != nil {
+		if err := genZshCompletion(root, &buf); err != nil {
 			return fmt.Errorf("generating zsh completion: %w", err)
 		}
 	case "fish":
@@ -404,6 +406,118 @@ func ensureLineInFile(path, line, comment string) (string, string, error) {
 	}
 
 	return "", path, nil
+}
+
+// genZshCompletion generates a custom _matter zsh completion function that
+// visually groups top-level commands into Device Commands, Cluster Commands,
+// and Tools sections. The group membership is computed from each command's
+// cobra GroupID at script-generation time and embedded as a static lookup
+// table. At completion time the function calls `matter __complete` (which
+// applies all dynamic @target-based filtering) and routes each result to the
+// correct group using _describe -t, which zsh renders with headers.
+//
+// For sub-command arguments, flags, and attribute/command names the output
+// from `matter __complete` goes into an ungrouped bucket and is presented
+// without a section header, identical to cobra's default behaviour.
+func genZshCompletion(root *cobra.Command, w io.Writer) error {
+	// Build the static group-map lines: command-name → group-tag.
+	type groupEntry struct {
+		name string
+		tag  string
+	}
+	var entries []groupEntry
+	for _, cmd := range root.Commands() {
+		if cmd.Hidden {
+			continue
+		}
+		var tag string
+		switch cmd.GroupID {
+		case groupDevices:
+			tag = "device"
+		case groupClusters:
+			tag = "cluster"
+		case groupTools:
+			tag = "tool"
+		}
+		if tag != "" {
+			entries = append(entries, groupEntry{cmd.Name(), tag})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
+
+	var mapLines []string
+	for _, e := range entries {
+		mapLines = append(mapLines, fmt.Sprintf("  [%s]=%s", e.name, e.tag))
+	}
+
+	script := `#compdef matter
+compdef _matter matter
+
+# ── matter zsh completion ────────────────────────────────────────────────────
+# Regenerate with:  matter completion zsh [--install]
+
+# Group headers: requires group-name '' to be set (oh-my-zsh sets this
+# globally; we set it locally for matter so vanilla zsh also benefits).
+zstyle ':completion:*:matter:*' group-name ''
+zstyle ':completion:*:matter:*:targets'          format $'\e[35m── Targets ──\e[0m'
+zstyle ':completion:*:matter:*:device-commands'  format $'\e[36m── Device Commands ──\e[0m'
+zstyle ':completion:*:matter:*:cluster-commands' format $'\e[32m── Cluster Commands ──\e[0m'
+zstyle ':completion:*:matter:*:tools'            format $'\e[33m── Tools ──\e[0m'
+
+# Static lookup: command name → group tag (device | cluster | tool).
+# Regenerate whenever new clusters or commands are added.
+typeset -gA _matter_group_map
+_matter_group_map=(
+` + strings.Join(mapLines, "\n") + `
+)
+
+_matter() {
+  local -a request_cmd
+  local -a device_cmds cluster_cmds tool_cmds target_cmds other_cmds
+  local out word desc entry tag i
+
+  # Build the __complete call from the current word list.
+  request_cmd=("${words[1]}" "__complete")
+  for (( i=2; i<CURRENT; i++ )); do
+    request_cmd+=("${words[$i]}")
+  done
+  request_cmd+=("${words[$CURRENT]}")
+
+  out=$("${request_cmd[@]}" 2>/dev/null)
+
+  # Parse output lines, skipping the trailing :N directive and blank lines.
+  while IFS=$'\t' read -r word desc; do
+    [[ -z "$word" || "$word" == :* || "$word" == _activeHelp_* ]] && continue
+    # Escape colons in word and description (zsh _describe uses : as separator).
+    entry="${word//:/\\:}:${desc//:/\\:}"
+    if [[ "$word" == @* ]]; then
+      target_cmds+=("$entry")
+    else
+      tag="${_matter_group_map[$word]}"
+      case "$tag" in
+        device)  device_cmds+=("$entry") ;;
+        cluster) cluster_cmds+=("$entry") ;;
+        tool)    tool_cmds+=("$entry") ;;
+        *)       other_cmds+=("$entry") ;;
+      esac
+    fi
+  done <<< "$out"
+
+  (( ${#target_cmds}  )) && _describe -t targets          "Targets"          target_cmds
+  (( ${#device_cmds}  )) && _describe -t device-commands  "Device Commands"  device_cmds
+  (( ${#cluster_cmds} )) && _describe -t cluster-commands "Cluster Commands" cluster_cmds
+  (( ${#tool_cmds}    )) && _describe -t tools             "Tools"            tool_cmds
+  (( ${#other_cmds}   )) && _describe -t arguments         ""                 other_cmds
+
+  return 0
+}
+
+if [ "$funcstack[1]" = "_matter" ]; then
+  _matter
+fi
+`
+	_, err := io.WriteString(w, script)
+	return err
 }
 
 // isWritableDir returns true if the path exists, is a directory, and is

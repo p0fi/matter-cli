@@ -45,6 +45,9 @@ var rootCmd = &cobra.Command{
 		// Apply the @target resolution chain: inline @target → flags →
 		// MATTER_TARGET env → sticky default from config.
 		resolveTarget(cmd)
+		// Hide shorthand cluster commands not present on the target endpoint
+		// so that tab-completion only offers relevant commands.
+		filterShorthandCommands(extractedTarget)
 		return maybeStartDaemon(cmd)
 	},
 	SilenceUsage:  true,
