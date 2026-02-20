@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/p0fi/matter-cli/cli/completion"
@@ -56,6 +59,16 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cobra.OnInitialize(initConfig)
+
+	// Register template functions for styled help output.
+	cobra.AddTemplateFuncs(template.FuncMap{
+		"styleHeader":  output.Header,
+		"styleBold":    output.Bold,
+		"styleDim":     output.Dim,
+		"styleCmd":     output.Command,
+		"styleCmdPad":  styleCmdPad,
+		"styleFlags":   styleFlagUsages,
+	})
 
 	// Register command groups.
 	rootCmd.AddGroup(
@@ -198,45 +211,67 @@ func setupLogging(cmd *cobra.Command) error {
 	return nil
 }
 
+// flagPattern matches short and long flag names like -v, --verbose, --keep-alive.
+var flagPattern = regexp.MustCompile(`(--?[\w][\w-]*)`)
+
+// styleFlagUsages colorizes flag names (e.g. --verbose, -f) in the given
+// flag usage string. When NO_COLOR is set, the input is returned unchanged.
+func styleFlagUsages(s string) string {
+	if output.NoColor() {
+		return s
+	}
+	return flagPattern.ReplaceAllStringFunc(s, func(match string) string {
+		return output.Flag(match)
+	})
+}
+
+// styleCmdPad styles a command name in cyan and right-pads it to the given
+// width based on the plain-text length (ignoring ANSI escape sequences).
+func styleCmdPad(padding int, name string) string {
+	styled := output.Command(name)
+	if pad := padding - len(name); pad > 0 {
+		styled += strings.Repeat(" ", pad)
+	}
+	return styled
+}
+
 // styledUsageTemplate returns a cobra usage template with color styling.
+// Template funcs styleHeader, styleBold, styleDim, styleCmd, and styleFlags
+// are registered in init() via cobra.AddTemplateFuncs.
 func styledUsageTemplate() string {
-	// We inject ANSI styling via lipgloss into the template literals.
-	// Cobra templates use {{.X}} for dynamic content, so we only style
-	// the static labels.
-	h := func(s string) string { return output.Header(s) }
-	d := func(s string) string { return output.Dim(s) }
-	b := func(s string) string { return output.Bold(s) }
+	return `{{ "Usage:" | styleHeader }}
+  {{ .UseLine | styleBold }}{{if .HasAvailableSubCommands}} [command]{{end}}
+{{- if gt (len .Aliases) 0}}
 
-	return fmt.Sprintf(`%s
-  {{.UseLine}}{{if .HasAvailableSubCommands}} [command]{{end}}
-{{if gt (len .Aliases) 0}}
-%s
+{{ "Aliases:" | styleHeader }}
   {{.NameAndAliases}}
-{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{range $group := .Groups}}
+{{- end}}
+{{- if .HasExample}}
 
-%s
-{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}  %s {{.Short}}
-{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+{{ "Examples:" | styleHeader }}
+{{ .Example | styleDim }}
+{{- end}}
+{{- if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{range $group := .Groups}}
 
-%s
-{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  %s {{.Short}}
-{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
-%s
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
-{{end}}{{if .HasAvailableInheritedFlags}}
-%s
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
-{{end}}
-  %s
-`,
-		h("Usage:"),
-		h("Aliases:"),
-		`{{$group.Title | trimTrailingWhitespaces}}`, // group titles are already strings
-		`{{rpad .Name .NamePadding}}`,                // command name
-		h("Additional Commands:"),
-		`{{rpad .Name .NamePadding}}`, // command name
-		h("Flags:"),
-		h("Global Flags:"),
-		d(fmt.Sprintf("Use \"%s\" for more information about a command.", b("matter [command] --help"))),
-	)
+{{$group.Title | trimTrailingWhitespaces | styleHeader}}
+{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad .NamePadding}} {{.Short}}
+{{end}}{{end}}{{end}}
+{{- if not .AllChildCommandsHaveGroup}}
+
+{{ "Additional Commands:" | styleHeader }}
+{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad .NamePadding}} {{.Short}}
+{{end}}{{end}}{{end}}{{end}}
+{{- if .HasAvailableLocalFlags}}
+
+{{ "Flags:" | styleHeader }}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces | styleFlags}}
+{{- end}}
+{{- if .HasAvailableInheritedFlags}}
+
+{{ "Global Flags:" | styleHeader }}
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces | styleFlags}}
+{{- end}}
+
+  {{ "Use \"" | styleDim }}{{ "matter [command] --help" | styleBold }}{{ "\" for more information about a command." | styleDim }}
+`
 }

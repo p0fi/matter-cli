@@ -47,6 +47,11 @@ var (
 	StyleHeader = lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
 	// StyleMuted renders secondary text in dim gray.
 	StyleMuted = StyleDim
+
+	// StyleCommand renders command names in cyan.
+	StyleCommand = lipgloss.NewStyle().Foreground(colorCyan)
+	// StyleFlag renders flag names in yellow.
+	StyleFlag = lipgloss.NewStyle().Foreground(colorYellow)
 )
 
 // NoColor reports whether the NO_COLOR environment variable is set.
@@ -94,6 +99,12 @@ func Header(s string) string { return render(StyleHeader, s) }
 
 // Muted formats secondary/less important text.
 func Muted(s string) string { return render(StyleMuted, s) }
+
+// Command formats a command name in cyan.
+func Command(s string) string { return render(StyleCommand, s) }
+
+// Flag formats a flag name in yellow.
+func Flag(s string) string { return render(StyleFlag, s) }
 
 // SuccessIcon returns a styled checkmark.
 func SuccessIcon() string { return Success("✓") }

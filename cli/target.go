@@ -37,7 +37,6 @@ const noTargetError = `no target specified
 Specify a device target using any of these methods:
   matter @1/1 on-off toggle          inline target (recommended)
   matter @kitchen on-off toggle      using a device alias
-  matter on-off toggle --node 1      explicit flags
   matter use @1/1                    set a sticky default
   export MATTER_TARGET=@1/1          environment variable`
 
