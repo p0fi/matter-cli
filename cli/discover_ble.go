@@ -16,6 +16,7 @@ import (
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/discovery"
 	"github.com/p0fi/matter-cli/internal/transport"
+	"github.com/p0fi/matter-cli/internal/vendordb"
 	"github.com/spf13/cobra"
 )
 
@@ -77,8 +78,10 @@ Platform requirements:
 				return runRawBLEScan(cmd, adapter, timeout)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Scanning for Matter devices over BLE for %s…\n",
-				output.InfoIcon(), timeout)
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
+
+			stepper.Step(fmt.Sprintf("Scanning for Matter devices over BLE for %s…", timeout))
 
 			// Wrap the adapter to count every advertisement so we can give a
 			// useful hint when nothing matches (e.g. "N non-Matter devices seen").
@@ -93,17 +96,18 @@ Platform requirements:
 			ctx := cmd.Context()
 			devices, err := browser.Scan(ctx, timeout)
 			if err != nil {
+				stepper.Fail(fmt.Sprintf("BLE scan failed: %v", err))
 				return fmt.Errorf("BLE scan: %w", err)
 			}
 
 			total := totalSeen.Load()
 			if len(devices) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No commissionable Matter devices found."))
+				stepper.Fail("No commissionable Matter devices found")
 				if total > 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(), "%s %d non-Matter BLE advertisement(s) were seen — try 'matter discover ble --raw' to inspect them.\n",
+					fmt.Fprintf(cmd.ErrOrStderr(), "  %s %d non-Matter BLE advertisement(s) were seen — try 'matter discover ble --raw' to inspect them.\n",
 						output.InfoIcon(), total)
 				} else {
-					fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No BLE advertisements were received at all."))
+					fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("  No BLE advertisements were received at all."))
 					fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("  • Is Bluetooth enabled?"))
 					fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("  • Does this terminal app have Bluetooth permission? (macOS: System Settings → Privacy & Security → Bluetooth)"))
 					fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("  • Is the Matter device in commissioning mode and within BLE range?"))
@@ -111,6 +115,7 @@ Platform requirements:
 				return nil
 			}
 
+			stepper.Success(fmt.Sprintf("Found %d Matter device(s) over BLE", len(devices)))
 			return formatBLEDevices(cmd, devices)
 		},
 	}
@@ -208,12 +213,14 @@ func formatBLEDevices(cmd *cobra.Command, devices []*discovery.Device) error {
 			if name == "" {
 				name = output.Muted("(unknown)")
 			}
-			vid := fmt.Sprintf("0x%04X", d.VendorID)
-			pid := fmt.Sprintf("0x%04X", d.ProductID)
 			// Zero VID/PID means the advertisement didn't include them.
+			var vid string
 			if d.VendorID == 0 {
 				vid = output.Muted("—")
+			} else {
+				vid = vendordb.FormatVendorID(d.VendorID)
 			}
+			pid := fmt.Sprintf("0x%04X", d.ProductID)
 			if d.ProductID == 0 {
 				pid = output.Muted("—")
 			}
