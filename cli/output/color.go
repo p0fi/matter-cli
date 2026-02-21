@@ -12,17 +12,31 @@ import (
 // Color helpers respect the NO_COLOR environment variable
 // (https://no-color.org). When NO_COLOR is set, all style functions
 // return the input string unchanged.
+//
+// Colors are defined using ANSI color numbers (0–15) rather than hex values so
+// that they automatically adapt to whatever palette the user has configured in
+// their terminal emulator (e.g. Solarized, Nord, Dracula, Catppuccin, …).
+//
+// Standard ANSI palette:
+//
+//	0  Black        8  Bright Black (Dark Gray)
+//	1  Red          9  Bright Red
+//	2  Green       10  Bright Green
+//	3  Yellow      11  Bright Yellow
+//	4  Blue        12  Bright Blue
+//	5  Magenta     13  Bright Magenta
+//	6  Cyan        14  Bright Cyan
+//	7  White       15  Bright White
 
 var (
-	// Core colors.
-	colorGreen   = lipgloss.Color("#04B575")
-	colorRed     = lipgloss.Color("#FF4672")
-	colorYellow  = lipgloss.Color("#FFBD2E")
-	colorBlue    = lipgloss.Color("#51AFEF")
-	colorCyan    = lipgloss.Color("#56B6C2")
-	colorMagenta = lipgloss.Color("#C678DD")
-	colorDim     = lipgloss.Color("#5C6370")
-	colorWhite   = lipgloss.Color("#E5E5E5")
+	// Core colors — ANSI numbers, resolved by the terminal's own palette.
+	colorGreen   = lipgloss.ANSIColor(10) // Bright Green  → success
+	colorRed     = lipgloss.ANSIColor(9)  // Bright Red    → errors
+	colorYellow  = lipgloss.ANSIColor(11) // Bright Yellow → warnings
+	colorBlue    = lipgloss.ANSIColor(12) // Bright Blue   → info / headers
+	colorCyan    = lipgloss.ANSIColor(14) // Bright Cyan   → labels / commands
+	colorMagenta = lipgloss.ANSIColor(13) // Bright Magenta→ accents / IDs
+	colorWhite   = lipgloss.ANSIColor(7)  // White         → values
 
 	// StyleSuccess renders text in green.
 	StyleSuccess = lipgloss.NewStyle().Foreground(colorGreen)
@@ -34,18 +48,19 @@ var (
 	StyleInfo = lipgloss.NewStyle().Foreground(colorBlue)
 	// StyleBold renders text in bold.
 	StyleBold = lipgloss.NewStyle().Bold(true)
-	// StyleDim renders text with reduced intensity.
-	StyleDim = lipgloss.NewStyle().Foreground(colorDim)
+	// StyleDim renders text with reduced intensity using the terminal's own
+	// faint/dim attribute (ANSI SGR 2) rather than a fixed gray color.
+	StyleDim = lipgloss.NewStyle().Faint(true)
 
 	// StyleLabel renders a key/label (e.g. "Vendor:") in cyan bold.
 	StyleLabel = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	// StyleValue renders a value in white.
+	// StyleValue renders a value in the terminal's default foreground color.
 	StyleValue = lipgloss.NewStyle().Foreground(colorWhite)
 	// StyleAccent renders text in magenta (used for IDs, hex values).
 	StyleAccent = lipgloss.NewStyle().Foreground(colorMagenta)
 	// StyleHeader renders table/section headers in blue bold.
 	StyleHeader = lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
-	// StyleMuted renders secondary text in dim gray.
+	// StyleMuted renders secondary text using the terminal's faint attribute.
 	StyleMuted = StyleDim
 
 	// StyleCommand renders command names in cyan.
@@ -88,7 +103,7 @@ func Dim(s string) string { return render(StyleDim, s) }
 // Label formats a key/label in cyan bold.
 func Label(s string) string { return render(StyleLabel, s) }
 
-// Value formats a value in white.
+// Value formats a value in the default foreground color.
 func Value(s string) string { return render(StyleValue, s) }
 
 // Accent formats text in magenta (for IDs, hex values).
