@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/p0fi/matter-cli/internal/store"
+	"github.com/p0fi/matter-cli/internal/vendordb"
 )
 
 // FormatTree writes a tree-style representation of a node to w,
@@ -18,7 +19,7 @@ func FormatTree(w io.Writer, node *store.Node) error {
 		name = "Unnamed"
 	}
 	fmt.Fprintf(w, "%s %s\n", Bold(name), Muted(fmt.Sprintf("(Node %d)", node.ID)))
-	fmt.Fprintf(w, "  %s  %s\n", Label("Vendor:"), Accent(fmt.Sprintf("0x%04X", node.VendorID)))
+	fmt.Fprintf(w, "  %s  %s\n", Label("Vendor:"), Accent(vendordb.FormatVendorID(node.VendorID)))
 	fmt.Fprintf(w, "  %s %s\n", Label("Product:"), Accent(fmt.Sprintf("0x%04X", node.ProductID)))
 	if node.LastAddress != "" {
 		fmt.Fprintf(w, "  %s %s\n", Label("Address:"), Value(node.LastAddress))

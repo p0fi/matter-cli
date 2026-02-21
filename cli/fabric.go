@@ -8,6 +8,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
+	"github.com/p0fi/matter-cli/internal/vendordb"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -67,7 +68,7 @@ func newFabricLsCmd() *cobra.Command {
 					td.Rows = append(td.Rows, []string{
 						fmt.Sprintf("%d", n.ID),
 						n.Name,
-						fmt.Sprintf("0x%04X", n.VendorID),
+						vendordb.FormatVendorID(n.VendorID),
 						fmt.Sprintf("0x%04X", n.ProductID),
 						fmt.Sprintf("%d", len(n.Endpoints)),
 						formatLastSeen(n.LastSeen),
@@ -103,7 +104,7 @@ func newFabricInfoCmd() *cobra.Command {
 				fmt.Fprintf(w, "%s\n\n", output.Header("Fabric"))
 				fmt.Fprintf(w, "  %s         %s\n", output.Label("ID:"), output.Value(fmt.Sprintf("%d", fabric.ID)))
 				fmt.Fprintf(w, "  %s      %s\n", output.Label("Label:"), output.Value(fabric.Label))
-				fmt.Fprintf(w, "  %s  %s\n", output.Label("Vendor ID:"), output.Accent(fmt.Sprintf("0x%04X", fabric.VendorID)))
+				fmt.Fprintf(w, "  %s  %s\n", output.Label("Vendor ID:"), output.Accent(vendordb.FormatVendorID(fabric.VendorID)))
 				fmt.Fprintf(w, "  %s      %s\n", output.Label("Index:"), output.Value(fmt.Sprintf("%d", fabric.FabricIndex)))
 				fmt.Fprintf(w, "  %s    %s\n", output.Label("Created:"), output.Muted(fabric.CreatedAt.Format("2006-01-02 15:04:05")))
 

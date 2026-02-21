@@ -10,6 +10,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/discovery"
+	"github.com/p0fi/matter-cli/internal/vendordb"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +95,7 @@ func formatDevices(cmd *cobra.Command, devices []*discovery.Device) error {
 				strings.Join(addrs, ", "),
 				fmt.Sprintf("%d", d.Port),
 				fmt.Sprintf("%d", d.Discriminator),
-				fmt.Sprintf("0x%04X", d.VendorID),
+				vendordb.FormatVendorID(d.VendorID),
 				fmt.Sprintf("0x%04X", d.ProductID),
 				fmt.Sprintf("%d", d.CommissioningMode),
 			})

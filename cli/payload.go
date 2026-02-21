@@ -8,6 +8,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/commissioning"
+	"github.com/p0fi/matter-cli/internal/vendordb"
 	"github.com/spf13/cobra"
 )
 
@@ -58,7 +59,7 @@ func newPayloadParseCmd() *cobra.Command {
 
 				fmt.Fprintf(w, "%s\n\n", output.Header("Setup Payload"))
 				fmt.Fprintf(w, "  %s       %s\n", output.Label("Version:"), output.Value(fmt.Sprintf("%d", payload.Version)))
-				fmt.Fprintf(w, "  %s     %s\n", output.Label("Vendor ID:"), output.Accent(fmt.Sprintf("0x%04X", payload.VendorID)))
+				fmt.Fprintf(w, "  %s     %s\n", output.Label("Vendor ID:"), output.Accent(vendordb.FormatVendorID(payload.VendorID)))
 				fmt.Fprintf(w, "  %s    %s\n", output.Label("Product ID:"), output.Accent(fmt.Sprintf("0x%04X", payload.ProductID)))
 				fmt.Fprintf(w, "  %s          %s\n", output.Label("Flow:"), output.Value(fmt.Sprintf("%d", payload.CommissioningFlow)))
 				fmt.Fprintf(w, "  %s     %s\n", output.Label("Discovery:"), output.Value(fmt.Sprintf("0x%02X", payload.DiscoveryCapabilities)))
