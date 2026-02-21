@@ -121,10 +121,10 @@ type ScanResult struct {
 // All methods use our own BLEAddress / BLEUUID types so callers need not
 // import tinygo.
 
-// bleAdapter is the platform BLE adapter abstraction used by BLEScanner and
+// BLEAdapter is the platform BLE adapter abstraction used by BLEScanner and
 // BLEConn. The real implementation wraps tinygo.org/x/bluetooth; tests use
 // a mock.
-type bleAdapter interface {
+type BLEAdapter interface {
 	// Enable initialises the BLE adapter. Must be called before Scan or Connect.
 	Enable() error
 
@@ -138,32 +138,38 @@ type bleAdapter interface {
 	StopScan() error
 
 	// Connect establishes a GATT connection to the device at addr.
-	// Returns a bleDevice ready for service/characteristic discovery.
-	Connect(ctx context.Context, addr BLEAddress) (bleDevice, error)
+	// Returns a BLEDevice ready for service/characteristic discovery.
+	Connect(ctx context.Context, addr BLEAddress) (BLEDevice, error)
 }
 
-// bleDevice represents an open GATT connection to a remote BLE device.
-type bleDevice interface {
+// Internal aliases for backward compatibility with existing code.
+type bleAdapter = BLEAdapter
+type bleDevice = BLEDevice
+type bleService = BLEService
+type bleCharacteristic = BLECharacteristic
+
+// BLEDevice represents an open GATT connection to a remote BLE device.
+type BLEDevice interface {
 	// DiscoverServices discovers GATT services. Pass nil to discover all; pass
 	// a list of UUIDs to filter to specific services.
-	DiscoverServices(uuids []BLEUUID) ([]bleService, error)
+	DiscoverServices(uuids []BLEUUID) ([]BLEService, error)
 
 	// Disconnect closes the GATT connection.
 	Disconnect() error
 }
 
-// bleService represents a single GATT service on a connected device.
-type bleService interface {
+// BLEService represents a single GATT service on a connected device.
+type BLEService interface {
 	// UUID returns the 128-bit UUID identifying this service.
 	UUID() BLEUUID
 
 	// DiscoverCharacteristics discovers characteristics within the service.
 	// Pass nil to discover all; pass a list of UUIDs to filter.
-	DiscoverCharacteristics(uuids []BLEUUID) ([]bleCharacteristic, error)
+	DiscoverCharacteristics(uuids []BLEUUID) ([]BLECharacteristic, error)
 }
 
-// bleCharacteristic represents a single GATT characteristic.
-type bleCharacteristic interface {
+// BLECharacteristic represents a single GATT characteristic.
+type BLECharacteristic interface {
 	// UUID returns the 128-bit UUID identifying this characteristic.
 	UUID() BLEUUID
 

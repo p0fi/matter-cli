@@ -35,34 +35,50 @@ const (
 	ServiceOperational ServiceType = "_matter._tcp"
 )
 
-// Device represents a Matter device discovered via mDNS.
+// TransportType identifies the transport over which a device was discovered.
+type TransportType string
+
+const (
+	// TransportIP indicates the device was discovered via mDNS/IP.
+	TransportIP TransportType = "ip"
+	// TransportBLE indicates the device was discovered via BLE.
+	TransportBLE TransportType = "ble"
+)
+
+// Device represents a Matter device discovered via mDNS or BLE.
 type Device struct {
-	// Name is the mDNS instance name.
+	// Name is the mDNS instance name or BLE local name.
 	Name string
 
-	// Host is the mDNS hostname of the device.
+	// Host is the mDNS hostname of the device (empty for BLE).
 	Host string
 
-	// IPs contains the IP addresses at which the device can be reached.
+	// IPs contains the IP addresses at which the device can be reached (empty for BLE).
 	IPs []net.IP
 
-	// Port is the Matter protocol port.
+	// Port is the Matter protocol port (0 for BLE).
 	Port int
 
 	// ServiceType indicates whether this is a commissionable or operational device.
 	ServiceType ServiceType
 
-	// Discriminator is the 12-bit device discriminator from the D= TXT record.
+	// Transport indicates whether the device was discovered via IP or BLE.
+	Transport TransportType
+
+	// Discriminator is the 12-bit device discriminator.
 	Discriminator uint16
 
-	// CommissioningMode is parsed from the CM= TXT record.
+	// CommissioningMode is parsed from the CM= TXT record (IP only).
 	CommissioningMode CommissioningMode
 
-	// VendorID is parsed from the VP= TXT record (format: "VID+PID").
+	// VendorID is the 16-bit vendor identifier.
 	VendorID uint16
 
-	// ProductID is parsed from the VP= TXT record (format: "VID+PID").
+	// ProductID is the 16-bit product identifier.
 	ProductID uint16
+
+	// BLEAddress is the opaque BLE device address (non-empty only for BLE devices).
+	BLEAddress string
 
 	// SessionIdleInterval is parsed from the SII= TXT record (in milliseconds).
 	SessionIdleInterval uint32
@@ -70,7 +86,7 @@ type Device struct {
 	// SessionActiveInterval is parsed from the SAI= TXT record (in milliseconds).
 	SessionActiveInterval uint32
 
-	// TXTRecords contains the raw TXT record key-value pairs.
+	// TXTRecords contains the raw TXT record key-value pairs (IP only).
 	TXTRecords map[string]string
 }
 

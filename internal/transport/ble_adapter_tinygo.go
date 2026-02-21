@@ -35,10 +35,10 @@ type tinygoAdapter struct {
 	a *ble.Adapter
 }
 
-// NewDefaultBLEAdapter returns a bleAdapter backed by the system's default
+// NewDefaultBLEAdapter returns a BLEAdapter backed by the system's default
 // Bluetooth adapter (bluetooth.DefaultAdapter). Call Enable() on the returned
 // adapter before using it.
-func NewDefaultBLEAdapter() bleAdapter {
+func NewDefaultBLEAdapter() BLEAdapter {
 	return &tinygoAdapter{a: ble.DefaultAdapter}
 }
 

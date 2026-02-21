@@ -43,6 +43,7 @@ func newCommissionCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newCommissionCodeCmd())
 	cmd.AddCommand(newCommissionIPCmd())
+	addBLECommissionCommands(cmd)
 	return cmd
 }
 
