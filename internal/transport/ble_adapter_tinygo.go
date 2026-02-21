@@ -20,7 +20,10 @@ package transport
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	ble "tinygo.org/x/bluetooth"
 )
@@ -56,6 +59,8 @@ func (t *tinygoAdapter) Enable() error {
 func (t *tinygoAdapter) Scan(ctx context.Context, cb func(BLEScanAdvertisement)) error {
 	errCh := make(chan error, 1)
 
+	slog.Debug("ble: scan started")
+
 	go func() {
 		errCh <- t.a.Scan(func(adapter *ble.Adapter, r ble.ScanResult) {
 			// Build our platform-agnostic advertisement.
@@ -68,6 +73,48 @@ func (t *tinygoAdapter) Scan(ctx context.Context, cb func(BLEScanAdvertisement))
 			for _, sd := range r.ServiceData() {
 				adv.ServiceData[BLEUUID(sd.UUID.String())] = append([]byte(nil), sd.Data...)
 			}
+
+			// If the Matter service UUID appears in the ServiceUUIDs list but
+			// CoreBluetooth did not populate ServiceData (which happens on some
+			// macOS versions / devices), synthesise an empty entry so that
+			// downstream code at least knows this is a Matter device. The
+			// BLEScanner will skip devices with too-short service data, but
+			// future code can handle the partial case.
+			matterUUID := ble.New16BitUUID(0xFFF6)
+			if _, hasSvcData := adv.ServiceData[MatterServiceUUID]; !hasSvcData {
+				if r.HasServiceUUID(matterUUID) {
+					slog.Debug("ble: Matter UUID present in ServiceUUIDs but no ServiceData — device in commissioning mode without payload")
+					adv.ServiceData[MatterServiceUUID] = nil
+				}
+			}
+
+			// Emit a debug log line for every advertisement so operators can
+			// diagnose scan issues with -v / --verbose.
+			if slog.Default().Enabled(ctx, slog.LevelDebug) {
+				svcDataKeys := make([]string, 0, len(adv.ServiceData))
+				svcDataHex := make([]string, 0, len(adv.ServiceData))
+				for k, v := range adv.ServiceData {
+					svcDataKeys = append(svcDataKeys, string(k))
+					svcDataHex = append(svcDataHex, hex.EncodeToString(v))
+				}
+				// Build a human-readable service-UUID list by probing common
+				// short UUIDs. tinygo's AdvertisementPayload doesn't expose a
+				// ServiceUUIDs() accessor directly on ScanResult, but we can
+				// check the service data keys and the HasServiceUUID helper.
+				var svcFlags []string
+				if r.HasServiceUUID(matterUUID) {
+					svcFlags = append(svcFlags, "Matter(0xFFF6)")
+				}
+				slog.Debug("ble: advertisement",
+					"addr", adv.Address,
+					"rssi", adv.RSSI,
+					"name", adv.LocalName,
+					"svcFlags", strings.Join(svcFlags, ","),
+					"svcDataKeys", svcDataKeys,
+					"svcDataHex", svcDataHex,
+				)
+			}
+
 			cb(adv)
 		})
 	}()

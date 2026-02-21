@@ -329,11 +329,31 @@ const matterAdvMinLen = 8
 //	Byte 3–4:  Vendor ID  (uint16 LE)
 //	Byte 5–6:  Product ID (uint16 LE)
 //	Byte 7:    Additional Data flag (bit 0 = C3 data present)
+//
+// On some platforms (notably macOS with CoreBluetooth) the service data
+// payload may not be delivered even though the Matter service UUID (0xFFF6) is
+// present in the "List of Service UUIDs" AD type.  In that case the adapter
+// layer synthesises a nil entry in ServiceData so that this function can still
+// surface the device.  A ScanResult with zero Discriminator/VID/PID is
+// returned so callers know the device exists but the detailed payload was not
+// available.
 func parseMatterAdvertisement(adv BLEScanAdvertisement) (ScanResult, bool) {
 	data, ok := adv.ServiceData[MatterServiceUUID]
 	if !ok {
 		return ScanResult{}, false
 	}
+
+	// Partial advertisement: the Matter service UUID was observed in the
+	// ServiceUUIDs list but CoreBluetooth did not include service data.
+	// Return a minimal ScanResult so the device is at least visible.
+	if len(data) == 0 {
+		return ScanResult{
+			Address: adv.Address,
+			RSSI:    adv.RSSI,
+			Name:    adv.LocalName,
+		}, true
+	}
+
 	if len(data) < matterAdvMinLen {
 		return ScanResult{}, false
 	}

@@ -342,15 +342,15 @@ func TestParseMatterAdvertisement_NilServiceData(t *testing.T) {
 }
 
 func TestParseMatterAdvertisement_TooShort(t *testing.T) {
-	tests := []struct {
+	// Payloads of 1–7 bytes are malformed and must be rejected.
+	malformed := []struct {
 		name string
 		data []byte
 	}{
-		{"empty", []byte{}},
 		{"1 byte", []byte{0x00}},
 		{"7 bytes (one short)", []byte{0x00, 0xBC, 0x0A, 0xF1, 0xFF, 0x00, 0x80}},
 	}
-	for _, tt := range tests {
+	for _, tt := range malformed {
 		t.Run(tt.name, func(t *testing.T) {
 			adv := BLEScanAdvertisement{
 				Address: "AA:BB:CC:DD:EE:FF",
@@ -362,6 +362,30 @@ func TestParseMatterAdvertisement_TooShort(t *testing.T) {
 			assert.False(t, ok, "should reject payload of length %d", len(tt.data))
 		})
 	}
+}
+
+// TestParseMatterAdvertisement_NilPayload verifies that a nil (zero-length)
+// service data entry — synthesised by the adapter when CoreBluetooth exposes
+// the Matter UUID in ServiceUUIDs but omits the service data payload — is
+// accepted and returns a partial ScanResult so the device is still visible.
+func TestParseMatterAdvertisement_NilPayload(t *testing.T) {
+	adv := BLEScanAdvertisement{
+		Address:   "AA:BB:CC:DD:EE:FF",
+		RSSI:      -60,
+		LocalName: "MatterDevice",
+		ServiceData: map[BLEUUID][]byte{
+			MatterServiceUUID: nil, // synthesised when service data absent
+		},
+	}
+	sr, ok := parseMatterAdvertisement(adv)
+	assert.True(t, ok, "nil payload should return ok=true (partial result)")
+	assert.Equal(t, BLEAddress("AA:BB:CC:DD:EE:FF"), sr.Address)
+	assert.Equal(t, int16(-60), sr.RSSI)
+	assert.Equal(t, "MatterDevice", sr.Name)
+	// Discriminator and VID/PID are zero because the payload was absent.
+	assert.Equal(t, uint16(0), sr.Discriminator)
+	assert.Equal(t, uint16(0), sr.VendorID)
+	assert.Equal(t, uint16(0), sr.ProductID)
 }
 
 func TestParseMatterAdvertisement_WrongOpCode(t *testing.T) {
