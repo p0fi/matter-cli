@@ -64,5 +64,13 @@ func corebtPollValue(ctx context.Context, _ unsafe.Pointer) ([]byte, error) {
 // rawPtr is always nil on these platforms, so this is never called in practice.
 func corebtReadAndClear(_ unsafe.Pointer) []byte { return nil }
 
+// corebtWriteWithoutResponse always returns -1 on non-Darwin platforms,
+// signalling the caller to fall back to tinygo's write path.
+// rawPtr is always nil on these platforms, so this is never called in practice.
+func corebtWriteWithoutResponse(_ unsafe.Pointer, _ []byte) int { return -1 }
+
+// corebtIsBTQueueInitialized always returns false on non-Darwin platforms.
+func corebtIsBTQueueInitialized() bool { return false }
+
 // Ensure the time import is used (corebtWaitNotifying may need it in future).
 var _ = time.Second

@@ -264,7 +264,26 @@ func (tc *tinygoCharacteristic) UUID() BLEUUID {
 // Write performs a GATT Write Without Response on the characteristic.
 // Matter BTP (§4.15) specifies C1 as write-without-response for both the
 // BTP Capabilities Request and all subsequent data segments.
+//
+// On macOS, the write is dispatched to bt_queue using the fresh (live)
+// CBCharacteristic pointer. This is the same stale-pointer fix applied to
+// setNotifyValue:YES — CoreBluetooth silently rejects writeValue:forCharacteristic:
+// with CBError code 8 when the pointer passed is not pointer-identical to the
+// live object in svc.characteristics. Calling from a goroutine thread instead
+// of bt_queue also risks silent failure on some macOS versions.
+//
+// Falls back to tinygo's WriteWithoutResponse if rawPtr is nil (non-macOS,
+// extraction failed) or if bt_queue is not yet initialised.
 func (tc *tinygoCharacteristic) Write(data []byte) (int, error) {
+	if tc.rawPtr != nil {
+		n := corebtWriteWithoutResponse(tc.rawPtr, data)
+		if n >= 0 {
+			slog.Debug("ble: C1 write dispatched to bt_queue", "bytes", n)
+			return n, nil
+		}
+		// bt_queue not ready or nil pointer chain — fall through to tinygo path.
+		slog.Debug("ble: C1 write via bt_queue failed (nil chain or bt_queue), falling back to tinygo write")
+	}
 	return tc.c.WriteWithoutResponse(data)
 }
 

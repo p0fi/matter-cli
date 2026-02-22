@@ -175,6 +175,12 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	// write before we send the capabilities request.
 	time.Sleep(50 * time.Millisecond)
 
+	// Diagnostic: confirm bt_queue is initialised before we attempt any
+	// bt_queue-dispatched operations. All corebt* functions that use
+	// dispatch_sync fall back to direct (potentially unreliable) access when
+	// bt_queue is NULL, so knowing its state helps diagnose failures.
+	slog.Debug("ble: bt_queue state", "initialized", corebtIsBTQueueInitialized())
+
 	// ── Step 5c: Clear any stale C2 value BEFORE writing to C1 ──
 	//
 	// This MUST happen before the write, not after. The device sends its BTP

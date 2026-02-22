@@ -16,6 +16,15 @@ package transport
 // Functions that use it must see it declared before their first reference.
 extern dispatch_queue_t bt_queue;
 
+// ble_is_bt_queue_initialized returns 1 if bt_queue is non-NULL (i.e. cbgo
+// has been initialised). Used for diagnostic logging from Go.
+static int ble_is_bt_queue_initialized(void) {
+	return (bt_queue != NULL) ? 1 : 0;
+}
+
+// Forward declaration — defined further below after the bt_queue extern.
+static CBCharacteristic * ble_find_fresh_characteristic(CBCharacteristic *stale);
+
 // ble_chr_is_notifying returns whether the given CBCharacteristic currently
 // has notifications/indications enabled (i.e. the CCCD subscription is active).
 static bool ble_chr_is_notifying(void *chr) {
@@ -72,6 +81,34 @@ static void ble_chr_clear_value(void *chr) {
 		@try { [clearChr setValue:nil forKey:@"value"]; }
 		@catch (NSException *e) {}
 	});
+}
+
+// ble_chr_write_without_response dispatches a GATT Write Without Response to
+// bt_queue and uses the "fresh" characteristic pointer (looked up from
+// svc.characteristics by UUID). This is the same stale-pointer fix applied
+// to setNotifyValue: — CoreBluetooth silently rejects writeValue:forCharacteristic:
+// with CBError code 8 ("The specified UUID is not allowed") when the pointer
+// passed in is not pointer-identical to the live CBCharacteristic object in
+// svc.characteristics. Calling from an arbitrary goroutine thread (instead of
+// bt_queue) compounds this: CoreBluetooth can process the call, but doing all
+// peripheral operations on bt_queue is the safe approach.
+//
+// Returns data_len on success, -1 if any pointer in the chain is nil or
+// bt_queue is not yet initialised.
+static int ble_chr_write_without_response(void *chr, void *data, int data_len) {
+	if (chr == NULL || data == NULL || data_len <= 0 || bt_queue == NULL) return -1;
+	CBCharacteristic *fresh = ble_find_fresh_characteristic((CBCharacteristic *)chr);
+	CBService *svc = fresh.service;
+	if (svc == nil) return -1;
+	CBPeripheral *peripheral = svc.peripheral;
+	if (peripheral == nil) return -1;
+	NSData *nsData = [NSData dataWithBytes:data length:(NSUInteger)data_len];
+	dispatch_sync(bt_queue, ^{
+		[peripheral writeValue:nsData
+		    forCharacteristic:fresh
+		                 type:CBCharacteristicWriteWithoutResponse];
+	});
+	return data_len;
 }
 
 // ble_chr_read_and_clear atomically reads the characteristic's cached value
@@ -250,6 +287,29 @@ func corebtCachedValue(chrPtr unsafe.Pointer) []byte {
 // so that subsequent polls can detect a fresh indication.
 func corebtClearValue(chrPtr unsafe.Pointer) {
 	C.ble_chr_clear_value(chrPtr)
+}
+
+// corebtIsBTQueueInitialized returns true if cbgo's bt_queue has been set up.
+// Used for diagnostic logging only.
+func corebtIsBTQueueInitialized() bool {
+	return C.ble_is_bt_queue_initialized() != 0
+}
+
+// corebtWriteWithoutResponse dispatches a GATT Write Without Response to
+// bt_queue using the fresh (live) CBCharacteristic pointer. Returns the number
+// of bytes written, or -1 if the write could not be dispatched (nil pointer
+// chain or bt_queue not yet initialised). The caller should fall back to the
+// tinygo write path if -1 is returned.
+func corebtWriteWithoutResponse(chrPtr unsafe.Pointer, data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := int(C.ble_chr_write_without_response(
+		chrPtr,
+		unsafe.Pointer(&data[0]),
+		C.int(len(data)),
+	))
+	return n
 }
 
 // corebtReadAndClear atomically reads and clears the characteristic's cached
