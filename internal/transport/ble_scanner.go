@@ -180,7 +180,50 @@ type BLECharacteristic interface {
 	// EnableNotifications registers cb to be called whenever the remote device
 	// sends an indication or notification on this characteristic.
 	// Calling EnableNotifications a second time replaces the previous callback.
+	//
+	// On macOS this also triggers an asynchronous CCCD write via CoreBluetooth
+	// (tinygo calls setNotifyValue:YES internally). The write is asynchronous —
+	// call WaitForNotifying afterward to confirm the subscription is active
+	// before writing any request that expects an indication response.
 	EnableNotifications(cb func(data []byte)) error
+
+	// WaitForNotifying blocks until the characteristic's CCCD subscription is
+	// fully acknowledged by the peripheral (i.e. isNotifying becomes true).
+	// On macOS this polls CBCharacteristic.isNotifying via CoreBluetooth; on
+	// other platforms (or when the raw pointer is unavailable) it returns
+	// immediately since EnableNotifications is synchronous there.
+	//
+	// This MUST be called after EnableNotifications and before writing any
+	// request that expects an indication response.
+	WaitForNotifying(ctx context.Context) error
+
+	// ClearCachedValue discards any previously cached indication/notification
+	// value so that a subsequent WaitForValue call will block until genuinely
+	// new data arrives. On macOS the clear is dispatched to bt_queue for
+	// thread safety. Call this just before writing a request that expects an
+	// indication response to avoid stale data being returned.
+	ClearCachedValue()
+
+	// WaitForValue polls the characteristic's cached value until it becomes
+	// non-nil or the context is cancelled. This provides a reliable fallback
+	// for reading indication/notification data when the BLE stack's callback
+	// delivery is unreliable (e.g. tinygo bluetooth on macOS).
+	//
+	// The caller is responsible for calling ClearCachedValue before issuing
+	// any request whose response will be delivered as an indication — WaitForValue
+	// no longer clears the value internally.
+	//
+	// The returned slice is a snapshot of the value at the time it was
+	// observed. Callers should treat it as read-only.
+	WaitForValue(ctx context.Context) ([]byte, error)
+
+	// ReadAndClearCachedValue atomically reads and clears the characteristic's
+	// cached indication/notification value in a single bt_queue-dispatched
+	// operation. Returns nil if no value is currently cached. Use this in a
+	// polling loop for ongoing data delivery — the atomic read+clear prevents
+	// the race where a second indication arrives between a separate read and
+	// a separate clear.
+	ReadAndClearCachedValue() []byte
 }
 
 // ─── BLEScanner ──────────────────────────────────────────────────────────────
@@ -260,12 +303,23 @@ func (s *BLEScanner) Scan(ctx context.Context) ([]ScanResult, error) {
 	return results, scanErr
 }
 
-// FindByDiscriminator scans until a device with the given 12-bit discriminator
-// is found or the context is cancelled.
+// FindByDiscriminator scans until a device with the given discriminator is
+// found or the context is cancelled.
+//
+// When the lower 8 bits of discriminator are zero the caller only has the
+// 4-bit short discriminator (from a manual pairing code). In that case the
+// match is performed on the upper 4 bits only, mirroring the mDNS discoverer
+// behaviour.
 //
 // Returns a pointer to the matching ScanResult, or an error if no device was
 // found before the context expired.
 func (s *BLEScanner) FindByDiscriminator(ctx context.Context, discriminator uint16) (*ScanResult, error) {
+	// Detect short-discriminator mode: manual pairing codes encode only
+	// the upper 4 bits and store them as shortDisc<<8, leaving bits [7:0]
+	// zero. When we see this pattern we match on the short discriminator.
+	shortMatch := discriminator&0xFF == 0
+	shortDisc := discriminator >> 8
+
 	found := make(chan ScanResult, 1)
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -275,7 +329,13 @@ func (s *BLEScanner) FindByDiscriminator(ctx context.Context, discriminator uint
 		if !ok {
 			return
 		}
-		if sr.Discriminator != discriminator {
+		var matches bool
+		if shortMatch {
+			matches = sr.Discriminator>>8 == shortDisc
+		} else {
+			matches = sr.Discriminator == discriminator
+		}
+		if !matches {
 			return
 		}
 		// Non-blocking send: if the channel already has a result, ignore.

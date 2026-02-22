@@ -32,7 +32,7 @@ func TestBLEAddr_String(t *testing.T) {
 // service and C1/C2 characteristics ready for a BTP handshake.
 func buildMockDeviceForDial() (*mockBLEAdapter, *mockBLECharacteristic, *mockBLECharacteristic) {
 	c1 := &mockBLECharacteristic{uuid: MatterC1UUID}
-	c2 := &mockBLECharacteristic{uuid: MatterC2UUID}
+	c2 := &mockBLECharacteristic{uuid: MatterC2UUID, waitCh: make(chan []byte, 1)}
 	svc := &mockBLEService{
 		uuid:            MatterServiceUUID,
 		characteristics: []bleCharacteristic{c1, c2},
@@ -48,27 +48,34 @@ func buildMockDeviceForDial() (*mockBLEAdapter, *mockBLECharacteristic, *mockBLE
 	return adapter, c1, c2
 }
 
+// buildBTPHandshakeResponse constructs a valid BTP Capabilities Response.
+func buildBTPHandshakeResponse() []byte {
+	resp := make([]byte, btpCapsResponseLen)
+	resp[0] = btpCapsMagic1
+	resp[1] = btpCapsMagic2
+	resp[2] = btpCurrentVersion
+	resp[3] = byte(btpDefaultSegmentSize)
+	resp[4] = byte(btpDefaultSegmentSize >> 8)
+	resp[5] = btpDefaultWindowSize
+	return resp
+}
+
 func TestDialBLE_Success(t *testing.T) {
 	adapter, _, c2 := buildMockDeviceForDial()
 
-	// Simulate the device sending a BTP HandshakeResponse when C2 notifications
-	// are enabled. We do this by having the mock c2 deliver the response
-	// asynchronously when notifications are enabled.
+	// Simulate the device sending a BTP HandshakeResponse. The response is
+	// delivered via the WaitForValue channel (poll path), which is the
+	// primary delivery mechanism. The notification callback path is also
+	// tested separately below.
 	go func() {
-		// Wait a short time for the notification handler to be registered.
-		time.Sleep(50 * time.Millisecond)
-		// Build a valid handshake response.
-		resp := make([]byte, btpHandshakeFrameLen)
-		resp[0] = btpFlagHandshake
-		resp[1] = btpOpcodeHandshakeResponse
-		resp[2] = btpCurrentVersion
-		resp[3] = byte(btpDefaultATTMTU)
-		resp[4] = byte(btpDefaultATTMTU >> 8)
-		resp[5] = btpDefaultWindowSize
-		// Deliver via the notification callback.
-		if c2.notifCb != nil {
-			c2.notifCb(resp)
-		}
+		// Wait long enough for DialBLE to complete: WaitForNotifying (instant
+		// in mock) + 50 ms settle sleep + ClearCachedValue (instant in mock) +
+		// C1 Write (instant in mock). Using 200 ms gives a comfortable margin
+		// so ClearCachedValue never races against our send and inadvertently
+		// drains the response before WaitForValue picks it up.
+		time.Sleep(200 * time.Millisecond)
+		resp := buildBTPHandshakeResponse()
+		c2.waitCh <- resp
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -122,23 +129,63 @@ func TestDialBLE_MissingCharacteristics(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing required characteristic")
 }
 
+func TestDialBLE_SuccessViaNotificationPath(t *testing.T) {
+	adapter, _, c2 := buildMockDeviceForDial()
+
+	// This test verifies that the notification callback path (Path A) also
+	// works. We deliver the response only via the notification callback and
+	// leave waitCh empty (drain it first so WaitForValue blocks).
+	drainedC2 := &mockBLECharacteristic{uuid: MatterC2UUID, waitCh: nil}
+	// Rebuild the adapter with drainedC2 so WaitForValue blocks forever.
+	svc := &mockBLEService{
+		uuid:            MatterServiceUUID,
+		characteristics: []bleCharacteristic{&mockBLECharacteristic{uuid: MatterC1UUID}, drainedC2},
+	}
+	dev := &mockBLEDevice{services: []bleService{svc}}
+	adapter = &mockBLEAdapter{
+		connectFn: func(ctx context.Context, addr BLEAddress) (bleDevice, error) {
+			return dev, nil
+		},
+	}
+	_ = c2 // original c2 unused in this test
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		resp := buildBTPHandshakeResponse()
+		if drainedC2.notifCb != nil {
+			drainedC2.notifCb(resp)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := DialBLE(ctx, adapter, "AA:BB:CC:DD:EE:FF")
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	assert.Equal(t, "ble", conn.peerAddr.Network())
+}
+
 func TestDialBLE_HandshakeTimeout(t *testing.T) {
 	adapter, _, _ := buildMockDeviceForDial()
 	// Don't send a handshake response — the dial should time out.
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	_, err := DialBLE(ctx, adapter, "AA:BB:CC:DD:EE:FF")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
+	assert.Contains(t, err.Error(), "BTP handshake")
 }
 
 // ─── BLEConn.Send/Receive tests ──────────────────────────────────────────────
 
 // newTestBLEConn creates a BLEConn for testing with a mock C1 characteristic
 // and a pre-initialized BTP session. The BTP session is pre-configured to
-// skip the handshake.
+// skip the handshake. c2 is left nil so startC2DataPoller is a no-op —
+// tests that need incoming segments inject them directly via btp.handleSegment.
 func newTestBLEConn() (*BLEConn, *mockBLECharacteristic, *mockBLEDevice) {
 	c1 := &mockBLECharacteristic{uuid: MatterC1UUID}
 	dev := &mockBLEDevice{}
@@ -148,6 +195,7 @@ func newTestBLEConn() (*BLEConn, *mockBLECharacteristic, *mockBLEDevice) {
 	conn := &BLEConn{
 		device:   dev,
 		c1:       c1,
+		c2:       nil, // no C2 poller in unit tests; data injected directly
 		btp:      btp,
 		peerAddr: &BLEAddr{Address: "AA:BB:CC:DD:EE:FF"},
 		closed:   make(chan struct{}),

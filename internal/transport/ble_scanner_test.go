@@ -183,6 +183,7 @@ type mockBLECharacteristic struct {
 	writeErr          error
 	notifCb           func([]byte)
 	enableNotifErr    error
+	waitCh            chan []byte // delivers data for WaitForValue
 }
 
 func (c *mockBLECharacteristic) UUID() BLEUUID { return c.uuid }
@@ -205,6 +206,48 @@ func (c *mockBLECharacteristic) EnableNotifications(cb func([]byte)) error {
 	}
 	c.notifCb = cb
 	return nil
+}
+
+func (c *mockBLECharacteristic) WaitForNotifying(_ context.Context) error {
+	return nil
+}
+
+func (c *mockBLECharacteristic) WaitForValue(ctx context.Context) ([]byte, error) {
+	if c.waitCh == nil {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	select {
+	case data := <-c.waitCh:
+		return data, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ClearCachedValue discards any pending value from waitCh without blocking.
+func (c *mockBLECharacteristic) ClearCachedValue() {
+	if c.waitCh == nil {
+		return
+	}
+	select {
+	case <-c.waitCh:
+	default:
+	}
+}
+
+// ReadAndClearCachedValue atomically reads and removes a pending value from
+// waitCh. Returns nil if no value is currently available.
+func (c *mockBLECharacteristic) ReadAndClearCachedValue() []byte {
+	if c.waitCh == nil {
+		return nil
+	}
+	select {
+	case data := <-c.waitCh:
+		return data
+	default:
+		return nil
+	}
 }
 
 // writtenData returns a copy of all byte slices written to this characteristic.
@@ -668,6 +711,48 @@ func TestBLEScanner_FindByDiscriminator_StopsAfterFound(t *testing.T) {
 	called := adapter.scanCalled
 	adapter.mu.Unlock()
 	assert.Equal(t, 1, called, "Scan should be called exactly once")
+}
+
+func TestBLEScanner_FindByDiscriminator_ShortDiscriminator(t *testing.T) {
+	// Manual pairing codes encode only the upper 4 bits of the 12-bit
+	// discriminator as shortDisc<<8 (lower 8 bits zero). The scanner
+	// must match on the upper 4 bits only when this pattern is detected.
+	target := BLEAddress("AA:BB:CC:DD:EE:FF")
+	adapter := &mockBLEAdapter{
+		advertisements: []BLEScanAdvertisement{
+			// Device with full discriminator 0x0EB1 — short disc = 0x0E.
+			makeMatterAdv(target, 0x0EB1, 0x130A, 0x0050, -60, "EveEnergy"),
+		},
+	}
+	scanner := NewBLEScanner(adapter)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Manual pairing code encodes short discriminator 0x0E as 0x0E00.
+	result, err := scanner.FindByDiscriminator(ctx, 0x0E00)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, target, result.Address)
+	assert.Equal(t, uint16(0x0EB1), result.Discriminator)
+}
+
+func TestBLEScanner_FindByDiscriminator_ShortDiscriminatorNoMatch(t *testing.T) {
+	adapter := &mockBLEAdapter{
+		advertisements: []BLEScanAdvertisement{
+			// Device with full discriminator 0x0EB1 — short disc = 0x0E.
+			makeMatterAdv("AA:BB:CC:DD:EE:FF", 0x0EB1, 0x130A, 0x0050, -60, "EveEnergy"),
+		},
+	}
+	scanner := NewBLEScanner(adapter)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Short discriminator 0x0F (= 0x0F00) should NOT match 0x0EB1 (short = 0x0E).
+	result, err := scanner.FindByDiscriminator(ctx, 0x0F00)
+	require.Error(t, err)
+	assert.Nil(t, result)
 }
 
 func TestBLEScanner_FindByDiscriminator_FirstDeviceAmongMany(t *testing.T) {
