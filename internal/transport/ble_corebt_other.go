@@ -69,8 +69,20 @@ func corebtReadAndClear(_ unsafe.Pointer) []byte { return nil }
 // rawPtr is always nil on these platforms, so this is never called in practice.
 func corebtWriteWithoutResponse(_ unsafe.Pointer, _ []byte) int { return -1 }
 
+// corebtWriteWithResponse always returns -1 on non-Darwin platforms.
+// rawPtr is always nil on these platforms, so this is never called in practice.
+func corebtWriteWithResponse(_ unsafe.Pointer, _ []byte) int { return -1 }
+
 // corebtIsBTQueueInitialized always returns false on non-Darwin platforms.
 func corebtIsBTQueueInitialized() bool { return false }
+
+// corebtCanSendWithoutResponse always returns true on non-Darwin platforms so
+// callers proceed without waiting. rawPtr is always nil on these platforms.
+func corebtCanSendWithoutResponse(_ unsafe.Pointer) bool { return true }
+
+// corebtPeripheralIsConnected always returns true on non-Darwin platforms so
+// the disconnect guard in corebtPollValue never fires. rawPtr is always nil.
+func corebtPeripheralIsConnected(_ unsafe.Pointer) bool { return true }
 
 // Ensure the time import is used (corebtWaitNotifying may need it in future).
 var _ = time.Second

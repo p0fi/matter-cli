@@ -13,7 +13,22 @@ import (
 	"net"
 	"sync"
 	"time"
+	"unsafe"
 )
+
+// c1RawPointer extracts the raw CoreBluetooth characteristic pointer from a
+// bleCharacteristic, if the concrete type is *tinygoCharacteristic. This
+// pointer is used for the canSendWriteWithoutResponse guard before writing
+// the BTP Capabilities Request to C1.
+//
+// Returns nil for mock/test implementations or on non-Darwin platforms where
+// rawPtr is never set.
+func c1RawPointer(chr bleCharacteristic) unsafe.Pointer {
+	if tc, ok := chr.(*tinygoCharacteristic); ok {
+		return tc.rawPtr
+	}
+	return nil
+}
 
 // BLEConn implements transport.Conn over a BLE GATT connection using the BTP
 // protocol (Matter Specification §4.15). It provides the same datagram
@@ -181,42 +196,106 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	// bt_queue is NULL, so knowing its state helps diagnose failures.
 	slog.Debug("ble: bt_queue state", "initialized", corebtIsBTQueueInitialized())
 
-	// ── Step 5c: Clear any stale C2 value BEFORE writing to C1 ──
+	// ── Steps 5c–5e: BTP Capabilities handshake with retry ──────────────────
 	//
-	// This MUST happen before the write, not after. The device sends its BTP
-	// Capabilities Response immediately upon receiving the request, so by the
-	// time the WaitForValue goroutine below starts, the indication may already
-	// have arrived and been stored in characteristic.value. Clearing after the
-	// write would erase that already-delivered response.
+	// On macOS, Write Without Response can be silently dropped in two ways:
 	//
-	// ClearCachedValue dispatches to bt_queue, so it is guaranteed to run
-	// before any indication triggered by our subsequent write can land.
-	c2.ClearCachedValue()
-	slog.Debug("ble: C2 value cleared before handshake write")
+	//   1. canSendWriteWithoutResponse is false at write time (macOS 10.13+
+	//      drops the frame; it is NOT queued). We wait up to 2 s for the
+	//      peripheral to become ready before each attempt.
+	//
+	//   2. The write reaches CoreBluetooth's queue but the BLE controller
+	//      drops it (e.g. congestion right after CCCD negotiation).
+	//
+	// To handle both cases we retry the write up to btpHandshakeMaxAttempts
+	// times, waiting btpHandshakeRetryInterval between attempts. The total
+	// budget is ~15 s regardless of the number of retries.
+	//
+	// As a last resort (all WriteWithoutResponse attempts exhausted) we try
+	// a single GATT Write Request (WriteWithResponse). Some devices support
+	// both Write and Write Without Response on C1, and responding to the
+	// ATT Write Request may trigger the BTP Capabilities Response even if
+	// the ATT Write Command was lost.
+	//
+	// The response is delivered by whichever path fires first:
+	//   Path A – tinygo EnableNotifications callback (already registered).
+	//   Path B – CoreBluetooth cached-value polling (WaitForValue goroutine).
+	const (
+		btpHandshakeMaxAttempts    = 5
+		btpHandshakeRetryInterval  = 3 * time.Second
+		btpCanSendWaitInterval     = 50 * time.Millisecond
+		btpCanSendWaitMax          = 2 * time.Second
+	)
 
-	// ── Step 5d: Write BTP Capabilities Request to C1 ──
 	hsReq := btpHandshakeRequest(btpSupportedVersionsList, btpDefaultATTMTU, btpDefaultWindowSize)
-	slog.Debug("ble: sending BTP handshake request", "len", len(hsReq), "hex", hex.EncodeToString(hsReq))
+	slog.Debug("ble: BTP handshake request", "len", len(hsReq), "hex", hex.EncodeToString(hsReq))
 
-	if n, err := c1.Write(hsReq); err != nil {
-		device.Disconnect()
-		return nil, fmt.Errorf("ble: sending BTP handshake request: %w", err)
-	} else {
-		slog.Debug("ble: BTP handshake request written", "bytesWritten", n)
-	}
-
-	// ── Step 5e: Poll for the BTP Capabilities Response (Path B) ──
-	//
-	// WaitForValue polls CBCharacteristic.value on bt_queue every 10 ms.
-	// All reads are dispatched to bt_queue so we see CoreBluetooth's updates.
-	// The value was pre-cleared above, so any non-nil result is fresh data.
+	// Total handshake budget: 15 s from now.
 	hsTimeout, hsCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer hsCancel()
 
+	// sendCapsRequest clears the C2 cached value, waits for the peripheral
+	// to accept Write Without Response, then writes to C1.
+	// Returns (true, nil) if the write was dispatched successfully.
+	// Returns (false, nil) if canSendWriteWithoutResponse never became true
+	// within btpCanSendWaitMax (non-fatal; caller may retry later or use
+	// WriteWithResponse).
+	sendCapsRequest := func(useWriteWithResponse bool) (bool, error) {
+		// Always clear the cached value before writing so WaitForValue sees
+		// only the fresh response and not a stale value from a prior attempt.
+		c2.ClearCachedValue()
+
+		if useWriteWithResponse {
+			slog.Debug("ble: BTP handshake: trying WriteWithResponse fallback")
+			n, err := c1.WriteWithResponse(hsReq)
+			if err != nil {
+				return false, fmt.Errorf("ble: C1 WriteWithResponse: %w", err)
+			}
+			slog.Debug("ble: BTP handshake request sent (WriteWithResponse)", "bytesWritten", n)
+			return true, nil
+		}
+
+		// Wait until peripheral is ready to accept Write Without Response.
+		// canSendWriteWithoutResponse is checked outside bt_queue as a hint.
+		if c1RawPtr := c1RawPointer(c1); c1RawPtr != nil {
+			canSendDeadline := time.Now().Add(btpCanSendWaitMax)
+			for !corebtCanSendWithoutResponse(c1RawPtr) {
+				if time.Now().After(canSendDeadline) {
+					slog.Debug("ble: canSendWriteWithoutResponse still false after wait — will attempt write anyway")
+					break
+				}
+				slog.Debug("ble: waiting for canSendWriteWithoutResponse")
+				select {
+				case <-hsTimeout.Done():
+					return false, fmt.Errorf("ble: handshake timeout while waiting for canSendWriteWithoutResponse")
+				case <-time.After(btpCanSendWaitInterval):
+				}
+			}
+			canSend := corebtCanSendWithoutResponse(c1RawPtr)
+			slog.Debug("ble: canSendWriteWithoutResponse", "ready", canSend)
+		}
+
+		n, err := c1.Write(hsReq)
+		if err != nil {
+			return false, fmt.Errorf("ble: C1 write: %w", err)
+		}
+		if n == -2 {
+			// canSendWriteWithoutResponse was false even after the wait —
+			// write was not sent. Caller should retry.
+			slog.Debug("ble: C1 write skipped (peripheral not ready)")
+			return false, nil
+		}
+		slog.Debug("ble: BTP handshake request sent (WriteWithoutResponse)", "bytesWritten", n)
+		return true, nil
+	}
+
+	// Start the Path B poll goroutine. It runs for the full hsTimeout
+	// duration so all retry attempts can share it.
 	go func() {
+		slog.Debug("ble: C2 poll goroutine started")
 		data, err := c2.WaitForValue(hsTimeout)
 		if err != nil {
-			slog.Debug("ble: C2 poll path ended", "err", err)
+			slog.Debug("ble: C2 poll goroutine ended", "err", err)
 			return
 		}
 		slog.Debug("ble: C2 data received (poll path)", "len", len(data), "hex", hex.EncodeToString(data))
@@ -228,18 +307,52 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 		}
 	}()
 
-	// Wait for whichever path delivers the handshake response first.
-	var hsData []byte
-	select {
-	case hsData = <-hsResp:
-		hsCancel() // stop the poll goroutine
-		slog.Debug("ble: BTP handshake response received")
-	case <-hsTimeout.Done():
+	// First attempt — WriteWithoutResponse.
+	if _, err := sendCapsRequest(false); err != nil {
 		device.Disconnect()
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("ble: BTP handshake cancelled: %w", ctx.Err())
+		return nil, err
+	}
+
+	// Retry loop: wait up to btpHandshakeRetryInterval for a response, then
+	// re-send. After btpHandshakeMaxAttempts-1 retries, try WriteWithResponse
+	// as a final fallback before giving up.
+	retryTicker := time.NewTicker(btpHandshakeRetryInterval)
+	defer retryTicker.Stop()
+
+	attempt := 1
+	var hsData []byte
+	handshakeDone := false
+	for !handshakeDone {
+		select {
+		case hsData = <-hsResp:
+			hsCancel()
+			slog.Debug("ble: BTP handshake response received", "attempt", attempt)
+			handshakeDone = true
+
+		case <-retryTicker.C:
+			attempt++
+			useWR := attempt > btpHandshakeMaxAttempts
+			slog.Debug("ble: BTP handshake no response, retrying",
+				"attempt", attempt,
+				"writeWithResponse", useWR,
+			)
+			if _, err := sendCapsRequest(useWR); err != nil {
+				device.Disconnect()
+				return nil, err
+			}
+			if useWR {
+				// After the WriteWithResponse attempt give it one more
+				// btpHandshakeRetryInterval before declaring failure.
+				// The ticker will fire again and we'll hit the timeout case.
+			}
+
+		case <-hsTimeout.Done():
+			device.Disconnect()
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("ble: BTP handshake cancelled: %w", ctx.Err())
+			}
+			return nil, fmt.Errorf("ble: BTP handshake timed out (tried %d attempts)", attempt)
 		}
-		return nil, fmt.Errorf("ble: BTP handshake timed out after 15s")
 	}
 
 	version, fragmentSize, windowSize, err := parseBTPHandshakeResponse(hsData)

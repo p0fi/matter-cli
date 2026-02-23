@@ -173,9 +173,18 @@ type BLECharacteristic interface {
 	// UUID returns the 128-bit UUID identifying this characteristic.
 	UUID() BLEUUID
 
-	// Write performs a GATT Write (or Write Without Response) to the
-	// characteristic. Returns the number of bytes written and any error.
+	// Write performs a GATT Write Without Response to the characteristic.
+	// Returns the number of bytes written and any error.
+	// On macOS, returns (-2, nil) when canSendWriteWithoutResponse is false
+	// (the write would be silently dropped); the caller must wait and retry.
 	Write(data []byte) (int, error)
+
+	// WriteWithResponse performs a GATT Write Request (with ATT-level response)
+	// to the characteristic. Used as a last-resort fallback when Write Without
+	// Response consistently fails to elicit a reply from the device. Some
+	// peripherals support both Write and Write Without Response on C1 — the
+	// ATT Write Request may succeed even when the ATT Write Command is dropped.
+	WriteWithResponse(data []byte) (int, error)
 
 	// EnableNotifications registers cb to be called whenever the remote device
 	// sends an indication or notification on this characteristic.

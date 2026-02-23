@@ -18,6 +18,17 @@ import (
 	"github.com/spf13/viper"
 )
 
+func init() {
+	// Enable BLE auto-detection for `matter commission code`. When this
+	// build includes BLE support, the generic commission-by-code command
+	// will try BLE discovery first (matching manual-pairing-code short
+	// discriminators) before falling back to mDNS.
+	makeAutoCommissioner = func(ctrl *controller.Controller) *commissioning.Commissioner {
+		adapter := transport.NewDefaultBLEAdapter()
+		return ctrl.NewCommissionerWithTransport(controller.TransportAuto, adapter)
+	}
+}
+
 // addBLECommissionCommands adds BLE-specific subcommands to the commission
 // parent command:
 //   - matter commission ble <setup-code>       — scan + commission via QR/manual code

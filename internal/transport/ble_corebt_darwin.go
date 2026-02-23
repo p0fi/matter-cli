@@ -83,6 +83,37 @@ static void ble_chr_clear_value(void *chr) {
 	});
 }
 
+// ble_peripheral_can_send_without_response returns whether the peripheral
+// owning chr is ready to accept Write Without Response operations. On macOS
+// 10.13+ a Write Without Response is silently DROPPED (not queued) when this
+// returns false. The caller must wait for this to become true before writing.
+//
+// The check reads peripheral.canSendWriteWithoutResponse from the current
+// thread (outside bt_queue) as a best-effort hint; it is only used for
+// diagnostic logging and as a pre-write guard.
+static bool ble_peripheral_can_send_without_response(void *chr) {
+	if (chr == NULL) return true;
+	CBCharacteristic *c = (CBCharacteristic *)chr;
+	CBService *svc = c.service;
+	if (svc == nil) return true;
+	CBPeripheral *peripheral = svc.peripheral;
+	if (peripheral == nil) return true;
+	return peripheral.canSendWriteWithoutResponse;
+}
+
+// ble_peripheral_is_connected returns whether the peripheral owning chr is
+// currently in the CBPeripheralStateConnected state. Used to detect surprise
+// disconnects during the BTP handshake wait.
+static bool ble_peripheral_is_connected(void *chr) {
+	if (chr == NULL) return false;
+	CBCharacteristic *c = (CBCharacteristic *)chr;
+	CBService *svc = c.service;
+	if (svc == nil) return false;
+	CBPeripheral *peripheral = svc.peripheral;
+	if (peripheral == nil) return false;
+	return peripheral.state == CBPeripheralStateConnected;
+}
+
 // ble_chr_write_without_response dispatches a GATT Write Without Response to
 // bt_queue and uses the "fresh" characteristic pointer (looked up from
 // svc.characteristics by UUID). This is the same stale-pointer fix applied
@@ -94,8 +125,43 @@ static void ble_chr_clear_value(void *chr) {
 // peripheral operations on bt_queue is the safe approach.
 //
 // Returns data_len on success, -1 if any pointer in the chain is nil or
-// bt_queue is not yet initialised.
+// bt_queue is not yet initialised, -2 if canSendWriteWithoutResponse is false
+// (caller should wait and retry).
 static int ble_chr_write_without_response(void *chr, void *data, int data_len) {
+	if (chr == NULL || data == NULL || data_len <= 0 || bt_queue == NULL) return -1;
+	CBCharacteristic *fresh = ble_find_fresh_characteristic((CBCharacteristic *)chr);
+	CBService *svc = fresh.service;
+	if (svc == nil) return -1;
+	CBPeripheral *peripheral = svc.peripheral;
+	if (peripheral == nil) return -1;
+
+	// Guard: on macOS 10.13+, writes are silently dropped (not queued) when
+	// canSendWriteWithoutResponse is false. Check before dispatching.
+	if (!peripheral.canSendWriteWithoutResponse) {
+		return -2;
+	}
+
+	NSData *nsData = [NSData dataWithBytes:data length:(NSUInteger)data_len];
+	dispatch_sync(bt_queue, ^{
+		[peripheral writeValue:nsData
+		    forCharacteristic:fresh
+		                 type:CBCharacteristicWriteWithoutResponse];
+	});
+	return data_len;
+}
+
+// ble_chr_write_with_response dispatches a GATT Write Request (with response)
+// to bt_queue using the fresh characteristic pointer. Used as a fallback when
+// Write Without Response is not usable (e.g. canSendWriteWithoutResponse is
+// persistently false, or the device does not react to Write Without Response).
+//
+// Returns data_len if dispatched, -1 if any pointer in the chain is nil or
+// bt_queue is not initialised.
+//
+// NOTE: This only works if the characteristic also has the Write (with response)
+// property. If it does not, CoreBluetooth will call didWriteValueForCharacteristic
+// with a "write not permitted" error — the caller should not rely on success.
+static int ble_chr_write_with_response(void *chr, void *data, int data_len) {
 	if (chr == NULL || data == NULL || data_len <= 0 || bt_queue == NULL) return -1;
 	CBCharacteristic *fresh = ble_find_fresh_characteristic((CBCharacteristic *)chr);
 	CBService *svc = fresh.service;
@@ -106,7 +172,7 @@ static int ble_chr_write_without_response(void *chr, void *data, int data_len) {
 	dispatch_sync(bt_queue, ^{
 		[peripheral writeValue:nsData
 		    forCharacteristic:fresh
-		                 type:CBCharacteristicWriteWithoutResponse];
+		                 type:CBCharacteristicWriteWithResponse];
 	});
 	return data_len;
 }
@@ -260,6 +326,7 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 	"unsafe"
 )
@@ -295,16 +362,47 @@ func corebtIsBTQueueInitialized() bool {
 	return C.ble_is_bt_queue_initialized() != 0
 }
 
+// corebtCanSendWithoutResponse returns whether the peripheral owning chrPtr
+// is ready to accept Write Without Response operations. On macOS 10.13+,
+// writes are silently DROPPED when this is false. Reads canSendWriteWithoutResponse
+// as a best-effort check from the current thread.
+func corebtCanSendWithoutResponse(chrPtr unsafe.Pointer) bool {
+	return bool(C.ble_peripheral_can_send_without_response(chrPtr))
+}
+
+// corebtPeripheralIsConnected returns whether the peripheral that owns chrPtr
+// is in the CBPeripheralStateConnected state.
+func corebtPeripheralIsConnected(chrPtr unsafe.Pointer) bool {
+	return bool(C.ble_peripheral_is_connected(chrPtr))
+}
+
 // corebtWriteWithoutResponse dispatches a GATT Write Without Response to
 // bt_queue using the fresh (live) CBCharacteristic pointer. Returns the number
-// of bytes written, or -1 if the write could not be dispatched (nil pointer
-// chain or bt_queue not yet initialised). The caller should fall back to the
-// tinygo write path if -1 is returned.
+// of bytes written, -1 if the write could not be dispatched (nil pointer chain
+// or bt_queue not yet initialised), or -2 if canSendWriteWithoutResponse is
+// false and the write would be silently dropped. The caller should retry after
+// a short delay when -2 is returned.
 func corebtWriteWithoutResponse(chrPtr unsafe.Pointer, data []byte) int {
 	if len(data) == 0 {
 		return 0
 	}
 	n := int(C.ble_chr_write_without_response(
+		chrPtr,
+		unsafe.Pointer(&data[0]),
+		C.int(len(data)),
+	))
+	return n
+}
+
+// corebtWriteWithResponse dispatches a GATT Write Request (with ATT response)
+// to bt_queue. Used as a last-resort fallback when Write Without Response
+// consistently fails to elicit a reply from the device. Returns -1 if the
+// pointer chain is broken or bt_queue is not ready.
+func corebtWriteWithResponse(chrPtr unsafe.Pointer, data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := int(C.ble_chr_write_with_response(
 		chrPtr,
 		unsafe.Pointer(&data[0]),
 		C.int(len(data)),
@@ -378,11 +476,28 @@ func corebtWaitNotifying(ctx context.Context, chrPtr unsafe.Pointer) error {
 
 // corebtPollValue polls the characteristic's cached value until it becomes
 // non-nil or the context is cancelled. Returns the value data.
+//
+// A heartbeat log is emitted every ~3 s so operators can confirm the poll loop
+// is running when debugging handshake timeouts with --verbose.
 func corebtPollValue(ctx context.Context, chrPtr unsafe.Pointer) ([]byte, error) {
 	const pollInterval = 10 * time.Millisecond
+	const heartbeatEvery = 300 // iterations ≈ 3 s
+	iter := 0
 	for {
 		if data := corebtCachedValue(chrPtr); data != nil {
 			return data, nil
+		}
+		iter++
+		if iter%heartbeatEvery == 0 {
+			slog.Debug("ble: C2 poll: still waiting for indication",
+				"elapsed_s", (time.Duration(iter) * pollInterval).Seconds(),
+				"connected", corebtPeripheralIsConnected(chrPtr),
+			)
+			// Bail out early if the peripheral has disconnected — no point
+			// waiting the full timeout for a device that is gone.
+			if !corebtPeripheralIsConnected(chrPtr) {
+				return nil, fmt.Errorf("ble: peripheral disconnected while waiting for BTP handshake response")
+			}
 		}
 		select {
 		case <-ctx.Done():

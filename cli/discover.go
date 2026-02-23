@@ -37,15 +37,22 @@ func newDiscoverCommissionableCmd() *cobra.Command {
   matter discover commissionable --timeout 10s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			timeout, _ := cmd.Flags().GetDuration("timeout")
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
+
+			stepper.Step(fmt.Sprintf("Scanning for commissionable Matter devices for %s…", timeout))
+
 			browser := discovery.NewMDNSBrowser()
 			devices, err := browser.DiscoverCommissionable(cmd.Context(), timeout)
 			if err != nil {
+				stepper.Fail(fmt.Sprintf("Discovery failed: %v", err))
 				return fmt.Errorf("discovering commissionable devices: %w", err)
 			}
 			if len(devices) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No commissionable devices found."))
+				stepper.Fail("No commissionable devices found")
 				return nil
 			}
+			stepper.Success(fmt.Sprintf("Found %d commissionable device(s)", len(devices)))
 			return formatDevices(cmd, devices)
 		},
 	}
@@ -61,15 +68,22 @@ func newDiscoverOperationalCmd() *cobra.Command {
   matter discover operational --timeout 10s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			timeout, _ := cmd.Flags().GetDuration("timeout")
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
+
+			stepper.Step(fmt.Sprintf("Scanning for operational Matter devices for %s…", timeout))
+
 			browser := discovery.NewMDNSBrowser()
 			devices, err := browser.DiscoverOperational(cmd.Context(), timeout)
 			if err != nil {
+				stepper.Fail(fmt.Sprintf("Discovery failed: %v", err))
 				return fmt.Errorf("discovering operational devices: %w", err)
 			}
 			if len(devices) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No operational devices found."))
+				stepper.Fail("No operational devices found")
 				return nil
 			}
+			stepper.Success(fmt.Sprintf("Found %d operational device(s)", len(devices)))
 			return formatDevices(cmd, devices)
 		},
 	}

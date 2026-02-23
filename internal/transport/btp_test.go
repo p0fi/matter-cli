@@ -19,59 +19,56 @@ import (
 func TestBTPHandshakeRequest(t *testing.T) {
 	tests := []struct {
 		name      string
-		versions  uint8
+		versions  []uint8
 		attMTU    uint16
 		window    uint8
 		wantBytes []byte
 	}{
 		{
-			name:     "default parameters",
-			versions: btpSupportedVersions, // 0x18 (versions 3 and 4)
-			attMTU:   btpDefaultATTMTU,     // 23
+			name:     "default parameters (version 4, MTU 247)",
+			versions: []uint8{4},
+			attMTU:   btpDefaultATTMTU,     // 247
 			window:   btpDefaultWindowSize, // 6
 			wantBytes: []byte{
-				0x01,       // flags: H=1
-				0x6C,       // opcode: HandshakeRequest
-				0x18,       // supportedVersions: bits 3 and 4 (versions 3 and 4)
-				0x17, 0x00, // ATT MTU: 23 (LE)
-				0x06,       // window size: 6
+				0x65,                   // magic byte 1
+				0x6C,                   // magic byte 2
+				0x04, 0x00, 0x00, 0x00, // versions: slot0=4
+				0xF7, 0x00,             // ATT MTU: 247 (LE)
+				0x06,                   // window size: 6
 			},
 		},
 		{
-			name:     "large MTU",
-			versions: btpSupportedVersions,
-			attMTU:   247, // common BLE 5 extended MTU
+			name:     "small MTU",
+			versions: []uint8{4},
+			attMTU:   23, // minimum BLE 4.0 MTU
 			window:   btpDefaultWindowSize,
 			wantBytes: []byte{
-				0x01,
-				0x6C,
-				0x18,
-				0xF7, 0x00, // 247 LE
+				0x65, 0x6C,
+				0x04, 0x00, 0x00, 0x00,
+				0x17, 0x00, // 23 LE
 				0x06,
 			},
 		},
 		{
-			name:     "version 4 only",
-			versions: 1 << 4, // 0x10
+			name:     "multiple versions",
+			versions: []uint8{4, 3},
 			attMTU:   btpDefaultATTMTU,
 			window:   btpDefaultWindowSize,
 			wantBytes: []byte{
-				0x01,
-				0x6C,
-				0x10,
-				0x17, 0x00,
+				0x65, 0x6C,
+				0x34, 0x00, 0x00, 0x00, // slot0=4 (low), slot1=3 (high)
+				0xF7, 0x00,
 				0x06,
 			},
 		},
 		{
 			name:     "custom window",
-			versions: btpSupportedVersions,
+			versions: []uint8{4},
 			attMTU:   100,
 			window:   8,
 			wantBytes: []byte{
-				0x01,
-				0x6C,
-				0x18,
+				0x65, 0x6C,
+				0x04, 0x00, 0x00, 0x00,
 				0x64, 0x00, // 100 LE
 				0x08,
 			},
@@ -81,7 +78,7 @@ func TestBTPHandshakeRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := btpHandshakeRequest(tt.versions, tt.attMTU, tt.window)
-			require.Len(t, got, btpHandshakeFrameLen, "request must be exactly %d bytes", btpHandshakeFrameLen)
+			require.Len(t, got, btpCapsRequestLen, "request must be exactly %d bytes", btpCapsRequestLen)
 			assert.Equal(t, tt.wantBytes, got)
 		})
 	}
@@ -89,72 +86,69 @@ func TestBTPHandshakeRequest(t *testing.T) {
 
 func TestParseBTPHandshakeResponse_Valid(t *testing.T) {
 	tests := []struct {
-		name           string
-		data           []byte
-		wantVersion    uint8
-		wantATTMTU     uint16
-		wantWindowSize uint8
+		name             string
+		data             []byte
+		wantVersion      uint8
+		wantFragmentSize uint16
+		wantWindowSize   uint8
 	}{
 		{
 			name: "default parameters",
 			data: []byte{
-				0x01,       // flags: H=1
-				0x65,       // opcode: HandshakeResponse
+				0x65,       // magic byte 1
+				0x6C,       // magic byte 2
 				0x04,       // selected version: 4
-				0x17, 0x00, // ATT MTU: 23 (LE)
+				0x14, 0x00, // fragment size: 20 (LE)
 				0x06,       // window size: 6
 			},
-			wantVersion:    4,
-			wantATTMTU:     23,
-			wantWindowSize: 6,
+			wantVersion:      4,
+			wantFragmentSize: 20,
+			wantWindowSize:   6,
 		},
 		{
-			name: "large MTU negotiated",
+			name: "large fragment size",
 			data: []byte{
-				0x01,
-				0x65,
+				0x65, 0x6C,
 				0x04,
-				0xF7, 0x00, // ATT MTU: 247
+				0xF4, 0x00, // fragment size: 244
 				0x06,
 			},
-			wantVersion:    4,
-			wantATTMTU:     247,
-			wantWindowSize: 6,
+			wantVersion:      4,
+			wantFragmentSize: 244,
+			wantWindowSize:   6,
 		},
 		{
 			name: "version 3 selected",
 			data: []byte{
-				0x01,
-				0x65,
+				0x65, 0x6C,
 				0x03, // version 3
-				0x17, 0x00,
+				0x14, 0x00,
 				0x04, // window 4
 			},
-			wantVersion:    3,
-			wantATTMTU:     23,
-			wantWindowSize: 4,
+			wantVersion:      3,
+			wantFragmentSize: 20,
+			wantWindowSize:   4,
 		},
 		{
 			name: "max window",
 			data: []byte{
-				0x01,
-				0x65,
+				0x65, 0x6C,
 				0x04,
-				0x17, 0x00,
+				0x14, 0x00,
 				0xFF, // window 255
 			},
-			wantVersion:    4,
-			wantATTMTU:     23,
-			wantWindowSize: 255,
+			wantVersion:      4,
+			wantFragmentSize: 20,
+			wantWindowSize:   255,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			version, attMTU, window, err := parseBTPHandshakeResponse(tt.data)
+			version, fragmentSize, window, err := parseBTPHandshakeResponse(tt.data)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantVersion, version, "version")
-			assert.Equal(t, tt.wantATTMTU, attMTU, "attMTU")
+			assert.Equal(t, tt.wantFragmentSize, fragmentSize, "fragmentSize")
 			assert.Equal(t, tt.wantWindowSize, window, "windowSize")
 		})
 	}
@@ -168,7 +162,7 @@ func TestParseBTPHandshakeResponse_Errors(t *testing.T) {
 	}{
 		{
 			name:    "too short",
-			data:    []byte{0x01, 0x65, 0x04},
+			data:    []byte{0x65, 0x6C, 0x04},
 			wantErr: "too short",
 		},
 		{
@@ -177,40 +171,38 @@ func TestParseBTPHandshakeResponse_Errors(t *testing.T) {
 			wantErr: "too short",
 		},
 		{
-			name: "H flag not set",
+			name: "bad magic byte 1",
 			data: []byte{
-				0x00, // flags: H=0
-				0x65, 0x04, 0x17, 0x00, 0x06,
+				0x00, // wrong magic
+				0x6C, 0x04, 0x14, 0x00, 0x06,
 			},
-			wantErr: "H flag",
+			wantErr: "bad magic",
 		},
 		{
-			name: "wrong opcode",
+			name: "bad magic byte 2",
 			data: []byte{
-				0x01,
-				0x6C, // HandshakeRequest opcode — not a response
-				0x04, 0x17, 0x00, 0x06,
-			},
-			wantErr: "opcode",
-		},
-		{
-			name: "ATT MTU below minimum",
-			data: []byte{
-				0x01,
 				0x65,
+				0x00, // wrong magic
+				0x04, 0x14, 0x00, 0x06,
+			},
+			wantErr: "bad magic",
+		},
+		{
+			name: "fragment size zero",
+			data: []byte{
+				0x65, 0x6C,
 				0x04,
-				0x0A, 0x00, // 10 bytes — below btpDefaultATTMTU (23)
+				0x00, 0x00, // fragment size = 0
 				0x06,
 			},
-			wantErr: "below minimum",
+			wantErr: "fragment size is 0",
 		},
 		{
 			name: "window size zero",
 			data: []byte{
-				0x01,
-				0x65,
+				0x65, 0x6C,
 				0x04,
-				0x17, 0x00,
+				0x14, 0x00,
 				0x00, // window = 0
 			},
 			wantErr: "window size is 0",
@@ -226,22 +218,27 @@ func TestParseBTPHandshakeResponse_Errors(t *testing.T) {
 	}
 }
 
-// Verify that btpHandshakeRequest produces a frame that parseBTPHandshakeResponse
-// would accept (if the opcode were swapped to a response opcode).
+// Verify that request and response share the same magic prefix.
 func TestHandshakeRequestResponseFormat_Compatible(t *testing.T) {
-	req := btpHandshakeRequest(btpSupportedVersions, 200, 8)
-	require.Len(t, req, btpHandshakeFrameLen)
+	req := btpHandshakeRequest(btpSupportedVersionsList, 200, 8)
+	require.Len(t, req, btpCapsRequestLen)
 
-	// Swap opcode to response and version bitmask to selected version.
-	resp := make([]byte, btpHandshakeFrameLen)
-	copy(resp, req)
-	resp[1] = btpOpcodeHandshakeResponse
-	resp[2] = btpCurrentVersion // selected version (single value, not bitmask)
+	// Both request and response start with the same magic bytes.
+	assert.Equal(t, btpCapsMagic1, req[0], "magic byte 1")
+	assert.Equal(t, btpCapsMagic2, req[1], "magic byte 2")
 
-	version, attMTU, window, err := parseBTPHandshakeResponse(resp)
+	// Build a valid response and verify it parses.
+	resp := make([]byte, btpCapsResponseLen)
+	resp[0] = btpCapsMagic1
+	resp[1] = btpCapsMagic2
+	resp[2] = btpCurrentVersion
+	binary.LittleEndian.PutUint16(resp[3:5], 200)
+	resp[5] = 8
+
+	version, fragmentSize, window, err := parseBTPHandshakeResponse(resp)
 	require.NoError(t, err)
 	assert.Equal(t, btpCurrentVersion, version)
-	assert.Equal(t, uint16(200), attMTU)
+	assert.Equal(t, uint16(200), fragmentSize)
 	assert.Equal(t, uint8(8), window)
 }
 
@@ -638,11 +635,11 @@ func TestHandleSegment_Errors(t *testing.T) {
 		assert.Contains(t, err.Error(), "empty")
 	})
 
-	t.Run("handshake flag rejected in data path", func(t *testing.T) {
+	t.Run("capabilities message rejected in data path", func(t *testing.T) {
 		rx := newBTPSession()
-		err := rx.handleSegment([]byte{btpFlagHandshake, 0x01, 0x02})
+		err := rx.handleSegment([]byte{btpCapsMagic1, btpCapsMagic2, 0x04})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "handshake")
+		assert.Contains(t, err.Error(), "capabilities")
 	})
 
 	t.Run("truncated segment missing seqNum", func(t *testing.T) {
@@ -992,9 +989,9 @@ func TestInitHandshake(t *testing.T) {
 
 func TestInitHandshake_ClampsTooSmallMTU(t *testing.T) {
 	s := newBTPSession()
-	// attMTU that would produce a segment size below btpDefaultSegmentSize.
+	// attMTU that would produce a segment size below btpMinSegmentSize.
 	s.initHandshake(4, 10, 6) // 10-3=7, clamped to 20
-	assert.Equal(t, btpDefaultSegmentSize, s.segmentSize)
+	assert.Equal(t, btpMinSegmentSize, s.segmentSize)
 }
 
 func TestCloseSession_Idempotent(t *testing.T) {

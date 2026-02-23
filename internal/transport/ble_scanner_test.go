@@ -200,6 +200,13 @@ func (c *mockBLECharacteristic) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+func (c *mockBLECharacteristic) WriteWithResponse(data []byte) (int, error) {
+	// In tests WriteWithResponse behaves identically to Write — it records
+	// the write and returns success. Tests that need to distinguish the two
+	// paths can inspect writtenData() to count calls.
+	return c.Write(data)
+}
+
 func (c *mockBLECharacteristic) EnableNotifications(cb func([]byte)) error {
 	if c.enableNotifErr != nil {
 		return c.enableNotifErr

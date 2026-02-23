@@ -11,15 +11,15 @@
 // identical to UDPConn, allowing the rest of the Matter stack to operate
 // without modification.
 //
-// # Wire formats
+// # Wire formats (matching CHIP SDK / connectedhomeip)
 //
-// Handshake request (6 bytes, written to C1):
+// Capabilities request (9 bytes, written to C1):
 //
-//	[flags:1][opcode:1][supportedVersions:1][attMTU_lo:1][attMTU_hi:1][window:1]
+//	[magic1:1][magic2:1][versions:4][mtu_lo:1][mtu_hi:1][window:1]
 //
-// Handshake response (6 bytes, indicated on C2):
+// Capabilities response (6 bytes, indicated on C2):
 //
-//	[flags:1][opcode:1][selectedVersion:1][attMTU_lo:1][attMTU_hi:1][window:1]
+//	[magic1:1][magic2:1][selectedVersion:1][fragmentSize_lo:1][fragmentSize_hi:1][window:1]
 //
 // Data segment PDU:
 //
@@ -37,37 +37,26 @@ import (
 
 // ─── BTP header flag bits ─────────────────────────────────────────────────────
 
-// BTP header flag constants as defined in Matter spec §4.15.3.3.
-// These occupy bits [4:0] of the first byte of every BTP PDU.
+// BTP data-segment header flag bits, matching CHIP SDK BtpEngine.h HeaderFlags.
 const (
-	// btpFlagHandshake (H, bit 0) is set in handshake management frames only.
-	btpFlagHandshake = uint8(1 << 0)
+	// btpFlagBegin (B, bit 0) marks the first (or only) segment of a message.
+	btpFlagBegin = uint8(0x01)
 
-	// btpFlagManage (M, bit 1) indicates a management opcode follows.
-	// Per the spec this bit is reserved and must be 0 in data frames; it is
-	// set together with H in handshake frames.
-	btpFlagManage = uint8(1 << 1)
+	// btpFlagEnd (E, bit 2) marks the last (or only) segment of a message.
+	btpFlagEnd = uint8(0x04)
 
-	// btpFlagAck (A, bit 2) signals that the AckNum byte is present.
-	btpFlagAck = uint8(1 << 2)
-
-	// btpFlagEnd (E, bit 3) marks the last (or only) segment of a message.
-	btpFlagEnd = uint8(1 << 3)
-
-	// btpFlagBegin (B, bit 4) marks the first (or only) segment of a message.
-	btpFlagBegin = uint8(1 << 4)
+	// btpFlagAck (A, bit 3) signals that the AckNum byte is present.
+	btpFlagAck = uint8(0x08)
 )
 
-// ─── Handshake opcodes ────────────────────────────────────────────────────────
+// ─── Capabilities (handshake) message constants ─────────────────────────────
 
 const (
-	// btpOpcodeHandshakeRequest is the management opcode for a BTP
-	// HandshakeRequest frame (commissioner → device, written to C1).
-	btpOpcodeHandshakeRequest = uint8(0x6C)
-
-	// btpOpcodeHandshakeResponse is the management opcode for a BTP
-	// HandshakeResponse frame (device → commissioner, indicated on C2).
-	btpOpcodeHandshakeResponse = uint8(0x65)
+	// btpCapsMagic1 and btpCapsMagic2 are the two-byte magic prefix that
+	// identifies a BTP capabilities request or response. They match
+	// CAPABILITIES_MSG_CHECK_BYTE_{1,2} in the CHIP SDK (BleLayer.cpp).
+	btpCapsMagic1 = uint8(0x65)
+	btpCapsMagic2 = uint8(0x6C)
 )
 
 // ─── BTP protocol constants ───────────────────────────────────────────────────
@@ -80,84 +69,115 @@ const (
 	// handshake: the maximum number of unacknowledged outgoing segments.
 	btpDefaultWindowSize = uint8(6)
 
-	// btpDefaultATTMTU is the minimum ATT MTU for BLE 4.0 (23 bytes).
-	btpDefaultATTMTU = uint16(23)
+	// btpDefaultATTMTU is the ATT MTU we advertise in the BTP Capabilities
+	// Request. 247 matches the value used by matter.js and is the typical
+	// negotiated MTU on modern BLE stacks. The device will respond with the
+	// actual fragment size = min(deviceMTU, ourMTU) − GATT overhead.
+	btpDefaultATTMTU = uint16(247)
 
 	// btpGATTOverhead is the byte count consumed by the ATT write/indicate
 	// operation header: 1 byte opcode + 2 bytes handle.
 	btpGATTOverhead = uint16(3)
 
-	// btpDefaultSegmentSize is the default BTP segment size when no
-	// handshake has been performed: btpDefaultATTMTU − btpGATTOverhead.
-	btpDefaultSegmentSize = btpDefaultATTMTU - btpGATTOverhead // 20 bytes
+	// btpMinSegmentSize is the minimum BTP segment size, derived from the
+	// BLE 4.0 minimum ATT MTU (23) minus GATT overhead (3) = 20 bytes.
+	// This is the floor enforced during handshake negotiation.
+	btpMinSegmentSize = uint16(20)
 
-	// btpSupportedVersions is the version-capability bitmask sent in the
-	// HandshakeRequest: bit N = 1 means BTP version N is supported.
-	// We support versions 3 and 4.
-	btpSupportedVersions = uint8((1 << 3) | (1 << 4)) // 0x18
+	// btpDefaultSegmentSize is the default BTP segment size used before
+	// handshake negotiation completes: btpDefaultATTMTU − btpGATTOverhead.
+	btpDefaultSegmentSize = btpDefaultATTMTU - btpGATTOverhead // 244 bytes
 
 	// btpAckTimeout is the maximum time a BTP receiver may hold an
 	// unacknowledged sequence number before sending a standalone ack.
 	btpAckTimeout = 15 * time.Second
 
-	// btpHandshakeFrameLen is the fixed wire size of both handshake frames.
-	btpHandshakeFrameLen = 6
+	// btpCapsRequestLen is the wire size of a BTP Capabilities Request (9 bytes).
+	btpCapsRequestLen = 9
+
+	// btpCapsResponseLen is the wire size of a BTP Capabilities Response (6 bytes).
+	btpCapsResponseLen = 6
+
+	// btpMaxVersionSlots is the number of 4-bit version slots in a
+	// Capabilities Request (8 slots packed into 4 bytes).
+	btpMaxVersionSlots = 8
 
 	// btpMessageBufferSize is the capacity of the internal completed-message
 	// channel.  BTP flow control keeps this small in practice.
 	btpMessageBufferSize = 8
 )
 
-// ─── Handshake helpers ────────────────────────────────────────────────────────
+// ─── Capabilities (handshake) helpers ────────────────────────────────────────
 
-// btpHandshakeRequest constructs the 6-byte BTP HandshakeRequest PDU to be
-// written to characteristic C1 to initiate a BTP session.
+// btpSupportedVersionsList lists the BTP versions we support, highest first.
+// Each entry occupies one 4-bit nibble slot in the Capabilities Request.
+// Only version 4 is advertised, matching the CHIP SDK default.
+var btpSupportedVersionsList = []uint8{4}
+
+// isBTPCapabilitiesMessage returns true if the data starts with the two-byte
+// magic prefix that identifies a BTP capabilities request or response.
+func isBTPCapabilitiesMessage(data []byte) bool {
+	return len(data) >= 2 && data[0] == btpCapsMagic1 && data[1] == btpCapsMagic2
+}
+
+// btpHandshakeRequest constructs the 9-byte BTP Capabilities Request PDU to
+// be written to characteristic C1 to initiate a BTP session.
 //
-//   - supportedVersions: bitmask where bit N = 1 means version N is supported
-//     (use btpSupportedVersions for the default).
-//   - attMTU: the maximum ATT MTU the commissioner can handle (uint16 LE).
-//   - windowSize: the flow-control window the commissioner proposes.
-func btpHandshakeRequest(supportedVersions uint8, attMTU uint16, windowSize uint8) []byte {
-	out := make([]byte, btpHandshakeFrameLen)
-	out[0] = btpFlagHandshake
-	out[1] = btpOpcodeHandshakeRequest
-	out[2] = supportedVersions
-	binary.LittleEndian.PutUint16(out[3:5], attMTU)
-	out[5] = windowSize
+// The format matches the CHIP SDK BleTransportCapabilitiesRequestMessage:
+//
+//	[magic1:1][magic2:1][versions:4][mtu_lo:1][mtu_hi:1][window:1]
+//
+// Supported versions are encoded as 4-bit nibbles: even-index slots occupy
+// the low nibble, odd-index slots the high nibble (matching SetSupportedProtocolVersion).
+func btpHandshakeRequest(versions []uint8, attMTU uint16, windowSize uint8) []byte {
+	out := make([]byte, btpCapsRequestLen)
+	out[0] = btpCapsMagic1
+	out[1] = btpCapsMagic2
+
+	// Pack version numbers into 4-bit nibbles (8 slots → 4 bytes at offset 2).
+	for i := 0; i < btpMaxVersionSlots && i < len(versions); i++ {
+		byteIdx := 2 + i/2
+		if i%2 == 0 {
+			out[byteIdx] |= versions[i] & 0x0F        // low nibble
+		} else {
+			out[byteIdx] |= (versions[i] & 0x0F) << 4 // high nibble
+		}
+	}
+
+	binary.LittleEndian.PutUint16(out[6:8], attMTU)
+	out[8] = windowSize
 	return out
 }
 
-// parseBTPHandshakeResponse parses the 6-byte BTP HandshakeResponse PDU
-// indicated on characteristic C2 in response to a HandshakeRequest.
+// parseBTPHandshakeResponse parses the 6-byte BTP Capabilities Response PDU
+// indicated on characteristic C2 in response to a Capabilities Request.
 //
-// Returns the negotiated BTP version, the agreed ATT MTU, the window size,
-// and any parsing/validation error.
-func parseBTPHandshakeResponse(data []byte) (version uint8, attMTU uint16, windowSize uint8, err error) {
-	if len(data) < btpHandshakeFrameLen {
+// The format matches the CHIP SDK BleTransportCapabilitiesResponseMessage:
+//
+//	[magic1:1][magic2:1][selectedVersion:1][fragmentSize_lo:1][fragmentSize_hi:1][window:1]
+//
+// Returns the negotiated BTP version, the fragment size (max BTP segment
+// payload), the window size, and any parsing/validation error.
+func parseBTPHandshakeResponse(data []byte) (version uint8, fragmentSize uint16, windowSize uint8, err error) {
+	if len(data) < btpCapsResponseLen {
 		return 0, 0, 0, fmt.Errorf("btp: handshake response too short: %d bytes (want %d)",
-			len(data), btpHandshakeFrameLen)
+			len(data), btpCapsResponseLen)
 	}
-	flags := data[0]
-	if flags&btpFlagHandshake == 0 {
-		return 0, 0, 0, fmt.Errorf("btp: handshake response missing H flag (flags=0x%02X)", flags)
+	if data[0] != btpCapsMagic1 || data[1] != btpCapsMagic2 {
+		return 0, 0, 0, fmt.Errorf("btp: handshake response bad magic (0x%02X 0x%02X, want 0x%02X 0x%02X)",
+			data[0], data[1], btpCapsMagic1, btpCapsMagic2)
 	}
-	opcode := data[1]
-	if opcode != btpOpcodeHandshakeResponse {
-		return 0, 0, 0, fmt.Errorf("btp: unexpected handshake opcode 0x%02X (want 0x%02X)",
-			opcode, btpOpcodeHandshakeResponse)
-	}
-	version = data[2]
-	attMTU = binary.LittleEndian.Uint16(data[3:5])
+	version = data[2] & 0x0F // lower 4 bits per CHIP SDK
+	fragmentSize = binary.LittleEndian.Uint16(data[3:5])
 	windowSize = data[5]
 
-	if attMTU < btpDefaultATTMTU {
-		return 0, 0, 0, fmt.Errorf("btp: negotiated ATT MTU %d is below minimum %d",
-			attMTU, btpDefaultATTMTU)
+	if fragmentSize == 0 {
+		return 0, 0, 0, fmt.Errorf("btp: negotiated fragment size is 0")
 	}
 	if windowSize == 0 {
 		return 0, 0, 0, fmt.Errorf("btp: negotiated window size is 0")
 	}
-	return version, attMTU, windowSize, nil
+	return version, fragmentSize, windowSize, nil
 }
 
 // ─── BTP session ─────────────────────────────────────────────────────────────
@@ -210,18 +230,27 @@ func newBTPSession() *btpSession {
 	return s
 }
 
-// initHandshake applies the BTP parameters negotiated during the handshake
-// exchange.  Must be called exactly once, before the session handles any data.
+// initHandshake applies BTP parameters using an ATT MTU value (from which
+// the segment size is derived by subtracting the GATT overhead).
 func (s *btpSession) initHandshake(version uint8, attMTU uint16, windowSize uint8) {
+	seg := attMTU - btpGATTOverhead
+	if seg < btpMinSegmentSize {
+		seg = btpMinSegmentSize
+	}
+	s.initHandshakeFromResponse(version, seg, windowSize)
+}
+
+// initHandshakeFromResponse applies the BTP parameters from a Capabilities
+// Response where the fragment size (max BTP segment payload) is given directly.
+func (s *btpSession) initHandshakeFromResponse(version uint8, fragmentSize uint16, windowSize uint8) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.version = version
-	seg := attMTU - btpGATTOverhead
-	if seg < btpDefaultSegmentSize {
-		seg = btpDefaultSegmentSize
+	if fragmentSize < btpMinSegmentSize {
+		fragmentSize = btpMinSegmentSize
 	}
-	s.segmentSize = seg
+	s.segmentSize = fragmentSize
 	s.windowSize = windowSize
 }
 
@@ -445,9 +474,9 @@ func (s *btpSession) handleSegment(data []byte) error {
 	flags := data[0]
 	idx := 1
 
-	// Handshake frames must not appear in the data path.
-	if flags&btpFlagHandshake != 0 {
-		return fmt.Errorf("btp: unexpected handshake frame in data path (flags=0x%02X)", flags)
+	// Capabilities (handshake) messages must not appear in the data path.
+	if isBTPCapabilitiesMessage(data) {
+		return fmt.Errorf("btp: unexpected capabilities message in data path")
 	}
 
 	// ── AckNum (present when A=1) ──────────────────────────────────────────

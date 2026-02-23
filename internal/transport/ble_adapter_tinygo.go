@@ -274,17 +274,52 @@ func (tc *tinygoCharacteristic) UUID() BLEUUID {
 //
 // Falls back to tinygo's WriteWithoutResponse if rawPtr is nil (non-macOS,
 // extraction failed) or if bt_queue is not yet initialised.
+//
+// Returns (-2, nil) when corebtWriteWithoutResponse reports that
+// canSendWriteWithoutResponse is false — the caller must wait and retry.
 func (tc *tinygoCharacteristic) Write(data []byte) (int, error) {
 	if tc.rawPtr != nil {
 		n := corebtWriteWithoutResponse(tc.rawPtr, data)
-		if n >= 0 {
+		switch {
+		case n >= 0:
 			slog.Debug("ble: C1 write dispatched to bt_queue", "bytes", n)
 			return n, nil
+		case n == -2:
+			// canSendWriteWithoutResponse is false — the write would be
+			// silently dropped. Signal the caller to retry.
+			slog.Debug("ble: C1 write deferred: peripheral not ready (canSendWriteWithoutResponse=false)")
+			return -2, nil
+		default:
+			// bt_queue not ready or nil pointer chain — fall through to tinygo path.
+			slog.Debug("ble: C1 write via bt_queue failed (nil chain or bt_queue), falling back to tinygo write")
 		}
-		// bt_queue not ready or nil pointer chain — fall through to tinygo path.
-		slog.Debug("ble: C1 write via bt_queue failed (nil chain or bt_queue), falling back to tinygo write")
 	}
 	return tc.c.WriteWithoutResponse(data)
+}
+
+// WriteWithResponse performs a GATT Write Request (with ATT-level response) on
+// the characteristic. Used as a last-resort fallback for the BTP Capabilities
+// Request when Write Without Response consistently fails to elicit a reply.
+//
+// On macOS the write is dispatched to bt_queue via the fresh pointer, just
+// like Write(). On other platforms this falls back to tinygo's
+// Write() method (not WriteWithoutResponse).
+//
+// NOTE: This only succeeds if the characteristic also advertises the Write
+// (with response) GATT property. If not, CoreBluetooth delivers a
+// "write not permitted" error to didWriteValueForCharacteristic — the
+// ATT Write still reaches the peripheral, which may be enough to trigger
+// the BTP Capabilities Response indication.
+func (tc *tinygoCharacteristic) WriteWithResponse(data []byte) (int, error) {
+	if tc.rawPtr != nil {
+		n := corebtWriteWithResponse(tc.rawPtr, data)
+		if n >= 0 {
+			slog.Debug("ble: C1 WriteWithResponse dispatched to bt_queue", "bytes", n)
+			return n, nil
+		}
+		slog.Debug("ble: C1 WriteWithResponse via bt_queue failed, falling back to tinygo Write")
+	}
+	return tc.c.Write(data)
 }
 
 // EnableNotifications registers cb to be called on each indication or

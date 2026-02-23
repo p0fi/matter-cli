@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/p0fi/matter-cli/internal/commissioning"
 	"github.com/p0fi/matter-cli/internal/discovery"
@@ -51,8 +52,9 @@ func (c *Controller) NewCommissionerWithTransport(pref TransportPreference, adap
 		scanner := transport.NewBLEScanner(adapter)
 		return &commissioning.Commissioner{
 			Discoverer: &autoDiscoverer{
-				ble:  discovery.NewBLEBrowser(scanner),
-				mdns: &controllerDiscoverer{browser: discovery.NewMDNSBrowser()},
+				ble:     discovery.NewBLEBrowser(scanner),
+				mdns:    &controllerDiscoverer{browser: discovery.NewMDNSBrowser()},
+				adapter: adapter,
 			},
 			Sessions: &autoSessionEstablisher{
 				ble: &bleSessionEstablisher{ctrl: c, adapter: adapter},
@@ -117,13 +119,30 @@ func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, 
 
 // autoDiscoverer tries BLE discovery first, falling back to mDNS.
 type autoDiscoverer struct {
-	ble  *discovery.BLEBrowser
-	mdns *controllerDiscoverer
+	ble     *discovery.BLEBrowser
+	mdns    *controllerDiscoverer
+	adapter transport.BLEAdapter
 }
 
+// bleDiscoveryTimeout is the maximum time the auto-discoverer waits for a BLE
+// scan before falling back to mDNS. BLE devices in range are typically found
+// within a few seconds.
+const bleDiscoveryTimeout = 15 * time.Second
+
 func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16) (string, error) {
-	// Try BLE first.
-	addr, err := d.ble.DiscoverCommissionable(ctx, discriminator)
+	// Enable the BLE adapter before scanning. If this fails (e.g. no
+	// Bluetooth hardware or permissions), skip BLE and try mDNS directly.
+	if err := d.adapter.Enable(); err != nil {
+		slog.Debug("auto-discover: BLE adapter enable failed, skipping BLE", "err", err)
+		return d.mdns.DiscoverCommissionable(ctx, discriminator)
+	}
+
+	// Try BLE first with a bounded timeout so we don't hang forever if
+	// the device isn't advertising over BLE.
+	bleCtx, cancel := context.WithTimeout(ctx, bleDiscoveryTimeout)
+	defer cancel()
+
+	addr, err := d.ble.DiscoverCommissionable(bleCtx, discriminator)
 	if err == nil {
 		slog.Debug("auto-discover: found device via BLE", "addr", addr)
 		return addr, nil
@@ -161,16 +180,19 @@ func (s *autoSessionEstablisher) EstablishCASE(ctx context.Context, addr string,
 // ConnectPASEoverBLE establishes a PASE session with a device over BLE/BTP.
 // It creates a temporary sub-controller backed by the BLE transport.
 func (c *Controller) ConnectPASEoverBLE(ctx context.Context, adapter transport.BLEAdapter, addr transport.BLEAddress, passcode uint32) (*protocol.Session, *transport.BLEConn, error) {
+	slog.Debug("ble-pase: enabling adapter")
 	// Enable the BLE adapter.
 	if err := adapter.Enable(); err != nil {
 		return nil, nil, fmt.Errorf("controller: enabling BLE adapter: %w", err)
 	}
 
 	// Dial the BLE device and complete the BTP handshake.
+	slog.Debug("ble-pase: dialing device", "addr", addr)
 	bleConn, err := transport.DialBLE(ctx, adapter, addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("controller: %w", err)
 	}
+	slog.Debug("ble-pase: BLE connection established")
 
 	// Create a sub-controller using the BLE connection.
 	subCtrl, err := NewWithConn(Config{
@@ -188,6 +210,7 @@ func (c *Controller) ConnectPASEoverBLE(ctx context.Context, adapter transport.B
 	subCtrl.mu.Unlock()
 
 	// Run PASE over the BLE transport.
+	slog.Debug("ble-pase: starting PASE handshake")
 	session, err := subCtrl.connectPASEWithAddr(ctx, passcode)
 	if err != nil {
 		bleConn.Close()

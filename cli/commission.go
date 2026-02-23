@@ -19,6 +19,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+// makeAutoCommissioner is set by commission_ble.go (build tag !noble) to
+// return a commissioner that tries BLE discovery before falling back to mDNS.
+// When BLE support is compiled out this stays nil and we use mDNS-only.
+var makeAutoCommissioner func(ctrl *controller.Controller) *commissioning.Commissioner
+
 func init() {
 	rootCmd.AddCommand(withGroup(newCommissionCmd(), groupDevices))
 }
@@ -141,7 +146,14 @@ func newCommissionCodeCmd() *cobra.Command {
 			verbose, _ := cmd.Flags().GetBool("verbose")
 			stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
 
-			commissioner := ctrl.NewCommissioner()
+			// Use BLE+mDNS auto-detection when BLE support is compiled in,
+			// otherwise fall back to mDNS-only discovery.
+			var commissioner *commissioning.Commissioner
+			if makeAutoCommissioner != nil {
+				commissioner = makeAutoCommissioner(ctrl)
+			} else {
+				commissioner = ctrl.NewCommissioner()
+			}
 			commissioner.OnProgress = func(step commissioning.CommissioningStep) {
 				stepper.Step(stepDescription(step))
 			}
@@ -158,8 +170,7 @@ func newCommissionCodeCmd() *cobra.Command {
 			ctx := cmd.Context()
 			result, err := commissioner.Commission(ctx, params)
 			if err != nil {
-				stepper.Fail(fmt.Sprintf("Commissioning failed: %v", err))
-				return fmt.Errorf("commissioning failed: %w", err)
+				return fmt.Errorf("Commissioning failed: %w", err)
 			}
 
 			node := buildNodeFromResult(nodeID, result)
@@ -252,8 +263,7 @@ func newCommissionIPCmd() *cobra.Command {
 			ctx := cmd.Context()
 			result, err := commissioner.Commission(ctx, params)
 			if err != nil {
-				stepper.Fail(fmt.Sprintf("Commissioning failed: %v", err))
-				return fmt.Errorf("commissioning failed: %w", err)
+				return fmt.Errorf("Commissioning failed: %w", err)
 			}
 
 			node := buildNodeFromResult(nodeID, result)

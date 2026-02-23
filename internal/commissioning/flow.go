@@ -182,6 +182,16 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		}
 		passcode = payload.Passcode
 		discriminator = payload.Discriminator
+		shortDisc := discriminator&0xFF == 0
+		slog.Debug("commissioning: parsed setup code",
+			"passcode", passcode,
+			"discriminator", fmt.Sprintf("0x%03X (%d)", discriminator, discriminator),
+			"shortDiscriminator", shortDisc,
+			"vendorID", fmt.Sprintf("0x%04X", payload.VendorID),
+			"productID", fmt.Sprintf("0x%04X", payload.ProductID),
+			"flow", payload.CommissioningFlow,
+			"discoveryCapabilities", fmt.Sprintf("0x%02X", payload.DiscoveryCapabilities),
+		)
 	}
 
 	// Step 2: Discover device.
