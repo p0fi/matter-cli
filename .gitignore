@@ -8,10 +8,15 @@ dist/
 
 # Test artifacts
 coverage.out
+coverage*.out
 coverage.html
 *.test
 *.prof
 __debug_bin*
+
+# Root-level compiled binary (produced by `go build .`)
+/matter
+/matter-cli
 
 # Go workspace
 vendor/
