@@ -152,8 +152,8 @@ func TestDialBLE_SuccessViaNotificationPath(t *testing.T) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		resp := buildBTPHandshakeResponse()
-		if drainedC2.notifCb != nil {
-			drainedC2.notifCb(resp)
+		if cb := drainedC2.notifCallback(); cb != nil {
+			cb(resp)
 		}
 	}()
 

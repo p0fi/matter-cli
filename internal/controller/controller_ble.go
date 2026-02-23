@@ -213,8 +213,30 @@ func (c *Controller) ConnectPASEoverBLE(ctx context.Context, adapter transport.B
 	slog.Debug("ble-pase: starting PASE handshake")
 	session, err := subCtrl.connectPASEWithAddr(ctx, passcode)
 	if err != nil {
+		// Stop the sub-controller's pump before closing the connection so
+		// the pump goroutine exits cleanly instead of logging a receive error.
+		if subCtrl.cancel != nil {
+			subCtrl.cancel()
+			<-subCtrl.done
+		}
 		bleConn.Close()
 		return nil, nil, fmt.Errorf("controller: BLE PASE: %w", err)
+	}
+
+	// Stop the sub-controller's message pump before migrating state.
+	//
+	// connectPASEWithAddr starts a pump goroutine on subCtrl so it can
+	// receive PASE messages. That goroutine calls bleConn.Receive(), which
+	// reads from the shared btp.Messages() channel. If we start the main
+	// controller's pump without stopping subCtrl's first, two goroutines
+	// compete on the same channel and randomly steal each other's messages
+	// (e.g. an ArmFailsafe response arriving on subCtrl's goroutine is
+	// dispatched to an exchange that no longer exists, and the main
+	// controller never sees it).
+	if subCtrl.cancel != nil {
+		slog.Debug("ble-pase: stopping sub-controller message pump")
+		subCtrl.cancel()
+		<-subCtrl.done
 	}
 
 	// Migrate the session and exchange state back to the main controller so
@@ -229,7 +251,8 @@ func (c *Controller) ConnectPASEoverBLE(ctx context.Context, adapter transport.B
 	c.peerAddr = &transport.BLEAddr{Address: addr}
 	c.mu.Unlock()
 
-	// Start the message pump on the BLE connection.
+	// Stop the main controller's existing pump (if any) then start a fresh
+	// one backed by the BLE connection.
 	if c.cancel != nil {
 		c.cancel()
 		<-c.done

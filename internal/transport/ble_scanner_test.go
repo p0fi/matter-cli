@@ -182,6 +182,7 @@ type mockBLECharacteristic struct {
 	writeMu           sync.Mutex
 	writeErr          error
 	notifCb           func([]byte)
+	notifMu           sync.RWMutex
 	enableNotifErr    error
 	waitCh            chan []byte // delivers data for WaitForValue
 }
@@ -211,8 +212,17 @@ func (c *mockBLECharacteristic) EnableNotifications(cb func([]byte)) error {
 	if c.enableNotifErr != nil {
 		return c.enableNotifErr
 	}
+	c.notifMu.Lock()
 	c.notifCb = cb
+	c.notifMu.Unlock()
 	return nil
+}
+
+// notifCallback safely reads the registered notification callback.
+func (c *mockBLECharacteristic) notifCallback() func([]byte) {
+	c.notifMu.RLock()
+	defer c.notifMu.RUnlock()
+	return c.notifCb
 }
 
 func (c *mockBLECharacteristic) WaitForNotifying(_ context.Context) error {
