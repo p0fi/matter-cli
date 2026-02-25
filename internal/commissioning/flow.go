@@ -7,11 +7,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/p0fi/matter-cli/internal/interaction"
+	"github.com/p0fi/matter-cli/internal/protocol"
 	"github.com/p0fi/matter-cli/internal/tlv"
+	"github.com/p0fi/matter-cli/internal/transport"
 )
 
 // CommissioningParams holds parameters for commissioning a device.
@@ -51,8 +55,8 @@ const (
 	StepAddNOC
 	StepNetworkSetup
 	StepNetworkConnect
-	StepCommissioningComplete
 	StepEstablishCASE
+	StepCommissioningComplete
 )
 
 // String returns a human-readable name for the commissioning step.
@@ -71,8 +75,8 @@ func (s CommissioningStep) String() string {
 		"AddNOC",
 		"NetworkSetup",
 		"NetworkConnect",
-		"CommissioningComplete",
 		"EstablishCASE",
+		"CommissioningComplete",
 	}
 	if int(s) < len(names) {
 		return names[s]
@@ -136,6 +140,22 @@ type Commissioner struct {
 	NOCIssuer   NOCIssuer
 	Attestation AttestationValidator
 	OnProgress  ProgressFunc
+
+	// BLEReconnectInitialWait overrides bleReconnectInitialWait when non-zero.
+	// Used in tests to avoid sleeping for seconds.
+	BLEReconnectInitialWait time.Duration
+	// BLEReconnectRetryInterval overrides bleReconnectRetryInterval when non-zero.
+	// Used in tests to avoid sleeping for seconds.
+	BLEReconnectRetryInterval time.Duration
+	// BLEReconnectMaxAttempts overrides bleReconnectMaxAttempts when > 0.
+	// Used in tests to reduce the number of retries.
+	BLEReconnectMaxAttempts int
+
+	// CASEInitialWait overrides the initial wait before the first CASE attempt
+	// when non-zero. Used in tests to avoid sleeping for seconds.
+	CASEInitialWait time.Duration
+	// CASERetryInterval overrides the 5-second between-attempt wait when non-zero.
+	CASERetryInterval time.Duration
 }
 
 // CommissioningResult contains device information gathered during commissioning.
@@ -193,7 +213,6 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 			"discoveryCapabilities", fmt.Sprintf("0x%02X", payload.DiscoveryCapabilities),
 		)
 	}
-
 	// Step 2: Discover device.
 	c.reportProgress(StepDiscover)
 	addr, err := c.Discoverer.DiscoverCommissionable(ctx, discriminator)
@@ -219,6 +238,45 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	c.reportProgress(StepReadBasicInfo)
 	if _, err := c.Client.ReadAttribute(ctx, paseSession, 0, 0x0028, 0x0001); err != nil {
 		return nil, fmt.Errorf("commissioning: reading basic information: %w", err)
+	}
+
+	// Check whether the device requires network credentials that were not
+	// provided. Read the NetworkCommissioning cluster (0x0031) FeatureMap
+	// attribute (0xFFFC) on endpoint 0 to discover the device's network
+	// interfaces:
+	//   Bit 0 (0x01): Wi-Fi
+	//   Bit 1 (0x02): Thread
+	//   Bit 2 (0x04): Ethernet
+	//
+	// If the device only supports Thread (or only Wi-Fi) and no matching
+	// credentials were supplied, bail out now with a clear error message
+	// instead of proceeding to AddNOC where the BLE connection would drop
+	// and leave the user with a cryptic timeout.
+	if params.Network == nil {
+		if featureData, rdErr := c.Client.ReadAttribute(ctx, paseSession, 0, 0x0031, 0xFFFC); rdErr == nil {
+			features := decodeTLVUint32(featureData)
+			hasWiFi := features&0x01 != 0
+			hasThread := features&0x02 != 0
+			hasEthernet := features&0x04 != 0
+
+			slog.Debug("commissioning: network commissioning feature map",
+				"features", fmt.Sprintf("0x%04X", features),
+				"wifi", hasWiFi, "thread", hasThread, "ethernet", hasEthernet)
+
+			if hasThread && !hasEthernet && !hasWiFi {
+				return nil, fmt.Errorf("commissioning: device requires Thread network credentials\n" +
+					"  Provide a Thread operational dataset with --thread-dataset <hex>")
+			}
+			if hasWiFi && !hasEthernet && !hasThread {
+				return nil, fmt.Errorf("commissioning: device requires WiFi network credentials\n" +
+					"  Provide WiFi credentials with --wifi-ssid <ssid> --wifi-password <password>")
+			}
+			if (hasThread || hasWiFi) && !hasEthernet {
+				return nil, fmt.Errorf("commissioning: device requires network credentials (supports WiFi and Thread)\n" +
+					"  Provide WiFi credentials with --wifi-ssid <ssid> --wifi-password <password>\n" +
+					"  Or a Thread operational dataset with --thread-dataset <hex>")
+			}
+		}
 	}
 
 	// Step 6: Attestation request.
@@ -260,38 +318,152 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	}
 
 	// Step 11: Add NOC.
+	//
+	// On constrained devices (especially Thread), the BLE connection may
+	// drop while the device processes AddNOC (certificate validation,
+	// key derivation, flash writes can take 1-2 s on a single-core MCU,
+	// causing the BLE supervision timeout to expire). When the transport
+	// reports a connection-closed error we treat AddNOC as a *potential*
+	// success and proceed to operational discovery. If the device is
+	// reachable on its operational network and CASE succeeds, AddNOC
+	// clearly worked. If not, the failsafe timer will roll back the
+	// device's state automatically.
 	c.reportProgress(StepAddNOC)
-	if err := c.addNOC(ctx, paseSession, noc, icac, ipk, adminSubject); err != nil {
-		return nil, fmt.Errorf("commissioning: adding NOC: %w", err)
+	addNOCErr := c.addNOC(ctx, paseSession, noc, icac, ipk, adminSubject)
+	bleDropped := false
+	if addNOCErr != nil {
+		if errors.Is(addNOCErr, transport.ErrConnClosed) || errors.Is(addNOCErr, context.DeadlineExceeded) || errors.Is(addNOCErr, protocol.ErrExchangeClosed) {
+			// The request was fully sent but we never got the response
+			// because the transport died. This is expected on Thread
+			// devices — proceed optimistically.
+			slog.Debug("commissioning: BLE disconnected during AddNOC, proceeding optimistically",
+				"err", addNOCErr)
+			bleDropped = true
+		} else {
+			return nil, fmt.Errorf("commissioning: adding NOC: %w", addNOCErr)
+		}
 	}
 
-	// Step 12-13: Network setup (if needed).
-	if params.Network != nil && params.Network.Type != NetworkEthernet {
+	// Step 12-13: Network setup + ConnectNetwork (if needed).
+	//
+	// Per the chip-tool reference implementation, network provisioning
+	// happens AFTER AddNOC. The device needs its operational certificate
+	// before it can operate on the network. The sequence is:
+	//   1. AddOrUpdateThreadNetwork / AddOrUpdateWiFiNetwork — store creds
+	//   2. ConnectNetwork — tell device to join the network
+	//
+	// Either step may cause the BLE connection to drop (especially
+	// ConnectNetwork, which triggers Thread mesh join / WiFi association
+	// that can take 5-30 s). We handle BLE drops optimistically and
+	// proceed to CASE discovery — if the device successfully joined its
+	// network, it will advertise on _matter._tcp.
+	//
+	// Special case: if BLE dropped during AddNOC and we still have network
+	// credentials to deliver, we must re-establish PASE over BLE before
+	// attempting network provisioning. The device is still in its
+	// commissioning window (failsafe timer is running) and will re-advertise
+	// on BLE shortly after the AddNOC reboot. Without the Thread/WiFi
+	// dataset the device cannot join any IP network, so skipping network
+	// setup would guarantee CASE failure.
+	needsNetwork := params.Network != nil && params.Network.Type != NetworkEthernet
+
+	if needsNetwork && bleDropped {
+		// Re-connect BLE and deliver credentials over a fresh PASE session.
+		// The device reboots to process AddNOC (cert validation + flash
+		// write) and then re-advertises on BLE within a few seconds. We
+		// wait up to bleReconnectTimeout for it to reappear.
+		slog.Debug("commissioning: BLE dropped during AddNOC with pending network credentials — attempting BLE reconnect to deliver credentials",
+			"addr", addr, "networkType", params.Network.Type.String())
+
+		reconnectSession, reconnectErr := c.reconnectPASEAfterAddNOC(ctx, addr, passcode)
+		if reconnectErr != nil {
+			// We could not reconnect BLE. This is a hard failure for
+			// Thread/WiFi devices: they have a NOC but no network
+			// credentials, so they cannot join the operational network.
+			// The failsafe will roll back their state automatically.
+			return nil, fmt.Errorf(
+				"commissioning: BLE dropped during AddNOC and reconnect failed — "+
+					"device cannot join %s network without credentials "+
+					"(failsafe will roll back the device): %w",
+				params.Network.Type.String(), reconnectErr)
+		}
+		defer reconnectSession.Close()
+
+		slog.Debug("commissioning: BLE reconnected after AddNOC, delivering network credentials")
+		// Treat reconnect session as paseSession for network provisioning below.
+		paseSession = reconnectSession
+		bleDropped = false
+	}
+
+	if needsNetwork && !bleDropped {
 		c.reportProgress(StepNetworkSetup)
 		if err := c.setupNetwork(ctx, paseSession, params.Network); err != nil {
-			return nil, fmt.Errorf("commissioning: setting up network: %w", err)
+			if errors.Is(err, transport.ErrConnClosed) || errors.Is(err, protocol.ErrExchangeClosed) {
+				slog.Debug("commissioning: BLE disconnected during NetworkSetup, proceeding optimistically",
+					"err", err)
+				bleDropped = true
+			} else {
+				return nil, fmt.Errorf("commissioning: setting up network: %w", err)
+			}
 		}
 
-		c.reportProgress(StepNetworkConnect)
-		if err := c.connectNetwork(ctx, paseSession, params.Network); err != nil {
-			return nil, fmt.Errorf("commissioning: connecting network: %w", err)
+		if !bleDropped {
+			c.reportProgress(StepNetworkConnect)
+			connectErr := c.connectNetwork(ctx, paseSession, params.Network)
+			if connectErr != nil {
+				if errors.Is(connectErr, transport.ErrConnClosed) || errors.Is(connectErr, context.DeadlineExceeded) || errors.Is(connectErr, protocol.ErrExchangeClosed) {
+					slog.Debug("commissioning: BLE disconnected during ConnectNetwork, proceeding optimistically",
+						"err", connectErr)
+					bleDropped = true
+				} else {
+					return nil, fmt.Errorf("commissioning: connecting network: %w", connectErr)
+				}
+			}
 		}
 	}
 
 	// Step 14: Establish CASE session.
 	// CommissioningComplete must be sent over a CASE session (not PASE).
-	// After AddNOC the device is ready to accept CASE connections.
+	// After AddNOC + ConnectNetwork the device should be on its
+	// operational network and ready to accept CASE connections.
 	c.reportProgress(StepEstablishCASE)
+
+	// After network provisioning the device needs time to join its
+	// operational network. Thread devices in particular must attach to
+	// the Thread mesh, obtain an IP address, and start advertising on
+	// _matter._tcp — this can take 5-15 seconds.
+	//
+	// Use more retries and a longer initial wait when we know the BLE
+	// link dropped, since the device definitely needs time to transition.
+	caseRetries := 3
+	initialWait := 2 * time.Second
+	retryWait := 5 * time.Second
+	if bleDropped {
+		caseRetries = 8
+		initialWait = 8 * time.Second
+		slog.Debug("commissioning: BLE dropped, using extended CASE retry window",
+			"retries", caseRetries, "initialWait", initialWait)
+	}
+	if c.CASEInitialWait != 0 {
+		initialWait = c.CASEInitialWait
+	}
+	if c.CASERetryInterval != 0 {
+		retryWait = c.CASERetryInterval
+	}
 
 	var caseSession Session
 	var caseErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < caseRetries; attempt++ {
 		if attempt > 0 {
 			slog.Debug("commissioning: retrying CASE", "attempt", attempt+1)
 		}
 		// Wait before each attempt to give the device time to transition.
+		wait := initialWait
+		if attempt > 0 {
+			wait = retryWait
+		}
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(wait):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -302,6 +474,9 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		slog.Debug("commissioning: CASE attempt failed", "attempt", attempt+1, "err", caseErr)
 	}
 	if caseErr != nil {
+		if bleDropped {
+			return nil, fmt.Errorf("commissioning: BLE disconnected during commissioning and device not reachable on operational network: %w", caseErr)
+		}
 		return nil, fmt.Errorf("commissioning: establishing CASE session: %w", caseErr)
 	}
 	defer caseSession.Close()
@@ -378,6 +553,21 @@ func decodeTLVString(data []byte) string {
 		return s
 	}
 	return ""
+}
+
+// decodeTLVUint32 extracts a uint32 from a raw TLV element.
+func decodeTLVUint32(data []byte) uint32 {
+	if len(data) == 0 {
+		return 0
+	}
+	r := tlv.NewReader(bytes.NewReader(data))
+	if err := r.Next(); err != nil {
+		return 0
+	}
+	if v, ok := r.Value().(uint64); ok {
+		return uint32(v)
+	}
+	return 0
 }
 
 // decodeTLVUint16 extracts a uint16 from a raw TLV element.
@@ -635,9 +825,12 @@ func (c *Commissioner) setupNetwork(ctx context.Context, session Session, creds 
 		if err != nil {
 			return fmt.Errorf("encoding WiFi network: %w", err)
 		}
-		_, err = c.Client.Invoke(ctx, session, 0, 0x0031, 0x02, req)
+		resp, err := c.Client.Invoke(ctx, session, 0, 0x0031, 0x02, req)
 		if err != nil {
 			return fmt.Errorf("invoking AddOrUpdateWiFiNetwork: %w", err)
+		}
+		if err := checkNetworkResponse(resp, "AddOrUpdateWiFiNetwork"); err != nil {
+			return err
 		}
 	case NetworkThread:
 		// AddOrUpdateThreadNetwork: cluster 0x0031, command 0x03.
@@ -645,13 +838,22 @@ func (c *Commissioner) setupNetwork(ctx context.Context, session Session, creds 
 		if err != nil {
 			return fmt.Errorf("encoding Thread network: %w", err)
 		}
-		_, err = c.Client.Invoke(ctx, session, 0, 0x0031, 0x03, req)
+		resp, err := c.Client.Invoke(ctx, session, 0, 0x0031, 0x03, req)
 		if err != nil {
 			return fmt.Errorf("invoking AddOrUpdateThreadNetwork: %w", err)
+		}
+		if err := checkNetworkResponse(resp, "AddOrUpdateThreadNetwork"); err != nil {
+			return err
 		}
 	}
 	return nil
 }
+
+// connectNetworkTimeout is the maximum time to wait for a ConnectNetwork
+// response. Thread devices must attach to the mesh, obtain an IP address,
+// and potentially negotiate Thread security — this routinely takes 30-60 s
+// on constrained hardware. The default 30 s invoke timeout is not enough.
+const connectNetworkTimeout = 120 * time.Second
 
 func (c *Commissioner) connectNetwork(ctx context.Context, session Session, creds *NetworkCredentials) error {
 	// ConnectNetwork: cluster 0x0031, command 0x06.
@@ -660,19 +862,35 @@ func (c *Commissioner) connectNetwork(ctx context.Context, session Session, cred
 	case NetworkWiFi:
 		networkID = []byte(creds.WiFi.SSID)
 	case NetworkThread:
-		// For Thread, the network ID is the extended PAN ID from the dataset.
-		// Simplified: use the first 8 bytes of the dataset.
-		if len(creds.Thread.OperationalDataset) >= 8 {
-			networkID = creds.Thread.OperationalDataset[:8]
+		// For Thread, the network ID is the Extended PAN ID extracted from
+		// the Thread operational dataset TLV (type 0x02, 8 bytes).
+		extPanID, err := ExtractExtendedPANID(creds.Thread.OperationalDataset)
+		if err != nil {
+			return fmt.Errorf("extracting Extended PAN ID for ConnectNetwork: %w", err)
 		}
+		networkID = extPanID
 	}
+	slog.Debug("commissioning: ConnectNetwork",
+		"networkID", fmt.Sprintf("%x", networkID),
+		"networkType", creds.Type.String())
 	req, err := encodeOctetStringField(0, networkID)
 	if err != nil {
 		return fmt.Errorf("encoding ConnectNetwork: %w", err)
 	}
-	_, err = c.Client.Invoke(ctx, session, 0, 0x0031, 0x06, req)
+	// Use a longer invoke response timeout: the device must join the
+	// network (Thread mesh attach, WiFi association) before it can reply,
+	// which routinely exceeds the default 30 s timeout.
+	invokeCtx := interaction.WithInvokeTimeout(ctx, connectNetworkTimeout)
+	resp, err := c.Client.Invoke(invokeCtx, session, 0, 0x0031, 0x06, req)
 	if err != nil {
 		return fmt.Errorf("invoking ConnectNetwork: %w", err)
+	}
+	// ConnectNetworkResponse (command 0x07) contains:
+	//   Field 0: NetworkingStatus (uint8) — 0 = Success
+	//   Field 1: DebugText (optional UTF-8 string)
+	//   Field 2: ErrorValue (optional int32)
+	if err := checkNetworkResponse(resp, "ConnectNetwork"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -688,6 +906,79 @@ func (c *Commissioner) commissioningComplete(ctx context.Context, session Sessio
 
 // encodeArmFailsafe produces TLV-encoded fields for the ArmFailSafe command.
 // Tag 0: ExpiryLengthSeconds (uint16), Tag 1: Breadcrumb (uint64).
+// bleReconnectInitialWait is how long to wait after AddNOC before the first
+// BLE reconnect attempt. The device needs time to process AddNOC (crypto
+// validation, flash write) and re-initialise its BLE stack.
+const bleReconnectInitialWait = 3 * time.Second
+
+// bleReconnectMaxAttempts is the maximum number of PASE re-establishment
+// attempts after an AddNOC-triggered BLE drop.
+const bleReconnectMaxAttempts = 6
+
+// bleReconnectRetryInterval is the delay between reconnect attempts.
+const bleReconnectRetryInterval = 4 * time.Second
+
+// reconnectPASEAfterAddNOC attempts to re-establish a PASE session over BLE
+// after the BLE connection dropped during AddNOC processing. This is necessary
+// for Thread and WiFi devices that cannot join any IP network without first
+// receiving their network credentials via the NetworkCommissioning cluster.
+//
+// After receiving AddNOC the device typically:
+//  1. Validates the certificate chain (100-500 ms)
+//  2. Writes NOC + fabric state to flash (200-800 ms on constrained MCUs)
+//  3. Resets or re-initialises its BLE stack
+//  4. Re-opens its BLE commissioning window (the failsafe is still running)
+//
+// The device re-advertises on BLE with the same address (CoreBluetooth UUID
+// on macOS, MAC on Linux) and same discriminator. We use EstablishPASE with
+// the original addr and passcode to reconnect.
+func (c *Commissioner) reconnectPASEAfterAddNOC(ctx context.Context, addr string, passcode uint32) (Session, error) {
+	initialWait := bleReconnectInitialWait
+	if c.BLEReconnectInitialWait != 0 {
+		initialWait = c.BLEReconnectInitialWait
+	}
+	retryInterval := bleReconnectRetryInterval
+	if c.BLEReconnectRetryInterval != 0 {
+		retryInterval = c.BLEReconnectRetryInterval
+	}
+	maxAttempts := bleReconnectMaxAttempts
+	if c.BLEReconnectMaxAttempts > 0 {
+		maxAttempts = c.BLEReconnectMaxAttempts
+	}
+
+	slog.Debug("commissioning: waiting for device to re-advertise after AddNOC reboot",
+		"initialWait", initialWait)
+
+	select {
+	case <-time.After(initialWait):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		slog.Debug("commissioning: BLE reconnect attempt", "attempt", attempt, "maxAttempts", maxAttempts, "addr", addr)
+
+		session, err := c.Sessions.EstablishPASE(ctx, addr, passcode)
+		if err == nil {
+			slog.Debug("commissioning: BLE reconnect succeeded", "attempt", attempt)
+			return session, nil
+		}
+		lastErr = err
+		slog.Debug("commissioning: BLE reconnect attempt failed", "attempt", attempt, "err", err)
+
+		if attempt < maxAttempts {
+			select {
+			case <-time.After(retryInterval):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("BLE reconnect after AddNOC failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
 func encodeArmFailsafe(seconds uint16) ([]byte, error) {
 	w := tlv.NewWriter()
 	if err := w.PutUnsignedInt(tlv.ContextTag(0), uint64(seconds)); err != nil {
@@ -780,9 +1071,109 @@ func checkNOCResponse(resp []byte) error {
 	return nil
 }
 
+// checkNetworkResponse validates the NetworkConfigResponse / ConnectNetworkResponse
+// returned by NetworkCommissioning cluster commands. The response TLV contains:
+//
+//	Field 0: NetworkingStatus (uint8) — 0 = Success
+//	Field 1: DebugText (optional UTF-8 string)
+//	Field 2: ErrorValue (optional int32)
+func checkNetworkResponse(resp []byte, commandName string) error {
+	if len(resp) == 0 {
+		slog.Debug("commissioning: network command returned empty response (assuming success)",
+			"command", commandName)
+		return nil
+	}
+
+	// Parse the response TLV to extract NetworkingStatus.
+	r := tlv.NewReader(bytes.NewReader(resp))
+	var status uint64
+	var debugText string
+	var hasStatus bool
+
+	for {
+		if err := r.Next(); err != nil {
+			break
+		}
+		elem := r.Element()
+		if elem.Tag.Type != tlv.TagContextSpecific {
+			continue
+		}
+		switch elem.Tag.TagNum {
+		case 0: // NetworkingStatus
+			if v, ok := elem.Value.(uint64); ok {
+				status = v
+				hasStatus = true
+			}
+		case 1: // DebugText
+			if v, ok := elem.Value.(string); ok {
+				debugText = v
+			}
+		case 2: // ErrorValue
+			slog.Debug("commissioning: network command error value",
+				"command", commandName, "errorValue", elem.Value)
+		}
+	}
+
+	if !hasStatus {
+		slog.Debug("commissioning: network command response has no NetworkingStatus field",
+			"command", commandName, "rawLen", len(resp))
+		return nil
+	}
+
+	slog.Debug("commissioning: network command response",
+		"command", commandName,
+		"networkingStatus", status,
+		"debugText", debugText)
+
+	// NetworkingStatus 0 = Success per Matter spec section 11.8.5.3.
+	if status != 0 {
+		statusName := networkingStatusName(status)
+		if debugText != "" {
+			return fmt.Errorf("%s failed: %s (status %d): %s", commandName, statusName, status, debugText)
+		}
+		return fmt.Errorf("%s failed: %s (status %d)", commandName, statusName, status)
+	}
+	return nil
+}
+
+// networkingStatusName returns a human-readable name for a NetworkingStatus value
+// per Matter spec section 11.8.5.3.
+func networkingStatusName(status uint64) string {
+	switch status {
+	case 0:
+		return "Success"
+	case 1:
+		return "OutOfRange"
+	case 2:
+		return "BoundsExceeded"
+	case 3:
+		return "NetworkIDNotFound"
+	case 4:
+		return "DuplicateNetworkID"
+	case 5:
+		return "NetworkNotFound"
+	case 6:
+		return "RegulatoryError"
+	case 7:
+		return "AuthFailure"
+	case 8:
+		return "UnsupportedSecurity"
+	case 9:
+		return "OtherConnectionFailure"
+	case 10:
+		return "IPV6Failed"
+	case 11:
+		return "IPBindFailed"
+	case 12:
+		return "UnknownError"
+	default:
+		return fmt.Sprintf("Unknown(%d)", status)
+	}
+}
+
 // checkCommandErrorCode parses a command response's ErrorCode field (tag 0).
 // Returns nil if the response is empty/nil or ErrorCode is 0 (success).
-func checkCommandErrorCode(resp []byte, cmdName string) error {
+func checkCommandErrorCode(resp []byte, commandName string) error {
 	if len(resp) == 0 {
 		return nil
 	}
@@ -797,7 +1188,7 @@ func checkCommandErrorCode(resp []byte, cmdName string) error {
 		return nil
 	}
 	if parsed.ErrorCode != 0 {
-		msg := fmt.Sprintf("%s returned error code %d", cmdName, parsed.ErrorCode)
+		msg := fmt.Sprintf("%s returned error code %d", commandName, parsed.ErrorCode)
 		if parsed.DebugText != "" {
 			msg += ": " + parsed.DebugText
 		}
