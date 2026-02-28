@@ -11,46 +11,52 @@ import (
 
 func TestParseTarget(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		wantNodeID  uint64
-		wantEP      uint16
-		wantEPSet   bool
-		wantErr     bool
-		errContains string
+		name            string
+		input           string
+		wantNodeID      uint64
+		wantEP          uint16
+		wantEPSet       bool
+		wantExplicit    bool
+		wantErr         bool
+		errContains     string
 	}{
 		{
-			name:       "numeric node only",
-			input:      "@1",
-			wantNodeID: 1,
-			wantEPSet:  false,
+			name:         "numeric node only",
+			input:        "@1",
+			wantNodeID:   1,
+			wantEPSet:    false,
+			wantExplicit: false,
 		},
 		{
-			name:       "numeric node with endpoint",
-			input:      "@1/2",
-			wantNodeID: 1,
-			wantEP:     2,
-			wantEPSet:  true,
+			name:         "numeric node with endpoint",
+			input:        "@1/2",
+			wantNodeID:   1,
+			wantEP:       2,
+			wantEPSet:    true,
+			wantExplicit: true,
 		},
 		{
-			name:       "numeric node with endpoint 0",
-			input:      "@1/0",
-			wantNodeID: 1,
-			wantEP:     0,
-			wantEPSet:  true,
+			name:         "numeric node with endpoint 0",
+			input:        "@1/0",
+			wantNodeID:   1,
+			wantEP:       0,
+			wantEPSet:    true,
+			wantExplicit: true,
 		},
 		{
-			name:       "large node ID",
-			input:      "@12345",
-			wantNodeID: 12345,
-			wantEPSet:  false,
+			name:         "large node ID",
+			input:        "@12345",
+			wantNodeID:   12345,
+			wantEPSet:    false,
+			wantExplicit: false,
 		},
 		{
-			name:       "large node ID with endpoint",
-			input:      "@999/15",
-			wantNodeID: 999,
-			wantEP:     15,
-			wantEPSet:  true,
+			name:         "large node ID with endpoint",
+			input:        "@999/15",
+			wantNodeID:   999,
+			wantEP:       15,
+			wantEPSet:    true,
+			wantExplicit: true,
 		},
 		{
 			name:        "missing @ prefix",
@@ -131,6 +137,9 @@ func TestParseTarget(t *testing.T) {
 			}
 			if got.EndpointSet != tt.wantEPSet {
 				t.Errorf("ParseTarget(%q).EndpointSet = %v, want %v", tt.input, got.EndpointSet, tt.wantEPSet)
+			}
+			if got.ExplicitEndpoint != tt.wantExplicit {
+				t.Errorf("ParseTarget(%q).ExplicitEndpoint = %v, want %v", tt.input, got.ExplicitEndpoint, tt.wantExplicit)
 			}
 		})
 	}

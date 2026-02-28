@@ -584,3 +584,137 @@ func TestIsWritableDir(t *testing.T) {
 		assert.False(t, isWritableDir(f))
 	})
 }
+
+// TestZshCompletion_ContainsDirectiveParsing verifies that the generated zsh
+// completion script contains the directive-parsing logic introduced for
+// ShellCompDirectiveNoSpace support.
+func TestZshCompletion_ContainsDirectiveParsing(t *testing.T) {
+	root, _ := newTestRootWithCompletion()
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"completion", "zsh"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	script := stdout.String()
+
+	// The script must parse the directive line.
+	assert.Contains(t, script, "directive=", "zsh script should declare a directive variable")
+	assert.Contains(t, script, "directive & 2", "zsh script should check ShellCompDirectiveNoSpace bit")
+	// Node-level targets use -S '' to suppress trailing space.
+	assert.Contains(t, script, "-S ''", "zsh script should suppress trailing space for node-level targets")
+}
+
+// TestFilterShorthandCommands_NodeOnly verifies that when a node-only target is
+// set (ExplicitEndpoint=false), all cluster-group commands are hidden and the
+// device command remains visible.
+//
+// This test operates on the global rootCmd command tree. Because cobra Hidden
+// flags are shared state, it resets them after the test to avoid affecting
+// subsequent tests.
+func TestFilterShorthandCommands_NodeOnly(t *testing.T) {
+	// Snapshot Hidden state before the test.
+	type hiddenState struct {
+		cmd    *cobra.Command
+		hidden bool
+	}
+	var snapshot []hiddenState
+	for _, cmd := range rootCmd.Commands() {
+		snapshot = append(snapshot, hiddenState{cmd, cmd.Hidden})
+	}
+	for _, cmd := range shorthandCmds {
+		snapshot = append(snapshot, hiddenState{cmd, cmd.Hidden})
+	}
+	t.Cleanup(func() {
+		for _, s := range snapshot {
+			s.cmd.Hidden = s.hidden
+		}
+	})
+
+	// Apply node-only target (no explicit endpoint).
+	target := &Target{NodeID: 1, EndpointSet: false, ExplicitEndpoint: false}
+	filterShorthandCommands(target)
+
+	// All shorthand cluster commands should be hidden.
+	for _, cmd := range shorthandCmds {
+		assert.True(t, cmd.Hidden,
+			"shorthand cluster command %q should be hidden for node-only target", cmd.Name())
+	}
+
+	// The cluster parent command should be hidden.
+	var clusterCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "cluster" {
+			clusterCmd = cmd
+			break
+		}
+	}
+	if clusterCmd != nil {
+		assert.True(t, clusterCmd.Hidden,
+			"'cluster' command should be hidden for node-only target")
+	}
+
+	// The device command should NOT be hidden.
+	var deviceCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "device" {
+			deviceCmd = cmd
+			break
+		}
+	}
+	if deviceCmd != nil {
+		assert.False(t, deviceCmd.Hidden,
+			"'device' command should be visible for node-only target")
+	}
+}
+
+// TestFilterShorthandCommands_ExplicitEndpoint verifies that when an
+// endpoint-explicit target is set (ExplicitEndpoint=true), the device command
+// is hidden and cluster commands are not globally hidden.
+func TestFilterShorthandCommands_ExplicitEndpoint(t *testing.T) {
+	// Snapshot Hidden state.
+	type hiddenState struct {
+		cmd    *cobra.Command
+		hidden bool
+	}
+	var snapshot []hiddenState
+	for _, cmd := range rootCmd.Commands() {
+		snapshot = append(snapshot, hiddenState{cmd, cmd.Hidden})
+	}
+	for _, cmd := range shorthandCmds {
+		snapshot = append(snapshot, hiddenState{cmd, cmd.Hidden})
+	}
+	t.Cleanup(func() {
+		for _, s := range snapshot {
+			s.cmd.Hidden = s.hidden
+		}
+	})
+
+	// Apply endpoint-explicit target.
+	target := &Target{NodeID: 1, Endpoint: 1, EndpointSet: true, ExplicitEndpoint: true}
+	filterShorthandCommands(target)
+
+	// The device command should be hidden.
+	var deviceCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "device" {
+			deviceCmd = cmd
+			break
+		}
+	}
+	if deviceCmd != nil {
+		assert.True(t, deviceCmd.Hidden,
+			"'device' command should be hidden for endpoint-explicit target")
+	}
+
+	// Target-unaware commands should be hidden.
+	for _, cmd := range rootCmd.Commands() {
+		if targetUnawareCommands[cmd.Name()] {
+			assert.True(t, cmd.Hidden,
+				"target-unaware command %q should be hidden for endpoint-explicit target", cmd.Name())
+		}
+	}
+}

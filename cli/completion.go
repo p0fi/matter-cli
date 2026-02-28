@@ -474,7 +474,7 @@ _matter_group_map=(
 _matter() {
   local -a request_cmd
   local -a device_cmds cluster_cmds tool_cmds target_cmds other_cmds
-  local out word desc entry tag i
+  local out word desc entry tag i directive _matter_line
 
   # Build the __complete call from the current word list.
   request_cmd=("${words[1]}" "__complete")
@@ -484,6 +484,13 @@ _matter() {
   request_cmd+=("${words[$CURRENT]}")
 
   out=$("${request_cmd[@]}" 2>/dev/null)
+
+  # Extract the cobra ShellCompDirective from the trailing :N line so we can
+  # honour flags like ShellCompDirectiveNoSpace (bit 1, value 2).
+  directive=0
+  while IFS= read -r _matter_line; do
+    [[ "$_matter_line" == :* ]] && directive="${_matter_line#:}"
+  done <<< "$out"
 
   # Parse output lines, skipping the trailing :N directive and blank lines.
   while IFS=$'\t' read -r word desc; do
@@ -503,7 +510,15 @@ _matter() {
     fi
   done <<< "$out"
 
-  (( ${#target_cmds}  )) && _describe -t targets          "Targets"          target_cmds
+  if (( ${#target_cmds} )); then
+    if (( directive & 2 )); then
+      # ShellCompDirectiveNoSpace: node-level targets — suppress trailing space
+      # so the user can type / to select an endpoint or space for device commands.
+      _describe -t targets "Targets" target_cmds -S ''
+    else
+      _describe -t targets "Targets" target_cmds
+    fi
+  fi
   (( ${#device_cmds}  )) && _describe -t device-commands  "Device Commands"  device_cmds
   (( ${#cluster_cmds} )) && _describe -t cluster-commands "Cluster Commands" cluster_cmds
   (( ${#tool_cmds}    )) && _describe -t tools             "Tools"            tool_cmds

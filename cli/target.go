@@ -22,6 +22,12 @@ type Target struct {
 	NodeID      uint64
 	Endpoint    uint16
 	EndpointSet bool
+	// ExplicitEndpoint is true when the endpoint was specified with a "/"
+	// separator by the user (e.g. @node/1) or set explicitly via a sticky
+	// default. It is false when the endpoint was inferred from an alias or
+	// not specified at all. Only used for completion filtering — command
+	// execution behaviour is unaffected.
+	ExplicitEndpoint bool
 }
 
 // extractedTarget holds the target parsed from os.Args during Execute().
@@ -96,6 +102,7 @@ func ParseTarget(s string) (*Target, error) {
 		}
 		t.Endpoint = uint16(ep)
 		t.EndpointSet = true
+		t.ExplicitEndpoint = true
 	}
 
 	return t, nil
@@ -229,6 +236,9 @@ func resolveTarget() {
 		if defaultEp := viper.GetUint64("default-endpoint"); defaultEp != 0 {
 			t.Endpoint = uint16(defaultEp)
 			t.EndpointSet = true
+			// The user explicitly chose this endpoint via `matter use @node/N`,
+			// so treat it as explicit for completion-filtering purposes.
+			t.ExplicitEndpoint = true
 		}
 		resolvedTarget = t
 	}

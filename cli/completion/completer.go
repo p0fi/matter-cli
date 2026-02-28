@@ -226,18 +226,21 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 }
 
 // TargetCompletionFunc returns a cobra ValidArgsFunction that completes
-// @target tokens. When the user types "@" and presses Tab, this returns
-// all known nodes formatted as @nodeID/endpoint suggestions. Both numeric
-// IDs and device aliases (friendly names) are offered.
+// @target tokens in two stages:
 //
-// Examples of completions produced:
+// Stage 1 — node-only (no "/" typed yet):
+// When the user types "@" or "@ki", completions are node names only
+// (e.g. "@kitchen", "@1"). ShellCompDirectiveNoSpace is included so the
+// shell does not append a trailing space, allowing the user to either
+// type "/" to proceed to endpoint selection or " " (space) for device
+// commands.
 //
-//	@1/1    Kitchen Light (endpoint 1)
-//	@2/1    Front Door Lock (endpoint 1)
-//	@kitchen/1  Kitchen Light (node 1)
+// Stage 2 — endpoint selection ("/" present):
+// When the user types "@kitchen/", completions are the non-root endpoints
+// on the matched node (e.g. "@kitchen/1", "@kitchen/2"). Normal trailing
+// space is applied so the user can proceed to a command after selection.
 //
-// This function is intended to be registered on the root command's
-// ValidArgsFunction so that @target can be completed at any position.
+// Both numeric IDs and device aliases are offered in stage 1.
 func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Only complete if the user is typing a @target token.
@@ -281,24 +284,58 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 				continue
 			}
 
-			// Emit one completion per non-root (ID > 0) endpoint.
-			for _, ep := range n.Endpoints {
-				if ep.ID == 0 {
-					continue // skip root endpoint
-				}
-				epStr := fmt.Sprintf("%d", ep.ID)
-
-				// If the user typed a "/" and started an endpoint prefix, filter.
-				if hasSlash && !strings.HasPrefix(epStr, epPart) {
-					continue
-				}
-
-				target := fmt.Sprintf("@%s/%s", alias, epStr)
-				desc := fmt.Sprintf("[%s] %s", nodeStr, endpointDescription(ep))
+			if !hasSlash {
+				// ── Stage 1: node-only completions ──
+				// Emit the alias form (e.g. @kitchen).
+				target := fmt.Sprintf("@%s", alias)
+				desc := fmt.Sprintf("[%s] %s", nodeStr, nodeSummary(n))
 				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
+
+				// Also offer the numeric form when it differs from the alias,
+				// so users who know the node ID can complete it directly.
+				if alias != nodeStr {
+					target2 := fmt.Sprintf("@%s", nodeStr)
+					completions = append(completions, fmt.Sprintf("%s\t%s", target2, nodeSummary(n)))
+				}
+			} else {
+				// ── Stage 2: endpoint completions for the matched node ──
+				for _, ep := range n.Endpoints {
+					if ep.ID == 0 {
+						continue // skip root endpoint
+					}
+					epStr := fmt.Sprintf("%d", ep.ID)
+
+					// Filter by endpoint prefix the user has typed after "/".
+					if !strings.HasPrefix(epStr, epPart) {
+						continue
+					}
+
+					target := fmt.Sprintf("@%s/%s", alias, epStr)
+					desc := fmt.Sprintf("[%s] %s", nodeStr, endpointDescription(ep))
+					completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
+				}
 			}
 		}
 
+		if !hasSlash {
+			// Node-only stage: suppress trailing space so the user can type
+			// "/" for endpoint or " " for device-level commands.
+			return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
+		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// nodeSummary returns a one-line human-readable description of a node,
+// using the device type of its first non-root endpoint when available.
+func nodeSummary(n *store.Node) string {
+	for _, ep := range n.Endpoints {
+		if ep.ID > 0 {
+			return endpointDescription(ep)
+		}
+	}
+	if n.Name != "" {
+		return n.Name
+	}
+	return fmt.Sprintf("Node %d", n.ID)
 }

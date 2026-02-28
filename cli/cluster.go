@@ -80,30 +80,59 @@ var targetUnawareCommands = map[string]bool{
 	"interactive": true,
 }
 
+// deviceOnlyCommands lists top-level commands that are meaningful at the
+// device (node) level but not when a specific endpoint is targeted. They are
+// hidden from completion when an endpoint-explicit target is set.
+var deviceOnlyCommands = map[string]bool{
+	"device": true,
+}
+
 // filterShorthandCommands hides commands that are irrelevant for the resolved
-// target:
-//   - Top-level management commands (commission, fabric, discover, …) are
-//     hidden whenever any target is set, because they operate on the fabric
-//     as a whole rather than on a specific device.
-//   - Shorthand cluster commands are hidden when the target endpoint is known
-//     and the cluster is not present on that endpoint.
+// target based on its specificity:
 //
-// Nothing is hidden when the target lacks a node ID, and shorthand filtering
-// is skipped when the endpoint is unset or the store is unreachable.
+//   - Target-unaware commands (commission, fabric, discover, …) are hidden
+//     whenever any target is set.
+//   - Node-only target (ExplicitEndpoint=false): all cluster commands are
+//     hidden; only device-level commands (device inspect, device alias) remain.
+//   - Endpoint-explicit target (ExplicitEndpoint=true): device-only commands
+//     are hidden; cluster commands are shown (filtered to those present on the
+//     endpoint when the store is reachable).
+//
+// Nothing is hidden when the target lacks a node ID.
 func filterShorthandCommands(t *Target) {
 	if t == nil || t.NodeID == 0 {
 		return
 	}
 
-	// Hide management commands that don't apply to a specific device target.
+	// Always hide management commands that don't apply to a device target.
 	for _, cmd := range shorthandCmds {
 		if targetUnawareCommands[cmd.Name()] {
 			cmd.Hidden = true
 		}
 	}
-	// Also hide them in the full root command list (covers non-cluster cmds).
 	for _, cmd := range allRootCommands() {
 		if targetUnawareCommands[cmd.Name()] {
+			cmd.Hidden = true
+		}
+	}
+
+	if !t.ExplicitEndpoint {
+		// Node-only target: hide all cluster commands so only device-level
+		// commands (device inspect, device alias) remain visible.
+		for _, cmd := range shorthandCmds {
+			cmd.Hidden = true
+		}
+		for _, cmd := range allRootCommands() {
+			if cmd.GroupID == groupClusters {
+				cmd.Hidden = true
+			}
+		}
+		return
+	}
+
+	// Endpoint-explicit target: hide node-only commands, keep clusters.
+	for _, cmd := range allRootCommands() {
+		if deviceOnlyCommands[cmd.Name()] {
 			cmd.Hidden = true
 		}
 	}
