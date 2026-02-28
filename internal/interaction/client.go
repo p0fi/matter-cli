@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/p0fi/matter-cli/internal/protocol"
 	"github.com/p0fi/matter-cli/internal/tlv"
@@ -156,6 +157,41 @@ type TimedRequestMessage struct {
 	Timeout uint16 `tlv:"0,uint"`
 }
 
+// invokeResponseTimeout is the default maximum time to wait for an
+// InvokeResponse after the InvokeRequest has been sent. This prevents the
+// caller from hanging indefinitely when the device disconnects or crashes
+// mid-command (e.g. during AddNOC processing) and the transport layer has
+// not yet detected the disconnection.
+//
+// 30 seconds is generous enough for even the slowest embedded devices
+// (certificate installation, key derivation, flash writes) while still
+// providing a reasonable upper bound for user-facing commands.
+//
+// Callers that need a longer timeout (e.g. ConnectNetwork for Thread
+// devices, which must join the mesh before responding) can override this
+// per-call via WithInvokeTimeout.
+const invokeResponseTimeout = 30 * time.Second
+
+// invokeTimeoutKey is the context key for overriding invokeResponseTimeout.
+type invokeTimeoutKey struct{}
+
+// WithInvokeTimeout returns a child context that overrides the default invoke
+// response timeout used by Client.Invoke / Client.InvokeTimed. This is useful
+// for commands whose response is expected to take longer than the default 30 s
+// (e.g. NetworkCommissioning.ConnectNetwork on Thread devices).
+func WithInvokeTimeout(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, invokeTimeoutKey{}, d)
+}
+
+// getInvokeTimeout returns the invoke response timeout to use: either the
+// per-call override stored in ctx, or the package-level default.
+func getInvokeTimeout(ctx context.Context) time.Duration {
+	if d, ok := ctx.Value(invokeTimeoutKey{}).(time.Duration); ok && d > 0 {
+		return d
+	}
+	return invokeResponseTimeout
+}
+
 func (c *Client) invokeInternal(ctx context.Context, session *protocol.Session, path CommandPath, fields []byte, timedMs uint16) (*InvokeResponseIB, error) {
 	if timedMs > 0 {
 		slog.Debug("interaction: invoke (timed)", "path", path, "timeoutMs", timedMs)
@@ -208,7 +244,15 @@ func (c *Client) invokeInternal(ctx context.Context, session *protocol.Session, 
 		return nil, fmt.Errorf("interaction: sending invoke request: %w", err)
 	}
 
-	msg, err := exchange.Receive(ctx)
+	// Apply a response timeout so we never block indefinitely waiting for
+	// a device that has disconnected or crashed. If the caller's context
+	// already has a tighter deadline, that takes precedence. Callers may
+	// override the default via WithInvokeTimeout for long-running commands
+	// (e.g. ConnectNetwork on Thread devices).
+	recvCtx, recvCancel := context.WithTimeout(ctx, getInvokeTimeout(ctx))
+	defer recvCancel()
+
+	msg, err := exchange.Receive(recvCtx)
 	if err != nil {
 		return nil, fmt.Errorf("interaction: receiving response: %w", err)
 	}

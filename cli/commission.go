@@ -59,6 +59,7 @@ func stepDescription(step commissioning.CommissioningStep) string {
 		commissioning.StepDiscover:              "Discovering device",
 		commissioning.StepEstablishPASE:         "Establishing PASE session",
 		commissioning.StepArmFailsafe:           "Arming failsafe timer",
+		commissioning.StepReadCommissioningInfo: "Reading commissioning info",
 		commissioning.StepReadBasicInfo:         "Reading basic information",
 		commissioning.StepAttestationRequest:    "Requesting attestation",
 		commissioning.StepValidateAttestation:   "Validating attestation",
@@ -78,23 +79,28 @@ func stepDescription(step commissioning.CommissioningStep) string {
 }
 
 // buildNetworkCreds builds network credentials from CLI flags if provided.
-func buildNetworkCreds(cmd *cobra.Command) *commissioning.NetworkCredentials {
+// Returns the credentials and an error if validation fails.
+func buildNetworkCreds(cmd *cobra.Command) (*commissioning.NetworkCredentials, error) {
 	ssid, _ := cmd.Flags().GetString("wifi-ssid")
 	password, _ := cmd.Flags().GetString("wifi-password")
 	threadHex, _ := cmd.Flags().GetString("thread-dataset")
 
 	if ssid != "" {
 		creds := commissioning.NewWiFiCredentials(ssid, password)
-		return &creds
+		return &creds, nil
 	}
 	if threadHex != "" {
 		dataset, err := hex.DecodeString(strings.TrimPrefix(threadHex, "0x"))
-		if err == nil {
-			creds := commissioning.NewThreadCredentials(dataset)
-			return &creds
+		if err != nil {
+			return nil, fmt.Errorf("invalid --thread-dataset: not valid hex: %w", err)
 		}
+		if err := commissioning.ValidateThreadDataset(dataset); err != nil {
+			return nil, fmt.Errorf("invalid --thread-dataset: %w", err)
+		}
+		creds := commissioning.NewThreadCredentials(dataset)
+		return &creds, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func newCommissionCodeCmd() *cobra.Command {
@@ -158,10 +164,16 @@ func newCommissionCodeCmd() *cobra.Command {
 				stepper.Step(stepDescription(step))
 			}
 
+			network, err := buildNetworkCreds(cmd)
+			if err != nil {
+				stepper.Fail(err.Error())
+				return err
+			}
+
 			params := commissioning.CommissioningParams{
 				SetupCode: args[0],
 				NodeID:    nodeID,
-				Network:   buildNetworkCreds(cmd),
+				Network:   network,
 			}
 
 			stepper.Step(fmt.Sprintf("Commissioning device with code %s as node %s",
@@ -250,10 +262,16 @@ func newCommissionIPCmd() *cobra.Command {
 				stepper.Step(stepDescription(step))
 			}
 
+			network, err := buildNetworkCreds(cmd)
+			if err != nil {
+				stepper.Fail(err.Error())
+				return err
+			}
+
 			params := commissioning.CommissioningParams{
 				Passcode: pin,
 				NodeID:   nodeID,
-				Network:  buildNetworkCreds(cmd),
+				Network:  network,
 			}
 
 			stepper.Step(fmt.Sprintf("Commissioning device at %s with pin %s as node %s",

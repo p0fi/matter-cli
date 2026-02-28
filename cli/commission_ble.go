@@ -113,10 +113,16 @@ func runCommissionBLE(cmd *cobra.Command, args []string) error {
 		stepper.Step(stepDescription(step))
 	}
 
+	network, err := buildNetworkCreds(cmd)
+	if err != nil {
+		stepper.Fail(err.Error())
+		return err
+	}
+
 	params := commissioning.CommissioningParams{
 		SetupCode: args[0],
 		NodeID:    nodeID,
-		Network:   buildNetworkCreds(cmd),
+		Network:   network,
 	}
 
 	stepper.Step(fmt.Sprintf("Commissioning device over BLE with code %s as node %s",
@@ -220,10 +226,16 @@ func runCommissionBLEAddress(cmd *cobra.Command, args []string) error {
 		stepper.Step(stepDescription(step))
 	}
 
+	network, err := buildNetworkCreds(cmd)
+	if err != nil {
+		stepper.Fail(err.Error())
+		return err
+	}
+
 	params := commissioning.CommissioningParams{
 		Passcode: pin,
 		NodeID:   nodeID,
-		Network:  buildNetworkCreds(cmd),
+		Network:  network,
 	}
 
 	stepper.Step(fmt.Sprintf("Commissioning device at BLE address %s with PIN %s as node %s",

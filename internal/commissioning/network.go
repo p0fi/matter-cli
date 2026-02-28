@@ -3,6 +3,8 @@
 
 package commissioning
 
+import "fmt"
+
 // NetworkType identifies the type of network for commissioning.
 type NetworkType int
 
@@ -72,6 +74,107 @@ func NewThreadCredentials(dataset []byte) NetworkCredentials {
 		Type:   NetworkThread,
 		Thread: &ThreadCredentials{OperationalDataset: dataset},
 	}
+}
+
+// Thread operational dataset TLV type IDs (from the Thread specification).
+// Each TLV is encoded as: 1-byte type | 1-byte length | value.
+const (
+	threadTLVActiveTimestamp  = 0x0E // 8 bytes
+	threadTLVChannel         = 0x00 // 3 bytes
+	threadTLVChannelMask     = 0x35 // variable
+	threadTLVExtendedPANID   = 0x02 // 8 bytes
+	threadTLVMeshLocalPrefix = 0x07 // 8 bytes
+	threadTLVNetworkKey      = 0x05 // 16 bytes
+	threadTLVNetworkName     = 0x03 // 1-16 bytes
+	threadTLVPANID           = 0x01 // 2 bytes
+	threadTLVPSKc            = 0x04 // 16 bytes
+	threadTLVSecurityPolicy  = 0x0C // 3-4 bytes
+)
+
+// minThreadDatasetLen is the minimum length of a valid Thread operational
+// dataset. A dataset must contain at least: Active Timestamp (10), Channel (5),
+// Extended PAN ID (10), Network Key (18), Network Name (3+), PAN ID (4),
+// and several other fields. In practice the smallest valid datasets are ~80 bytes.
+const minThreadDatasetLen = 50
+
+// requiredThreadTLVTypes lists the TLV type IDs that must be present in a
+// valid Thread Active Operational Dataset per the Thread specification.
+var requiredThreadTLVTypes = []struct {
+	id   byte
+	name string
+}{
+	{threadTLVChannel, "Channel"},
+	{threadTLVExtendedPANID, "Extended PAN ID"},
+	{threadTLVNetworkKey, "Network Key"},
+	{threadTLVNetworkName, "Network Name"},
+	{threadTLVPANID, "PAN ID"},
+}
+
+// ValidateThreadDataset checks whether dataset looks like a valid Thread
+// Active Operational Dataset. It verifies minimum length and the presence of
+// required TLV type IDs. It does NOT validate individual TLV values.
+func ValidateThreadDataset(dataset []byte) error {
+	if len(dataset) < minThreadDatasetLen {
+		return fmt.Errorf("Thread operational dataset is too short (%d bytes, minimum %d)\n"+
+			"  A valid dataset is typically 100-200 bytes and can be obtained from your\n"+
+			"  Thread border router, e.g.: ot-ctl dataset active -x",
+			len(dataset), minThreadDatasetLen)
+	}
+
+	// Parse the dataset as Thread TLVs (type-length-value, 1 byte each for
+	// type and length) and collect which type IDs are present.
+	present := make(map[byte]bool)
+	for i := 0; i < len(dataset); {
+		if i+2 > len(dataset) {
+			break // truncated TLV header
+		}
+		tlvType := dataset[i]
+		tlvLen := int(dataset[i+1])
+		i += 2 + tlvLen
+		present[tlvType] = true
+	}
+
+	var missing []string
+	for _, req := range requiredThreadTLVTypes {
+		if !present[req.id] {
+			missing = append(missing, req.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("Thread operational dataset is missing required fields: %v\n"+
+			"  The dataset should be the hex-encoded output of: ot-ctl dataset active -x",
+			missing)
+	}
+
+	return nil
+}
+
+// ExtractExtendedPANID parses the Thread operational dataset TLV and returns
+// the 8-byte Extended PAN ID (type 0x02). This is the value that must be used
+// as the NetworkID in ConnectNetwork commands for Thread devices.
+func ExtractExtendedPANID(dataset []byte) ([]byte, error) {
+	for i := 0; i < len(dataset); {
+		if i+2 > len(dataset) {
+			break // truncated TLV header
+		}
+		tlvType := dataset[i]
+		tlvLen := int(dataset[i+1])
+		i += 2
+		if i+tlvLen > len(dataset) {
+			return nil, fmt.Errorf("Thread dataset TLV truncated: type 0x%02X claims %d bytes but only %d remain",
+				tlvType, tlvLen, len(dataset)-i)
+		}
+		if tlvType == threadTLVExtendedPANID {
+			if tlvLen != 8 {
+				return nil, fmt.Errorf("Thread Extended PAN ID has unexpected length %d (expected 8)", tlvLen)
+			}
+			extPanID := make([]byte, 8)
+			copy(extPanID, dataset[i:i+8])
+			return extPanID, nil
+		}
+		i += tlvLen
+	}
+	return nil, fmt.Errorf("Thread operational dataset does not contain an Extended PAN ID (type 0x%02X)", threadTLVExtendedPANID)
 }
 
 // NewEthernetCredentials creates NetworkCredentials for an Ethernet network

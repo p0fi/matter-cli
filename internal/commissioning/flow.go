@@ -46,6 +46,7 @@ const (
 	StepDiscover
 	StepEstablishPASE
 	StepArmFailsafe
+	StepReadCommissioningInfo
 	StepReadBasicInfo
 	StepAttestationRequest
 	StepValidateAttestation
@@ -66,6 +67,7 @@ func (s CommissioningStep) String() string {
 		"Discover",
 		"EstablishPASE",
 		"ArmFailsafe",
+		"ReadCommissioningInfo",
 		"ReadBasicInfo",
 		"AttestationRequest",
 		"ValidateAttestation",
@@ -234,7 +236,29 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		return nil, fmt.Errorf("commissioning: arming failsafe: %w", err)
 	}
 
-	// Step 5: Read BasicInformation (sanity check over PASE).
+	// Step 5: Read commissioning info.
+	//
+	// Read SupportsConcurrentConnection from the GeneralCommissioning
+	// cluster (0x0030, attribute 0x0004). This attribute tells us whether
+	// the device can maintain its commissioning transport (BLE) while
+	// simultaneously joining its operational network. When false, the
+	// device WILL drop BLE after ConnectNetwork — and may also drop it
+	// prematurely during AddNOC on constrained MCUs.
+	//
+	// chip-tool reads this in kReadCommissioningInfo and adjusts its
+	// entire commissioning strategy accordingly. We must do the same.
+	c.reportProgress(StepReadCommissioningInfo)
+	supportsConcurrentConnection := true // default per spec if attribute is missing
+	if data, rdErr := c.Client.ReadAttribute(ctx, paseSession, 0, 0x0030, 0x0004); rdErr == nil {
+		supportsConcurrentConnection = decodeTLVBool(data)
+		slog.Debug("commissioning: read SupportsConcurrentConnection",
+			"value", supportsConcurrentConnection)
+	} else {
+		slog.Debug("commissioning: failed to read SupportsConcurrentConnection, defaulting to true",
+			"err", rdErr)
+	}
+
+	// Step 5b: Read BasicInformation (sanity check over PASE).
 	c.reportProgress(StepReadBasicInfo)
 	if _, err := c.Client.ReadAttribute(ctx, paseSession, 0, 0x0028, 0x0001); err != nil {
 		return nil, fmt.Errorf("commissioning: reading basic information: %w", err)
@@ -319,12 +343,18 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 
 	// Step 11: Add NOC.
 	//
-	// On constrained devices (especially Thread), the BLE connection may
-	// drop while the device processes AddNOC (certificate validation,
-	// key derivation, flash writes can take 1-2 s on a single-core MCU,
-	// causing the BLE supervision timeout to expire). When the transport
-	// reports a connection-closed error we treat AddNOC as a *potential*
-	// success and proceed to operational discovery. If the device is
+	// When SupportsConcurrentConnection is false, the device cannot
+	// maintain BLE while processing AddNOC. BLE WILL drop here — this
+	// is expected behaviour for non-concurrent devices, not a bug or a
+	// slow-MCU artifact. The device deliberately sheds the BLE transport
+	// because it cannot run both BLE and fabric credential processing
+	// simultaneously.
+	//
+	// For concurrent devices, a BLE drop during AddNOC is unexpected but
+	// still recoverable — treat it the same way (optimistic proceed).
+	//
+	// When the transport reports a connection-closed error here we treat
+	// AddNOC as a *potential* success and proceed. If the device is
 	// reachable on its operational network and CASE succeeds, AddNOC
 	// clearly worked. If not, the failsafe timer will roll back the
 	// device's state automatically.
@@ -334,10 +364,14 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	if addNOCErr != nil {
 		if errors.Is(addNOCErr, transport.ErrConnClosed) || errors.Is(addNOCErr, context.DeadlineExceeded) || errors.Is(addNOCErr, protocol.ErrExchangeClosed) {
 			// The request was fully sent but we never got the response
-			// because the transport died. This is expected on Thread
-			// devices — proceed optimistically.
-			slog.Debug("commissioning: BLE disconnected during AddNOC, proceeding optimistically",
-				"err", addNOCErr)
+			// because the transport died.
+			if !supportsConcurrentConnection {
+				slog.Debug("commissioning: BLE disconnected during AddNOC — expected for non-concurrent device (SupportsConcurrentConnection=false)",
+					"err", addNOCErr)
+			} else {
+				slog.Warn("commissioning: BLE disconnected during AddNOC on a concurrent device — unexpected but proceeding optimistically",
+					"err", addNOCErr)
+			}
 			bleDropped = true
 		} else {
 			return nil, fmt.Errorf("commissioning: adding NOC: %w", addNOCErr)
@@ -346,34 +380,47 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 
 	// Step 12-13: Network setup + ConnectNetwork (if needed).
 	//
-	// Per the chip-tool reference implementation, network provisioning
-	// happens AFTER AddNOC. The device needs its operational certificate
-	// before it can operate on the network. The sequence is:
+	// Network provisioning happens AFTER AddNOC. The device needs its
+	// operational certificate before it can operate on the network. The
+	// sequence is:
 	//   1. AddOrUpdateThreadNetwork / AddOrUpdateWiFiNetwork — store creds
 	//   2. ConnectNetwork — tell device to join the network
 	//
-	// Either step may cause the BLE connection to drop (especially
-	// ConnectNetwork, which triggers Thread mesh join / WiFi association
-	// that can take 5-30 s). We handle BLE drops optimistically and
-	// proceed to CASE discovery — if the device successfully joined its
-	// network, it will advertise on _matter._tcp.
+	// Per Matter Core Spec §5.5.2 ("Non-Concurrent Connection
+	// Commissioning Flow"), a device with SupportsConcurrentConnection=false
+	// cannot maintain its commissioning transport (BLE) while joining the
+	// operational network. It SHALL close all commissioning channels after
+	// ConnectNetwork. For BLE-commissioned devices this means BLE will
+	// drop after ConnectNetwork — this is required behaviour, not a bug.
 	//
-	// Special case: if BLE dropped during AddNOC and we still have network
-	// credentials to deliver, we must re-establish PASE over BLE before
-	// attempting network provisioning. The device is still in its
-	// commissioning window (failsafe timer is running) and will re-advertise
-	// on BLE shortly after the AddNOC reboot. Without the Thread/WiFi
-	// dataset the device cannot join any IP network, so skipping network
-	// setup would guarantee CASE failure.
+	// On non-concurrent devices BLE may also drop earlier, during AddNOC,
+	// because the device cannot run both BLE and credential processing at
+	// the same time. This is NOT a slow-MCU artifact — it is the device
+	// deliberately shedding BLE because SupportsConcurrentConnection=false.
+	//
+	// We handle both cases optimistically: once BLE drops we proceed to
+	// CASE discovery. If the device successfully joined its network it
+	// will advertise on _matter._tcp; if not, the failsafe timer rolls
+	// back its state automatically.
+	//
+	// Special case: if BLE dropped during AddNOC and we still have
+	// network credentials to deliver, we must re-establish PASE over BLE.
+	// The device is still in its failsafe window and will re-advertise on
+	// BLE within a few seconds. Without the Thread/WiFi dataset the
+	// device cannot join any IP network, so skipping network setup would
+	// guarantee CASE failure.
 	needsNetwork := params.Network != nil && params.Network.Type != NetworkEthernet
 
 	if needsNetwork && bleDropped {
 		// Re-connect BLE and deliver credentials over a fresh PASE session.
-		// The device reboots to process AddNOC (cert validation + flash
-		// write) and then re-advertises on BLE within a few seconds. We
-		// wait up to bleReconnectTimeout for it to reappear.
+		// BLE dropped during AddNOC before we could send network credentials.
+		// For non-concurrent devices (SupportsConcurrentConnection=false) this
+		// is expected — the device cannot maintain BLE during credential
+		// processing. It will re-advertise on BLE within a few seconds once
+		// AddNOC completes and its BLE stack re-initialises.
 		slog.Debug("commissioning: BLE dropped during AddNOC with pending network credentials — attempting BLE reconnect to deliver credentials",
-			"addr", addr, "networkType", params.Network.Type.String())
+			"addr", addr, "networkType", params.Network.Type.String(),
+			"supportsConcurrentConnection", supportsConcurrentConnection)
 
 		reconnectSession, reconnectErr := c.reconnectPASEAfterAddNOC(ctx, addr, passcode)
 		if reconnectErr != nil {
@@ -431,18 +478,28 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	// After network provisioning the device needs time to join its
 	// operational network. Thread devices in particular must attach to
 	// the Thread mesh, obtain an IP address, and start advertising on
-	// _matter._tcp — this can take 5-15 seconds.
+	// _matter._tcp — this can take 5-120 seconds on constrained hardware.
 	//
-	// Use more retries and a longer initial wait when we know the BLE
-	// link dropped, since the device definitely needs time to transition.
+	// When BLE dropped (typical for Thread/WiFi commissioning), the
+	// EstablishCASE implementation uses WatchOperational — a single
+	// continuous mDNS browse that blocks until the device appears or the
+	// timeout expires. Because WatchOperational already handles all the
+	// "wait for the device to come online" time internally, we only need
+	// a single attempt here: the long browse window IS the retry window.
+	//
+	// For IP commissioning (no BLE drop), keep the original short-retry
+	// behaviour: the device should already be online and CASE failures
+	// are most likely transient network glitches worth retrying quickly.
 	caseRetries := 3
 	initialWait := 2 * time.Second
 	retryWait := 5 * time.Second
 	if bleDropped {
-		caseRetries = 8
-		initialWait = 8 * time.Second
-		slog.Debug("commissioning: BLE dropped, using extended CASE retry window",
-			"retries", caseRetries, "initialWait", initialWait)
+		// One attempt is enough — WatchOperational inside EstablishCASE
+		// keeps the mDNS socket open for up to 3 minutes and returns as
+		// soon as the device's _matter._tcp announcement arrives.
+		caseRetries = 1
+		initialWait = 0
+		slog.Debug("commissioning: BLE dropped, using single-attempt continuous mDNS watch for CASE")
 	}
 	if c.CASEInitialWait != 0 {
 		initialWait = c.CASEInitialWait
@@ -568,6 +625,22 @@ func decodeTLVUint32(data []byte) uint32 {
 		return uint32(v)
 	}
 	return 0
+}
+
+// decodeTLVBool extracts a boolean from a raw TLV element. Returns false if the
+// data is empty, not a boolean, or cannot be parsed.
+func decodeTLVBool(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	r := tlv.NewReader(bytes.NewReader(data))
+	if err := r.Next(); err != nil {
+		return false
+	}
+	if v, ok := r.Value().(bool); ok {
+		return v
+	}
+	return false
 }
 
 // decodeTLVUint16 extracts a uint16 from a raw TLV element.
@@ -906,9 +979,10 @@ func (c *Commissioner) commissioningComplete(ctx context.Context, session Sessio
 
 // encodeArmFailsafe produces TLV-encoded fields for the ArmFailSafe command.
 // Tag 0: ExpiryLengthSeconds (uint16), Tag 1: Breadcrumb (uint64).
-// bleReconnectInitialWait is how long to wait after AddNOC before the first
-// BLE reconnect attempt. The device needs time to process AddNOC (crypto
-// validation, flash write) and re-initialise its BLE stack.
+// bleReconnectInitialWait is how long to wait after the premature AddNOC BLE
+// drop before the first reconnect attempt. The device needs time to finish
+// processing AddNOC (crypto validation, NVM write) and re-initialise its BLE
+// stack before it re-advertises in its commissioning window.
 const bleReconnectInitialWait = 3 * time.Second
 
 // bleReconnectMaxAttempts is the maximum number of PASE re-establishment
@@ -919,19 +993,22 @@ const bleReconnectMaxAttempts = 6
 const bleReconnectRetryInterval = 4 * time.Second
 
 // reconnectPASEAfterAddNOC attempts to re-establish a PASE session over BLE
-// after the BLE connection dropped during AddNOC processing. This is necessary
-// for Thread and WiFi devices that cannot join any IP network without first
-// receiving their network credentials via the NetworkCommissioning cluster.
+// after the BLE connection dropped prematurely during AddNOC processing. This
+// is necessary for Thread and WiFi devices that cannot join any IP network
+// without first receiving their network credentials via the
+// NetworkCommissioning cluster.
 //
-// After receiving AddNOC the device typically:
-//  1. Validates the certificate chain (100-500 ms)
-//  2. Writes NOC + fabric state to flash (200-800 ms on constrained MCUs)
-//  3. Resets or re-initialises its BLE stack
-//  4. Re-opens its BLE commissioning window (the failsafe is still running)
+// The BLE drop here is NOT the spec-mandated closure (which happens after
+// ConnectNetwork per §5.5.2). It is an implementation artifact: cert chain
+// validation + NVM write on a single-core MCU can stall the BLE stack's
+// heartbeat long enough for the central's supervision timeout to expire.
 //
-// The device re-advertises on BLE with the same address (CoreBluetooth UUID
-// on macOS, MAC on Linux) and same discriminator. We use EstablishPASE with
-// the original addr and passcode to reconnect.
+// After the drop the device continues processing AddNOC. Once its NVM write
+// completes it re-initialises its BLE stack and re-opens its commissioning
+// window (the failsafe timer is still running). It re-advertises with the
+// same address (CoreBluetooth UUID on macOS, MAC on Linux) and the same
+// discriminator. We use EstablishPASE with the original addr and passcode to
+// reconnect.
 func (c *Commissioner) reconnectPASEAfterAddNOC(ctx context.Context, addr string, passcode uint32) (Session, error) {
 	initialWait := bleReconnectInitialWait
 	if c.BLEReconnectInitialWait != 0 {

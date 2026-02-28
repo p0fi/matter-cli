@@ -404,6 +404,18 @@ func TestCommissioner_ProgressCallback(t *testing.T) {
 		t.Errorf("first step: got %v, want %v", steps[0], StepParseSetupCode)
 	}
 
+	// ReadCommissioningInfo should appear before ReadBasicInfo.
+	hasReadCommInfo := false
+	for _, s := range steps {
+		if s == StepReadCommissioningInfo {
+			hasReadCommInfo = true
+			break
+		}
+	}
+	if !hasReadCommInfo {
+		t.Error("expected StepReadCommissioningInfo in progress steps")
+	}
+
 	// Last step should be CommissioningComplete.
 	if steps[len(steps)-1] != StepCommissioningComplete {
 		t.Errorf("last step: got %v, want %v", steps[len(steps)-1], StepCommissioningComplete)
@@ -463,6 +475,7 @@ func TestCommissioningStepString(t *testing.T) {
 		{StepParseSetupCode, "ParseSetupCode"},
 		{StepDiscover, "Discover"},
 		{StepEstablishPASE, "EstablishPASE"},
+		{StepReadCommissioningInfo, "ReadCommissioningInfo"},
 		{StepEstablishCASE, "EstablishCASE"},
 		{CommissioningStep(99), "Step(99)"},
 	}
@@ -811,6 +824,157 @@ func TestCommissioner_Commission_BLEDropDuringAddNOC_NoNetworkCreds(t *testing.T
 	se := c.Sessions.(*mockSessionEstablisher)
 	if se.paseCallCount != 1 {
 		t.Errorf("EstablishPASE call count: got %d, want 1 (no reconnect when no network creds)", se.paseCallCount)
+	}
+}
+
+// TestCommissioner_Commission_ReadsSupportsConcurrentConnection verifies that
+// the commissioner reads SupportsConcurrentConnection (GeneralCommissioning
+// cluster 0x0030, attribute 0x0004) after arming the failsafe. When the
+// attribute is false, BLE drops during AddNOC are expected (not a surprise).
+func TestCommissioner_Commission_ReadsSupportsConcurrentConnection(t *testing.T) {
+	c := newTestCommissioner()
+
+	// Encode a TLV boolean "true" for SupportsConcurrentConnection.
+	w := tlv.NewWriter()
+	_ = w.PutBool(tlv.AnonymousTag(), true)
+	sccTrue := w.Bytes()
+
+	mc := c.Client.(*mockInteractionClient)
+	if mc.readOverrides == nil {
+		mc.readOverrides = make(map[attrKey]struct {
+			data []byte
+			err  error
+		})
+	}
+	// GeneralCommissioning (0x0030), SupportsConcurrentConnection (0x0004)
+	mc.readOverrides[attrKey{0, 0x0030, 0x0004}] = struct {
+		data []byte
+		err  error
+	}{data: sccTrue, err: nil}
+
+	payload := SetupPayload{
+		Discriminator: 3840,
+		Passcode:      20202021,
+	}
+	qr, _ := payload.QRCode()
+
+	params := CommissioningParams{
+		SetupCode: qr,
+		NodeID:    10,
+	}
+
+	_, err := c.Commission(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Commission: %v", err)
+	}
+}
+
+// TestCommissioner_Commission_NonConcurrentDevice verifies that when
+// SupportsConcurrentConnection is false and BLE drops during AddNOC,
+// the commissioner logs it as expected behaviour (not a surprise).
+func TestCommissioner_Commission_NonConcurrentDevice(t *testing.T) {
+	c := newTestCommissioner()
+
+	// Encode a TLV boolean "false" for SupportsConcurrentConnection.
+	w := tlv.NewWriter()
+	_ = w.PutBool(tlv.AnonymousTag(), false)
+	sccFalse := w.Bytes()
+
+	mc := c.Client.(*mockInteractionClient)
+	if mc.readOverrides == nil {
+		mc.readOverrides = make(map[attrKey]struct {
+			data []byte
+			err  error
+		})
+	}
+	mc.readOverrides[attrKey{0, 0x0030, 0x0004}] = struct {
+		data []byte
+		err  error
+	}{data: sccFalse, err: nil}
+
+	// Make InvokeTimed fail with ErrConnClosed on AddNOC (2nd timed call).
+	mc.invokeTimedErrOnCall = 2
+	mc.invokeTimedErrValue = fmt.Errorf("ble: %w", transport.ErrConnClosed)
+
+	// No network creds → Ethernet device, so we go straight to CASE.
+	payload := SetupPayload{
+		Discriminator: 3840,
+		Passcode:      20202021,
+	}
+	qr, _ := payload.QRCode()
+
+	params := CommissioningParams{
+		SetupCode: qr,
+		NodeID:    11,
+		Network:   nil,
+	}
+
+	_, err := c.Commission(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Commission should succeed for non-concurrent device with BLE drop: %v", err)
+	}
+
+	// Only one PASE call — no reconnect needed since no network creds.
+	se := c.Sessions.(*mockSessionEstablisher)
+	if se.paseCallCount != 1 {
+		t.Errorf("EstablishPASE call count: got %d, want 1", se.paseCallCount)
+	}
+}
+
+// TestCommissioner_Commission_NonConcurrentDeviceWithThread verifies that
+// a non-concurrent device with Thread credentials triggers BLE reconnect
+// after AddNOC drops BLE, and commissioning succeeds.
+func TestCommissioner_Commission_NonConcurrentDeviceWithThread(t *testing.T) {
+	c := newTestCommissioner()
+
+	// SupportsConcurrentConnection = false
+	w := tlv.NewWriter()
+	_ = w.PutBool(tlv.AnonymousTag(), false)
+	sccFalse := w.Bytes()
+
+	mc := c.Client.(*mockInteractionClient)
+	if mc.readOverrides == nil {
+		mc.readOverrides = make(map[attrKey]struct {
+			data []byte
+			err  error
+		})
+	}
+	mc.readOverrides[attrKey{0, 0x0030, 0x0004}] = struct {
+		data []byte
+		err  error
+	}{data: sccFalse, err: nil}
+
+	// BLE drops on AddNOC.
+	mc.invokeTimedErrOnCall = 2
+	mc.invokeTimedErrValue = fmt.Errorf("ble: %w", transport.ErrConnClosed)
+
+	c.Sessions = &mockSessionEstablisher{
+		paseSession: &mockSession{},
+		caseSession: &mockSession{},
+	}
+
+	payload := SetupPayload{
+		Discriminator: 3840,
+		Passcode:      20202021,
+	}
+	qr, _ := payload.QRCode()
+
+	threadCreds := NewThreadCredentials(testThreadDataset())
+	params := CommissioningParams{
+		SetupCode: qr,
+		NodeID:    12,
+		Network:   &threadCreds,
+	}
+
+	_, err := c.Commission(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Commission should succeed for non-concurrent Thread device: %v", err)
+	}
+
+	// Two PASE calls: initial + reconnect after AddNOC BLE drop.
+	se := c.Sessions.(*mockSessionEstablisher)
+	if se.paseCallCount != 2 {
+		t.Errorf("EstablishPASE call count: got %d, want 2 (initial + reconnect)", se.paseCallCount)
 	}
 }
 
