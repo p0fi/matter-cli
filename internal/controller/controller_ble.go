@@ -7,8 +7,10 @@ package controller
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -99,16 +101,121 @@ func (s *bleSessionEstablisher) EstablishPASE(ctx context.Context, addr string, 
 }
 
 func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, nodeID uint64) (commissioning.Session, error) {
-	// CASE always goes over IP. Close the BLE connection if it's still open.
+	// CASE always goes over IP. We must cleanly transition the controller
+	// from the BLE transport back to UDP before attempting CASE.
 	if s.bleConn != nil {
-		slog.Debug("ble: closing BLE connection before CASE over IP")
+		slog.Debug("ble: transitioning controller from BLE to IP for CASE")
+
+		// 1. Stop the controller's message pump that is reading from the
+		//    BLE connection. Without this, closing the BLE conn causes
+		//    Receive() to return ErrConnClosed in a tight loop.
+		if s.ctrl.cancel != nil {
+			s.ctrl.cancel()
+			<-s.ctrl.done
+			s.ctrl.cancel = nil
+		}
+
+		// 2. Close the BLE connection now that nothing is reading from it.
 		s.bleConn.Close()
 		s.bleConn = nil
+
+		// 3. Create a fresh UDP connection so the controller can
+		//    communicate over IP for the CASE handshake.
+		udpConn, err := transport.NewUDPConn(":0")
+		if err != nil {
+			return nil, fmt.Errorf("creating UDP connection for CASE: %w", err)
+		}
+		s.ctrl.conn = udpConn
+		// done channel must be re-created so startMessagePump can close it.
+		s.ctrl.done = make(chan struct{})
+
+		slog.Debug("ble: controller restored to UDP transport for CASE")
 	}
 
 	// The addr from BLE discovery is "ble://...", but for CASE we need to
 	// rediscover the device on IP. Use mDNS operational discovery.
-	session, err := s.ctrl.ConnectCASE(ctx, addr, nodeID)
+	var ipAddr string
+	if isBLEAddress(addr) {
+		// The operational mDNS instance name has the format
+		// "<compressed-fabric-id-hex>-<node-id-hex>", e.g.
+		// "8E9462691A5722B9-0000000000000005" for node 5.
+		//
+		// Build the expected full instance name so we can match exactly.
+		// If the compressed fabric ID is not available (no fabric loaded),
+		// fall back to matching on the node ID suffix only.
+		nodeIDHex := fmt.Sprintf("%016X", nodeID)
+		var expectedName string
+		var compressedHex string
+		if s.ctrl.fabric != nil && len(s.ctrl.fabric.compressedFabricID) == 8 {
+			compressedHex = strings.ToUpper(hex.EncodeToString(s.ctrl.fabric.compressedFabricID))
+			expectedName = compressedHex + "-" + nodeIDHex
+		}
+
+		slog.Debug("ble: discovering device on operational network for CASE",
+			"nodeID", nodeID,
+			"expectedInstanceName", expectedName,
+			"compressedFabricID", compressedHex)
+
+		// Use a single continuous mDNS browse for the full remaining context
+		// budget rather than a series of short disconnected 10-second windows.
+		// This is critical for Thread commissioning: the device may take
+		// 30-120 seconds to attach to the Thread mesh and start advertising
+		// on the IP network. A single long browse keeps the multicast socket
+		// open the whole time, so we catch the announcement the instant it
+		// arrives instead of polling and potentially missing it between windows.
+		browser := discovery.NewMDNSBrowser()
+		var foundDev *discovery.Device
+		watchErr := browser.WatchOperational(ctx, 3*time.Minute, func(dev *discovery.Device) bool {
+			if len(dev.IPs) == 0 {
+				return false
+			}
+			upperName := strings.ToUpper(dev.Name)
+			ipStrs := make([]string, len(dev.IPs))
+			for j, ip := range dev.IPs {
+				ipStrs[j] = ip.String()
+			}
+			slog.Debug("ble: mDNS operational entry",
+				"name", dev.Name,
+				"host", dev.Host,
+				"port", dev.Port,
+				"ips", strings.Join(ipStrs, ","))
+
+			if expectedName != "" {
+				// Exact match on full instance name (compressed fabric ID + node ID).
+				if upperName != expectedName {
+					slog.Debug("ble: skipping mDNS entry (name mismatch)",
+						"name", dev.Name, "want", expectedName)
+					return false
+				}
+			} else {
+				// Fallback: match on node ID suffix only.
+				nodeIDSuffix := "-" + nodeIDHex
+				if !strings.HasSuffix(upperName, nodeIDSuffix) {
+					slog.Debug("ble: skipping mDNS entry (node ID mismatch)",
+						"name", dev.Name, "want", nodeIDSuffix)
+					return false
+				}
+			}
+			foundDev = dev
+			return true // stop the browse
+		})
+		if watchErr != nil {
+			return nil, fmt.Errorf("discovering device on IP for CASE: %w", watchErr)
+		}
+		if foundDev == nil {
+			return nil, fmt.Errorf("no operational device found via mDNS after BLE commissioning (looking for node %d, expected instance name %q)", nodeID, expectedName)
+		}
+
+		// Use net.JoinHostPort which handles IPv6 bracket notation
+		// automatically (e.g. "[fd48:…]:5540").
+		ipAddr = net.JoinHostPort(foundDev.IPs[0].String(), fmt.Sprintf("%d", foundDev.Port))
+		slog.Debug("ble: found operational device via mDNS",
+			"name", foundDev.Name, "addr", ipAddr)
+	} else {
+		ipAddr = addr
+	}
+
+	session, err := s.ctrl.ConnectCASE(ctx, ipAddr, nodeID)
 	if err != nil {
 		return nil, err
 	}

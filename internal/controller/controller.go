@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -188,6 +189,14 @@ func (c *Controller) runMessagePump(ctx context.Context) {
 		data, addr, err := c.conn.Receive(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, transport.ErrConnClosed) {
+				slog.Debug("controller: connection closed, stopping message pump")
+				// Close all active exchanges so any goroutine blocked
+				// in Exchange.Receive unblocks immediately instead of
+				// waiting for a context timeout (e.g. 30 s).
+				c.exchanges.CloseAll()
 				return
 			}
 			slog.Warn("controller: receive error", "err", err)

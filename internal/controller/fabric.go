@@ -16,17 +16,18 @@ import (
 
 // fabricIdentity holds the controller's fabric keys and certificates.
 type fabricIdentity struct {
-	rootKey        *ecdsa.PrivateKey
-	icacKey        *ecdsa.PrivateKey
-	nodeKey        *ecdsa.PrivateKey
-	rcac           []byte // DER
-	icac           []byte // DER
-	noc            []byte // DER
-	nocTLV         []byte // Matter TLV encoded
-	icacTLV        []byte // Matter TLV encoded
-	ipk            []byte // 16-byte raw Identity Protection Key (epoch key)
-	operationalIPK []byte // 16-byte operational IPK derived via HKDF
-	rootPubKey     []byte // uncompressed SEC1
+	rootKey            *ecdsa.PrivateKey
+	icacKey            *ecdsa.PrivateKey
+	nodeKey            *ecdsa.PrivateKey
+	rcac               []byte // DER
+	icac               []byte // DER
+	noc                []byte // DER
+	nocTLV             []byte // Matter TLV encoded
+	icacTLV            []byte // Matter TLV encoded
+	ipk                []byte // 16-byte raw Identity Protection Key (epoch key)
+	operationalIPK     []byte // 16-byte operational IPK derived via HKDF
+	rootPubKey         []byte // uncompressed SEC1
+	compressedFabricID []byte // 8-byte compressed fabric identifier
 }
 
 // initFabric loads an existing fabric from the store, or creates a new one if
@@ -122,17 +123,18 @@ func (c *Controller) loadFabric(f *store.Fabric) error {
 	}
 
 	c.fabric = &fabricIdentity{
-		rootKey:        rootKey,
-		icacKey:        icacKey,
-		nodeKey:        nodeKey,
-		rcac:           rcac,
-		icac:           icac,
-		noc:            noc,
-		nocTLV:         nocTLV,
-		icacTLV:        icacTLV,
-		ipk:            ipk,
-		operationalIPK: operationalIPK,
-		rootPubKey:     rootPubKey,
+		rootKey:            rootKey,
+		icacKey:            icacKey,
+		nodeKey:            nodeKey,
+		rcac:               rcac,
+		icac:               icac,
+		noc:                noc,
+		nocTLV:             nocTLV,
+		icacTLV:            icacTLV,
+		ipk:                ipk,
+		operationalIPK:     operationalIPK,
+		rootPubKey:         rootPubKey,
+		compressedFabricID: compressedID,
 	}
 	return nil
 }
@@ -252,17 +254,18 @@ func (c *Controller) createFabric() error {
 	}
 
 	c.fabric = &fabricIdentity{
-		rootKey:        rootKey,
-		icacKey:        icacKey,
-		nodeKey:        nodeKey,
-		rcac:           rcac,
-		icac:           icac,
-		noc:            noc,
-		nocTLV:         nocTLV,
-		icacTLV:        icacTLV,
-		ipk:            ipk,
-		operationalIPK: operationalIPK,
-		rootPubKey:     rootPubKey,
+		rootKey:            rootKey,
+		icacKey:            icacKey,
+		nodeKey:            nodeKey,
+		rcac:               rcac,
+		icac:               icac,
+		noc:                noc,
+		nocTLV:             nocTLV,
+		icacTLV:            icacTLV,
+		ipk:                ipk,
+		operationalIPK:     operationalIPK,
+		rootPubKey:         rootPubKey,
+		compressedFabricID: compressedID,
 	}
 	return nil
 }

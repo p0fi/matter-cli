@@ -5,10 +5,17 @@ package protocol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 )
+
+// ErrExchangeClosed is returned by Exchange.Receive when the exchange has
+// been closed (e.g. because the underlying transport connection was lost).
+// Callers can use errors.Is(err, ErrExchangeClosed) to distinguish a
+// connection-loss closure from other receive failures.
+var ErrExchangeClosed = errors.New("exchange closed")
 
 // Exchange represents a single Matter exchange — a sequence of messages
 // between two nodes within a session.
@@ -51,7 +58,7 @@ func (e *Exchange) Receive(ctx context.Context) (*Message, error) {
 	select {
 	case msg, ok := <-e.incoming:
 		if !ok {
-			return nil, fmt.Errorf("protocol: exchange %d closed", e.ID)
+			return nil, fmt.Errorf("protocol: exchange %d: %w", e.ID, ErrExchangeClosed)
 		}
 		return msg, nil
 	case <-ctx.Done():
@@ -147,7 +154,7 @@ func (em *ExchangeManager) HandleMessage(ctx context.Context, msg *Message) erro
 
 	if ok {
 		if e.closed.Load() {
-			return fmt.Errorf("protocol: exchange %d is closed", e.ID)
+			return fmt.Errorf("protocol: exchange %d: %w", e.ID, ErrExchangeClosed)
 		}
 		select {
 		case e.incoming <- msg:
@@ -208,6 +215,20 @@ func (em *ExchangeManager) CloseExchange(e *Exchange) {
 	}
 	delete(em.exchanges, key)
 	e.Close()
+}
+
+// CloseAll closes every active exchange and removes it from the manager.
+// This is called when the underlying transport connection is lost so that
+// any goroutine blocked in Exchange.Receive unblocks immediately instead
+// of waiting for a context timeout.
+func (em *ExchangeManager) CloseAll() {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+
+	for key, e := range em.exchanges {
+		e.Close()
+		delete(em.exchanges, key)
+	}
 }
 
 // Count returns the number of active exchanges.

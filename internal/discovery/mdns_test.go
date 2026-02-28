@@ -201,3 +201,143 @@ func TestBrowserImplementsInterface(t *testing.T) {
 	// Compile-time check that MDNSBrowser implements Browser.
 	var _ Browser = (*MDNSBrowser)(nil)
 }
+
+func TestWatchOperational_FoundEarly(t *testing.T) {
+	// Three entries are queued; the callback stops on the second match.
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "OTHER-0000000000000001"},
+				HostName:      "other.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.1")},
+			},
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "AABBCCDD11223344-0000000000000005"},
+				HostName:      "target.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.5")},
+			},
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "AABBCCDD11223344-0000000000000099"},
+				HostName:      "another.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.99")},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+
+	var found *Device
+	var callCount int
+	err := browser.WatchOperational(context.Background(), 5*time.Second, func(dev *Device) bool {
+		callCount++
+		if dev.Name == "AABBCCDD11223344-0000000000000005" {
+			found = dev
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		t.Fatalf("WatchOperational: %v", err)
+	}
+	if found == nil {
+		t.Fatal("expected target device to be found, got nil")
+	}
+	if found.Name != "AABBCCDD11223344-0000000000000005" {
+		t.Errorf("Name = %q, want %q", found.Name, "AABBCCDD11223344-0000000000000005")
+	}
+	if len(found.IPs) == 0 || !found.IPs[0].Equal(net.ParseIP("10.0.0.5")) {
+		t.Errorf("IPs = %v, want [10.0.0.5]", found.IPs)
+	}
+	if found.ServiceType != ServiceOperational {
+		t.Errorf("ServiceType = %q, want %q", found.ServiceType, ServiceOperational)
+	}
+	// The third entry should never have been delivered because we stopped early.
+	if callCount > 2 {
+		t.Errorf("callback called %d times, expected at most 2 (stop on match)", callCount)
+	}
+}
+
+func TestWatchOperational_NotFound(t *testing.T) {
+	// The resolver delivers two entries, neither matches — WatchOperational
+	// should return nil (not an error) after the browse exhausts.
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "UNRELATED-0000000000000001"},
+				HostName:      "unrelated.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.1")},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+
+	var callCount int
+	err := browser.WatchOperational(context.Background(), 5*time.Second, func(dev *Device) bool {
+		callCount++
+		return false // never match
+	})
+	if err != nil {
+		t.Fatalf("WatchOperational returned unexpected error: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("callback called %d times, want 1", callCount)
+	}
+}
+
+func TestWatchOperational_ResolverError(t *testing.T) {
+	resolverErr := errors.New("multicast socket error")
+	mock := &mockResolver{err: resolverErr}
+
+	browser := newMDNSBrowserWithResolver(mock)
+
+	err := browser.WatchOperational(context.Background(), 5*time.Second, func(_ *Device) bool {
+		return false
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, resolverErr) {
+		t.Errorf("error = %v, want wrapped %v", err, resolverErr)
+	}
+}
+
+func TestWatchOperational_ContextCancelled(t *testing.T) {
+	// A resolver that blocks until its context is cancelled (simulates a
+	// long-running browse where the caller gives up).
+	blockingMock := &blockingResolver{}
+
+	browser := newMDNSBrowserWithResolver(blockingMock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := browser.WatchOperational(ctx, 10*time.Second, func(_ *Device) bool {
+		return false
+	})
+	elapsed := time.Since(start)
+
+	// Should return quickly (context timeout), not hang for 10 seconds.
+	if elapsed > 2*time.Second {
+		t.Errorf("WatchOperational took %v, expected < 2s with 50ms context", elapsed)
+	}
+	// Context cancellation is not reported as an error by WatchOperational —
+	// it just means the browse window closed without finding the target.
+	if err != nil {
+		t.Fatalf("WatchOperational: unexpected error: %v", err)
+	}
+}
+
+// blockingResolver is a mockResolver whose Browse blocks until the context is cancelled.
+type blockingResolver struct{}
+
+func (b *blockingResolver) Browse(ctx context.Context, _, _ string, entries chan<- *zeroconf.ServiceEntry) error {
+	defer close(entries)
+	<-ctx.Done()
+	return nil
+}

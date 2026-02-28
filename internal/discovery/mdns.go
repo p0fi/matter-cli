@@ -69,6 +69,63 @@ func (b *MDNSBrowser) DiscoverOperational(ctx context.Context, timeout time.Dura
 	return b.browse(ctx, timeout, ServiceOperational)
 }
 
+// WatchOperational performs a continuous streaming mDNS browse for operational
+// Matter devices (_matter._tcp) for up to the given timeout, calling onDevice
+// for every entry as it arrives.
+//
+// Unlike DiscoverOperational — which collects entries for a fixed window and
+// returns them all at once — WatchOperational never misses a device that
+// appears mid-browse: the mDNS multicast socket stays open for the full
+// duration and every incoming announcement is delivered immediately.
+//
+// If onDevice returns true ("found what I needed"), WatchOperational cancels
+// the browse and returns nil immediately. If the timeout expires without
+// onDevice returning true, WatchOperational returns nil (not an error — an
+// empty result is not a failure; the caller should handle it). A non-nil
+// error is only returned for transport-level failures.
+func (b *MDNSBrowser) WatchOperational(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	entries := make(chan *zeroconf.ServiceEntry)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- b.resolver.Browse(ctx, string(ServiceOperational), "local.", entries)
+	}()
+
+	for {
+		select {
+		case entry, ok := <-entries:
+			if !ok {
+				// Channel closed — browse finished without finding the target.
+				if err := <-done; err != nil {
+					return fmt.Errorf("browsing %s: %w", ServiceOperational, err)
+				}
+				return nil
+			}
+			dev := entryToDevice(entry, ServiceOperational)
+			if onDevice(dev) {
+				// Caller found what it needed — cancel the browse and return.
+				cancel()
+				// Drain the entries channel so the Browse goroutine exits cleanly.
+				for range entries {
+				}
+				<-done
+				return nil
+			}
+		case err := <-done:
+			// Browse returned (context timeout or transport error); drain channel.
+			for range entries {
+			}
+			if err != nil {
+				return fmt.Errorf("browsing %s: %w", ServiceOperational, err)
+			}
+			return nil
+		}
+	}
+}
+
 // browse performs mDNS service discovery for the given service type.
 func (b *MDNSBrowser) browse(ctx context.Context, timeout time.Duration, svcType ServiceType) ([]*Device, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
