@@ -525,6 +525,90 @@ func TestStandaloneAck(t *testing.T) {
 	})
 }
 
+// ─── Rollback standalone ack ─────────────────────────────────────────────────
+
+func TestRollbackStandaloneAck(t *testing.T) {
+	t.Run("restores localSeq and hasPendingAck", func(t *testing.T) {
+		s := newBTPSession()
+		s.hasPendingAck = true
+		s.pendingAck = 7
+		s.localSeq = 5
+
+		ack := s.standaloneAck()
+		require.NotNil(t, ack)
+
+		// After standaloneAck: localSeq=6, hasPendingAck=false
+		assert.Equal(t, uint8(6), s.localSeq)
+		assert.False(t, s.hasPendingAck)
+
+		// Simulate a failed write — rollback.
+		s.rollbackStandaloneAck(ack[1])
+
+		assert.Equal(t, uint8(5), s.localSeq, "localSeq must be decremented back")
+		assert.True(t, s.hasPendingAck, "hasPendingAck must be re-armed")
+		assert.Equal(t, uint8(7), s.pendingAck, "pendingAck must be restored from ack[1]")
+	})
+
+	t.Run("retry after rollback uses same seqNum", func(t *testing.T) {
+		s := newBTPSession()
+		s.hasPendingAck = true
+		s.pendingAck = 3
+		s.localSeq = 10
+
+		// First attempt — will "fail".
+		ack1 := s.standaloneAck()
+		require.NotNil(t, ack1)
+		assert.Equal(t, uint8(10), ack1[2], "first attempt seqNum")
+
+		// Rollback.
+		s.rollbackStandaloneAck(ack1[1])
+
+		// Retry — should reuse seqNum 10.
+		ack2 := s.standaloneAck()
+		require.NotNil(t, ack2)
+		assert.Equal(t, uint8(10), ack2[2], "retried ack must reuse seqNum 10")
+		assert.Equal(t, uint8(3), ack2[1], "retried ack must carry the same ackNum")
+	})
+
+	t.Run("rollback then data segment uses correct seqNum", func(t *testing.T) {
+		s := newBTPSession()
+		s.hasPendingAck = true
+		s.pendingAck = 5
+		s.localSeq = 20
+
+		// Standalone ack attempt — "fails".
+		ack := s.standaloneAck()
+		require.NotNil(t, ack)
+		s.rollbackStandaloneAck(ack[1])
+
+		// Now send a data segment — it should get seqNum 20, with the
+		// pending ack piggybacked.
+		segments := s.segment([]byte{0xAA})
+		require.Len(t, segments, 1)
+
+		seg := segments[0]
+		// flags byte: B=1 + E=1 + A=1 = 0x0D
+		assert.Equal(t, uint8(btpFlagBegin|btpFlagEnd|btpFlagAck), seg[0], "flags must include piggybacked ack")
+		assert.Equal(t, uint8(5), seg[1], "piggybacked ackNum must be 5")
+		assert.Equal(t, uint8(20), seg[2], "data segment seqNum must be 20 (same as rolled-back value)")
+	})
+
+	t.Run("uint8 wrap on rollback", func(t *testing.T) {
+		s := newBTPSession()
+		s.hasPendingAck = true
+		s.pendingAck = 0
+		s.localSeq = 0
+
+		ack := s.standaloneAck()
+		require.NotNil(t, ack)
+		assert.Equal(t, uint8(0), ack[2], "seqNum must be 0")
+		assert.Equal(t, uint8(1), s.localSeq)
+
+		s.rollbackStandaloneAck(ack[1])
+		assert.Equal(t, uint8(0), s.localSeq, "localSeq must wrap back to 0")
+	})
+}
+
 // ─── Segment decoding / reassembly ───────────────────────────────────────────
 
 func TestHandleSegment_SingleSegment(t *testing.T) {
@@ -683,6 +767,92 @@ func TestHandleSegment_Errors(t *testing.T) {
 		// Second B-segment before the first message is complete.
 		seg2 := buildTestSegment(btpFlagBegin, 0, false, 1, []byte{0x03})
 		err := rx.handleSegment(seg2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reassembly")
+	})
+}
+
+// ─── Standalone ACK handling ─────────────────────────────────────────────────
+
+func TestHandleSegment_StandaloneAck(t *testing.T) {
+	t.Run("pure standalone ack is accepted without active reassembly", func(t *testing.T) {
+		// A standalone ACK from the peer: flags=A(0x08), AckNum, SeqNum, no payload.
+		// This must NOT error even though there is no active reassembly —
+		// it is a valid BTP PDU used purely for flow control.
+		rx := newBTPSession()
+		rx.windowSize = 6
+		rx.txInflight = 3
+		rx.localSeq = 5 // oldest unacked = 5 - 3 = 2
+
+		// Segment: flags=0x08 (A=1), AckNum=0x04, SeqNum=0x00
+		seg := []byte{btpFlagAck, 0x04, 0x00}
+		err := rx.handleSegment(seg)
+		require.NoError(t, err, "standalone ACK must not error")
+
+		// The ACK should have been processed (txInflight reduced).
+		assert.Equal(t, uint8(0), rx.txInflight, "all 3 in-flight segments should be acked (oldest=2, ackNum=4)")
+
+		// The peer's SeqNum should be recorded as a pending ack.
+		assert.True(t, rx.hasPendingAck)
+		assert.Equal(t, uint8(0x00), rx.pendingAck)
+	})
+
+	t.Run("standalone ack during active reassembly is accepted", func(t *testing.T) {
+		// When we're in the middle of receiving a multi-segment message,
+		// a standalone ACK from the peer (acknowledging OUR sent data)
+		// is valid and must not disrupt the ongoing reassembly.
+		rx := newBTPSession()
+		rx.txInflight = 1
+		rx.localSeq = 1
+
+		// Start a multi-segment message (B=1, no E).
+		seg1 := buildTestSegment(btpFlagBegin, 0, false, 0, []byte{0xAA, 0xBB})
+		require.NoError(t, rx.handleSegment(seg1))
+		assert.True(t, rx.rxActive, "reassembly should be active")
+
+		// Now receive a standalone ACK: flags=A(0x08), AckNum=0x00, SeqNum=0x01
+		ackSeg := []byte{btpFlagAck, 0x00, 0x01}
+		err := rx.handleSegment(ackSeg)
+		require.NoError(t, err, "standalone ACK during reassembly must not error")
+
+		// Reassembly should still be active and undisturbed.
+		assert.True(t, rx.rxActive, "reassembly must remain active after standalone ACK")
+		assert.Equal(t, uint8(0), rx.txInflight, "ACK should have freed in-flight segment")
+	})
+
+	t.Run("exact bytes from real device standalone ack", func(t *testing.T) {
+		// Reproduce the exact 3-byte segment seen in the commissioning log:
+		//   hex=080a16  → flags=0x08(A), ackNum=0x0a, seqNum=0x16
+		rx := newBTPSession()
+		rx.txInflight = 2
+		rx.localSeq = 12 // oldest = 12 - 2 = 10 = 0x0a
+
+		// AckNum=0x0a acks cumulative up to and including seq 10.
+		// In-flight seqs are 10 and 11; only seq 10 is acked → txInflight drops to 1.
+		seg := []byte{0x08, 0x0a, 0x16}
+		err := rx.handleSegment(seg)
+		require.NoError(t, err, "real-device standalone ACK must be accepted")
+		assert.Equal(t, uint8(1), rx.txInflight, "ack 0x0a should clear seq 10 but not seq 11")
+		assert.True(t, rx.hasPendingAck)
+		assert.Equal(t, uint8(0x16), rx.pendingAck)
+	})
+
+	t.Run("continuation with payload still requires active reassembly", func(t *testing.T) {
+		// A non-B, non-E segment that carries actual payload data (not a
+		// standalone ACK) must still error when there is no active reassembly.
+		rx := newBTPSession()
+		// flags=0x00 (no B, no E, no A), seqNum=0x00, payload=0xFF
+		seg := []byte{0x00, 0x00, 0xFF}
+		err := rx.handleSegment(seg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reassembly")
+	})
+
+	t.Run("E-only segment with payload still requires active reassembly", func(t *testing.T) {
+		// flags=E(0x04), seqNum=0x00, payload=0xAA — no B was received first.
+		rx := newBTPSession()
+		seg := []byte{btpFlagEnd, 0x00, 0xAA}
+		err := rx.handleSegment(seg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "reassembly")
 	})

@@ -185,6 +185,7 @@ type mockBLECharacteristic struct {
 	notifMu           sync.RWMutex
 	enableNotifErr    error
 	waitCh            chan []byte // delivers data for WaitForValue
+	disconnected      bool       // when true, IsConnected() returns false
 }
 
 func (c *mockBLECharacteristic) UUID() BLEUUID { return c.uuid }
@@ -265,6 +266,13 @@ func (c *mockBLECharacteristic) ReadAndClearCachedValue() []byte {
 	default:
 		return nil
 	}
+}
+
+// IsConnected returns whether the mock peripheral is still connected.
+// Defaults to true (disconnected zero value is false). Set disconnected=true
+// to simulate a peripheral disconnection in tests.
+func (c *mockBLECharacteristic) IsConnected() bool {
+	return !c.disconnected
 }
 
 // writtenData returns a copy of all byte slices written to this characteristic.

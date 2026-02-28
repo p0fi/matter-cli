@@ -400,6 +400,24 @@ func (s *btpSession) standaloneAck() []byte {
 	return seg
 }
 
+// rollbackStandaloneAck reverses the side-effects of a standaloneAck() call
+// whose write to C1 failed (e.g. canSendWriteWithoutResponse was false).
+//
+// standaloneAck() increments localSeq and clears hasPendingAck.  BTP
+// receivers expect strictly sequential sequence numbers — a gap caused by a
+// "consumed but never sent" seqNum would make the peer reject every
+// subsequent segment.  This method decrements localSeq back and re-arms the
+// pending-ack state so the next timer tick or outgoing data segment can
+// retry.
+func (s *btpSession) rollbackStandaloneAck(ackNum uint8) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.localSeq-- // undo the increment; uint8 wraps safely
+	s.hasPendingAck = true
+	s.pendingAck = ackNum
+}
+
 // ─── TX: flow control ─────────────────────────────────────────────────────────
 
 // waitCanSend blocks until the TX flow-control window has room for at least
@@ -520,7 +538,23 @@ func (s *btpSession) handleSegment(data []byte) error {
 		s.mu.Unlock()
 	}
 
-	// ── Require active reassembly for any segment ──────────────────────────
+	// ── Standalone ACK: no B, no E, no payload remaining ───────────────────
+	//
+	// A standalone ACK carries only flags (A=1), AckNum, and SeqNum — no
+	// message payload.  It is a valid BTP PDU used purely for flow control
+	// (acknowledging previously received segments) and does not participate
+	// in message reassembly.  The CHIP SDK sends these when btpAckTimeout
+	// elapses without an outgoing data segment to piggyback the ack on.
+	//
+	// We have already processed the piggybacked ack (processAck) and
+	// recorded the peer's SeqNum (pendingAck) above, so there is nothing
+	// left to do — just return success.
+	isStandaloneAck := (flags&btpFlagBegin == 0) && (flags&btpFlagEnd == 0) && idx >= len(data)
+	if isStandaloneAck {
+		return nil
+	}
+
+	// ── Require active reassembly for any data-bearing segment ─────────────
 	s.mu.Lock()
 	active := s.rxActive
 	s.mu.Unlock()

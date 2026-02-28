@@ -469,6 +469,17 @@ func (tc *tinygoCharacteristic) ReadAndClearCachedValue() []byte {
 	return corebtReadAndClear(tc.rawPtr)
 }
 
+// IsConnected returns whether the peripheral that owns this characteristic is
+// still in the CBPeripheralStateConnected state. When the raw CoreBluetooth
+// pointer is unavailable (non-macOS or extraction failed) it returns true
+// optimistically so callers never false-positive a disconnection.
+func (tc *tinygoCharacteristic) IsConnected() bool {
+	if tc.rawPtr == nil {
+		return true
+	}
+	return corebtPeripheralIsConnected(tc.rawPtr)
+}
+
 // extractCBCharacteristicPtr uses reflection + unsafe to extract the raw
 // platform characteristic pointer (CBCharacteristic* on macOS, or equivalent)
 // from a tinygo bluetooth.DeviceCharacteristic.

@@ -135,19 +135,27 @@ static int ble_chr_write_without_response(void *chr, void *data, int data_len) {
 	CBPeripheral *peripheral = svc.peripheral;
 	if (peripheral == nil) return -1;
 
-	// Guard: on macOS 10.13+, writes are silently dropped (not queued) when
-	// canSendWriteWithoutResponse is false. Check before dispatching.
-	if (!peripheral.canSendWriteWithoutResponse) {
-		return -2;
-	}
-
+	// Copy the data before entering bt_queue so the Go slice stays valid.
 	NSData *nsData = [NSData dataWithBytes:data length:(NSUInteger)data_len];
+
+	// Guard: on macOS 10.13+, writes are silently dropped (not queued) when
+	// canSendWriteWithoutResponse is false. The check MUST be inside
+	// dispatch_sync so it is atomic with the writeValue: call. Checking
+	// outside dispatch_sync is a TOCTOU race: another bt_queue-dispatched
+	// write (e.g. a standalone BTP ACK) can flip the flag between the
+	// check and the dispatch, causing CoreBluetooth to silently drop the
+	// data.
+	__block int result = data_len;
 	dispatch_sync(bt_queue, ^{
+		if (!peripheral.canSendWriteWithoutResponse) {
+			result = -2;
+			return;
+		}
 		[peripheral writeValue:nsData
 		    forCharacteristic:fresh
 		                 type:CBCharacteristicWriteWithoutResponse];
 	});
-	return data_len;
+	return result;
 }
 
 // ble_chr_write_with_response dispatches a GATT Write Request (with response)

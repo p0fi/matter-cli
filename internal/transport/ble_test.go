@@ -64,9 +64,9 @@ func TestDialBLE_Success(t *testing.T) {
 	adapter, _, c2 := buildMockDeviceForDial()
 
 	// Simulate the device sending a BTP HandshakeResponse. The response is
-	// delivered via the WaitForValue channel (poll path), which is the
-	// primary delivery mechanism. The notification callback path is also
-	// tested separately below.
+	// delivered via the WaitForValue channel (poll path), which is used as
+	// a backup during the handshake phase. The notification callback path
+	// is also tested separately below.
 	go func() {
 		// Wait long enough for DialBLE to complete: WaitForNotifying (instant
 		// in mock) + 50 ms settle sleep + ClearCachedValue (instant in mock) +
@@ -150,7 +150,11 @@ func TestDialBLE_SuccessViaNotificationPath(t *testing.T) {
 	_ = c2 // original c2 unused in this test
 
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		// With the corrected handshake ordering (write C1 first, then
+		// subscribe C2), EnableNotifications is called after the
+		// WriteWithResponse + 50 ms settle sleep. We need to wait long
+		// enough for the callback to be registered before invoking it.
+		time.Sleep(200 * time.Millisecond)
 		resp := buildBTPHandshakeResponse()
 		if cb := drainedC2.notifCallback(); cb != nil {
 			cb(resp)
@@ -184,7 +188,7 @@ func TestDialBLE_HandshakeTimeout(t *testing.T) {
 
 // newTestBLEConn creates a BLEConn for testing with a mock C1 characteristic
 // and a pre-initialized BTP session. The BTP session is pre-configured to
-// skip the handshake. c2 is left nil so startC2DataPoller is a no-op —
+// skip the handshake. c2 is left nil so startDisconnectWatcher is a no-op —
 // tests that need incoming segments inject them directly via btp.handleSegment.
 func newTestBLEConn() (*BLEConn, *mockBLECharacteristic, *mockBLEDevice) {
 	c1 := &mockBLECharacteristic{uuid: MatterC1UUID}
@@ -195,7 +199,7 @@ func newTestBLEConn() (*BLEConn, *mockBLECharacteristic, *mockBLEDevice) {
 	conn := &BLEConn{
 		device:   dev,
 		c1:       c1,
-		c2:       nil, // no C2 poller in unit tests; data injected directly
+		c2:       nil, // no C2 in unit tests; data injected directly via btp.handleSegment
 		btp:      btp,
 		peerAddr: &BLEAddr{Address: "AA:BB:CC:DD:EE:FF"},
 		closed:   make(chan struct{}),
@@ -276,6 +280,47 @@ func TestBLEConn_SendAfterClose(t *testing.T) {
 	err := conn.Send(context.Background(), []byte("data"), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
+}
+
+// ─── Disconnection detection ──────────────────────────────────────────────────
+
+func TestBLEConn_DisconnectWatcherDetectsDisconnection(t *testing.T) {
+	// Build a BLEConn with a mock C2 that we can mark as disconnected.
+	c1 := &mockBLECharacteristic{uuid: MatterC1UUID}
+	c2 := &mockBLECharacteristic{uuid: MatterC2UUID, waitCh: make(chan []byte, 1)}
+	dev := &mockBLEDevice{}
+	btp := newBTPSession()
+	btp.initHandshake(btpCurrentVersion, btpDefaultATTMTU, btpDefaultWindowSize)
+
+	conn := &BLEConn{
+		device:   dev,
+		c1:       c1,
+		c2:       c2,
+		btp:      btp,
+		peerAddr: &BLEAddr{Address: "AA:BB:CC:DD:EE:FF"},
+		closed:   make(chan struct{}),
+	}
+
+	// Start the disconnect watcher.
+	conn.startDisconnectWatcher()
+
+	// Simulate peripheral disconnection.
+	c2.disconnected = true
+
+	// The watcher checks connectivity every 1 s. Give it up to 3 seconds
+	// to detect the disconnection and close the connection.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Receive should unblock with an error once the watcher closes the conn.
+	_, _, err := conn.Receive(ctx)
+	require.Error(t, err, "Receive should return an error after disconnection")
+	assert.Contains(t, err.Error(), "closed",
+		"error should indicate the connection was closed")
+
+	// The device should have been disconnected.
+	assert.True(t, dev.disconnectCalled,
+		"device.Disconnect should be called when the watcher detects disconnection")
 }
 
 // ─── Compile-time interface check ─────────────────────────────────────────────

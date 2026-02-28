@@ -94,7 +94,7 @@ func (u *UDPConn) Receive(ctx context.Context) ([]byte, net.Addr, error) {
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	case <-u.closed:
-		return nil, nil, fmt.Errorf("transport: connection closed")
+		return nil, nil, fmt.Errorf("transport: %w", ErrConnClosed)
 	}
 }
 

@@ -233,6 +233,17 @@ type BLECharacteristic interface {
 	// the race where a second indication arrives between a separate read and
 	// a separate clear.
 	ReadAndClearCachedValue() []byte
+
+	// IsConnected returns whether the peripheral that owns this characteristic
+	// is still in the connected state. On macOS this checks
+	// CBPeripheral.state == CBPeripheralStateConnected via CoreBluetooth.
+	// On other platforms (or when the raw pointer is unavailable) it returns
+	// true optimistically.
+	//
+	// Used by the C2 data-polling goroutine to detect peripheral disconnection
+	// and tear down the BLE connection promptly instead of hanging forever
+	// waiting for data that will never arrive.
+	IsConnected() bool
 }
 
 // ─── BLEScanner ──────────────────────────────────────────────────────────────
