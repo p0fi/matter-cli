@@ -105,11 +105,15 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 			DeviceTypes: ep.DeviceTypes,
 		}
 		for _, cl := range ep.Clusters {
-			name := cl.Name
-			if name == "" {
-				if info, ok := clusters.Global.ClusterByID(cl.ID); ok {
-					name = info.DisplayName
-				}
+			// Always prefer the registry name; fall back to the stored name
+			// only if the registry doesn't know this cluster, and reject
+			// hex-only fallbacks like "0x0033" from older store data.
+			name := ""
+			if info, ok := clusters.Global.ClusterByID(cl.ID); ok {
+				name = info.DisplayName
+			}
+			if name == "" && len(cl.Name) > 0 && !(len(cl.Name) > 2 && cl.Name[:2] == "0x") {
+				name = cl.Name
 			}
 			te.Clusters = append(te.Clusters, output.TreeCluster{
 				ID:   cl.ID,

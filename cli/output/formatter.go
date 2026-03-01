@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/mattn/go-isatty"
 )
 
@@ -33,6 +34,19 @@ const (
 // IsTTY reports whether stdout is a terminal.
 func IsTTY() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+}
+
+// TermWidth returns the current terminal column width.
+// Returns 0 if stdout is not a terminal or the width cannot be determined.
+func TermWidth() int {
+	if !IsTTY() {
+		return 0
+	}
+	w, _, err := term.GetSize(os.Stdout.Fd())
+	if err != nil || w <= 0 {
+		return 0
+	}
+	return w
 }
 
 // New returns a Formatter for the given format type. If format is empty, it

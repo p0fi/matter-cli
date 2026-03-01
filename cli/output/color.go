@@ -121,6 +121,9 @@ func Command(s string) string { return render(StyleCommand, s) }
 // Flag formats a flag name in yellow.
 func Flag(s string) string { return render(StyleFlag, s) }
 
+// visWidth returns the visible display width of s, ignoring ANSI escape codes.
+func visWidth(s string) int { return lipgloss.Width(s) }
+
 // SuccessIcon returns a styled checkmark.
 func SuccessIcon() string { return Success("✓") }
 
