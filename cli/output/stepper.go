@@ -6,6 +6,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -19,10 +20,15 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 //   - Verbose: delegates all output to slog so steps and debug logs share one format.
 //   - Interactive (TTY, non-verbose): animated spinner for in-progress, green dot on completion.
 //   - Piped (non-TTY, non-verbose): static lines with dots to stdout.
+//
+// When silent is true (NewProgressStepper), completed steps leave no permanent
+// trace: in animate mode the spinner line is overwritten in-place; in static
+// mode nothing is printed at all.
 type Stepper struct {
 	w       io.Writer
 	animate bool // true = use spinner animation
 	verbose bool // true = delegate to slog
+	silent  bool // true = no permanent trace per completed step
 
 	mu     sync.Mutex
 	msg    string // current step message
@@ -42,6 +48,18 @@ func NewStepper(w io.Writer, verbose bool) *Stepper {
 	}
 }
 
+// NewProgressStepper is like NewStepper but uses silent mode: completed steps
+// leave no permanent trace. In animate (TTY) mode the spinner overwrites a
+// single line continuously. In static (pipe) mode nothing is printed at all.
+func NewProgressStepper(w io.Writer, verbose bool) *Stepper {
+	return &Stepper{
+		w:       w,
+		verbose: verbose,
+		animate: !verbose && IsTTY() && !NoColor(),
+		silent:  true,
+	}
+}
+
 // Step marks the previous step as complete (green) and starts a new step.
 func (s *Stepper) Step(msg string) {
 	s.mu.Lock()
@@ -55,11 +73,15 @@ func (s *Stepper) Step(msg string) {
 	s.msg = msg
 	s.active = true
 
+	if s.verbose {
+		slog.Info(msg)
+	}
+
 	if s.animate {
 		s.stopCh = make(chan struct{})
 		s.doneCh = make(chan struct{})
 		go s.spin()
-	} else {
+	} else if !s.silent {
 		// Static mode: print with dim dot (in-progress).
 		fmt.Fprintf(s.w, "%s %s\n", Dim("●"), msg)
 	}
@@ -107,14 +129,31 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 		icon = Error("●")
 	}
 
-	if s.animate {
-		// Overwrite the spinner line.
+	if s.animate && !s.silent {
+		// Overwrite the spinner line with a permanent status line.
 		fmt.Fprintf(s.w, "\r\033[K%s %s\n", icon, s.msg)
 	}
 	// In verbose and static mode, the line was already printed; we don't overwrite.
+	// In silent+animate mode, the next Step's spin() \r will overwrite naturally.
 
 	s.active = false
 	s.msg = ""
+}
+
+// Clear stops the current step (marking it successful) without printing an
+// additional status line. Use this before rendering output so the spinner is
+// cleanly stopped and the terminal cursor is left on a fresh line.
+func (s *Stepper) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active {
+		s.completeCurrentLocked(true)
+	}
+	// In silent+animate mode, erase the last spinner frame so the cursor is on
+	// a clean line before the caller renders its own output.
+	if s.animate && s.silent {
+		fmt.Fprintf(s.w, "\r\033[K")
+	}
 }
 
 // spin runs the spinner animation until stopCh is closed.
