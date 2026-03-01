@@ -28,6 +28,12 @@ func NewClient(em *protocol.ExchangeManager) *Client {
 // ReportData response(s). It handles chunked responses (MoreChunkedMessages)
 // automatically by sending StatusResponse(Success) acknowledgments.
 func (c *Client) Read(ctx context.Context, session *protocol.Session, paths ...AttributePath) ([]AttributeReport, error) {
+	if len(paths) == 1 {
+		slog.Debug("interaction: read", "path", paths[0])
+	} else {
+		slog.Debug("interaction: read", "paths", len(paths))
+	}
+
 	exchange, err := c.exchangeManager.NewExchange(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("interaction: creating exchange: %w", err)
@@ -68,8 +74,10 @@ func (c *Client) Read(ctx context.Context, session *protocol.Session, paths ...A
 		allReports = append(allReports, report.AttributeReports...)
 
 		if report.MoreChunkedMessages == nil || !*report.MoreChunkedMessages {
+			slog.Debug("interaction: read complete", "reports", len(allReports))
 			break
 		}
+		slog.Debug("interaction: read chunked, requesting next chunk", "so_far", len(allReports))
 
 		// Send StatusResponse(Success) to request the next chunk.
 		ack := StatusResponseMessage{
@@ -86,6 +94,12 @@ func (c *Client) Read(ctx context.Context, session *protocol.Session, paths ...A
 // Write sends a WriteRequest with the given attribute writes and returns the
 // per-attribute write status results.
 func (c *Client) Write(ctx context.Context, session *protocol.Session, writes ...AttributeWrite) ([]AttributeStatus, error) {
+	if len(writes) == 1 {
+		slog.Debug("interaction: write", "path", writes[0].Path)
+	} else {
+		slog.Debug("interaction: write", "count", len(writes))
+	}
+
 	exchange, err := c.exchangeManager.NewExchange(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("interaction: creating exchange: %w", err)
@@ -119,6 +133,7 @@ func (c *Client) Write(ctx context.Context, session *protocol.Session, writes ..
 		return nil, fmt.Errorf("interaction: decoding write response: %w", err)
 	}
 
+	slog.Debug("interaction: write complete", "statuses", len(resp.WriteResponses))
 	return resp.WriteResponses, nil
 }
 
@@ -142,6 +157,12 @@ type TimedRequestMessage struct {
 }
 
 func (c *Client) invokeInternal(ctx context.Context, session *protocol.Session, path CommandPath, fields []byte, timedMs uint16) (*InvokeResponseIB, error) {
+	if timedMs > 0 {
+		slog.Debug("interaction: invoke (timed)", "path", path, "timeoutMs", timedMs)
+	} else {
+		slog.Debug("interaction: invoke", "path", path)
+	}
+
 	exchange, err := c.exchangeManager.NewExchange(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("interaction: creating exchange: %w", err)
@@ -210,6 +231,7 @@ func (c *Client) invokeInternal(ctx context.Context, session *protocol.Session, 
 		return nil, fmt.Errorf("interaction: invoke response contains no results")
 	}
 
+	slog.Debug("interaction: invoke complete", "path", path)
 	return &resp.InvokeResponses[0], nil
 }
 

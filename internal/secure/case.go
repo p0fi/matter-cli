@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 
 	"github.com/p0fi/matter-cli/internal/crypto"
 	"github.com/p0fi/matter-cli/internal/protocol"
@@ -562,11 +563,13 @@ func EstablishCASE(ctx context.Context, exchange *protocol.Exchange, cfg CASEIni
 		return nil, 0, fmt.Errorf("secure: generating Sigma1: %w", err)
 	}
 
+	slog.Debug("CASE: → Sigma1", "sessionID", cfg.SessionID, "peerNode", cfg.PeerNodeID, "fabric", cfg.FabricID)
 	if err := sendSecureChannelMsg(ctx, exchange, OpcodeSigma1, sigma1Bytes); err != nil {
 		return nil, 0, fmt.Errorf("secure: sending Sigma1: %w", err)
 	}
 
 	// Step 2: Receive Sigma2 (or StatusReport on failure).
+	slog.Debug("CASE: waiting for Sigma2...")
 	sigma2Msg, err := exchange.Receive(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: receiving Sigma2: %w", err)
@@ -577,6 +580,7 @@ func EstablishCASE(ctx context.Context, exchange *protocol.Exchange, cfg CASEIni
 		return nil, 0, parseStatusReportError(sigma2Msg.Payload, "CASE Sigma2 rejected")
 	}
 
+	slog.Debug("CASE: ← Sigma2 received, verifying responder identity")
 	if err := initiator.ProcessSigma2(sigma2Msg.Payload); err != nil {
 		return nil, 0, fmt.Errorf("secure: processing Sigma2: %w", err)
 	}
@@ -587,11 +591,13 @@ func EstablishCASE(ctx context.Context, exchange *protocol.Exchange, cfg CASEIni
 		return nil, 0, fmt.Errorf("secure: generating Sigma3: %w", err)
 	}
 
+	slog.Debug("CASE: Sigma2 verified, → Sigma3 (session keys derived)")
 	if err := sendSecureChannelMsg(ctx, exchange, OpcodeSigma3, sigma3Bytes); err != nil {
 		return nil, 0, fmt.Errorf("secure: sending Sigma3: %w", err)
 	}
 
 	// Step 4: Receive StatusReport.
+	slog.Debug("CASE: waiting for status report...")
 	statusMsg, err := exchange.Receive(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: receiving status report: %w", err)
@@ -607,6 +613,7 @@ func EstablishCASE(ctx context.Context, exchange *protocol.Exchange, cfg CASEIni
 		return nil, 0, fmt.Errorf("secure: re-parsing Sigma2 for session ID: %w", err)
 	}
 
+	slog.Debug("CASE: session established", "peerSessionID", sigma2.ResponderSessionID)
 	return initiator.SessionKeys(), sigma2.ResponderSessionID, nil
 }
 

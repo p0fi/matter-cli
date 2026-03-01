@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 
 	"github.com/p0fi/matter-cli/internal/crypto"
 	"github.com/p0fi/matter-cli/internal/protocol"
@@ -384,43 +385,51 @@ func EstablishPASE(ctx context.Context, exchange *protocol.Exchange, passcode ui
 		return nil, 0, fmt.Errorf("secure: generating PBKDFParamRequest: %w", err)
 	}
 
+	slog.Debug("PASE: → PBKDFParamRequest", "sessionID", proposedSessionID)
 	if err := sendSecureChannelMsg(ctx, exchange, OpcodePBKDFParamRequest, reqBytes); err != nil {
 		return nil, 0, fmt.Errorf("secure: sending PBKDFParamRequest: %w", err)
 	}
 
 	// Step 2: Receive PBKDFParamResponse.
+	slog.Debug("PASE: waiting for PBKDFParamResponse...")
 	respMsg, err := exchange.Receive(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: receiving PBKDFParamResponse: %w", err)
 	}
 
+	slog.Debug("PASE: ← PBKDFParamResponse received, running PBKDF2 + SPAKE2+")
 	pake1Bytes, peerSessionID, err := initiator.ProcessPBKDFParamResponse(reqBytes, respMsg.Payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: processing PBKDFParamResponse: %w", err)
 	}
 
 	// Step 3: Send PAKE1.
+	slog.Debug("PASE: → PAKE1 (SPAKE2+ pA)")
 	if err := sendSecureChannelMsg(ctx, exchange, OpcodePASEPake1, pake1Bytes); err != nil {
 		return nil, 0, fmt.Errorf("secure: sending PAKE1: %w", err)
 	}
 
 	// Step 4: Receive PAKE2.
+	slog.Debug("PASE: waiting for PAKE2...")
 	pake2Msg, err := exchange.Receive(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: receiving PAKE2: %w", err)
 	}
 
+	slog.Debug("PASE: ← PAKE2 received (SPAKE2+ pB+cB), verifying")
 	pake3Bytes, err := initiator.ProcessPAKE2(pake2Msg.Payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: processing PAKE2: %w", err)
 	}
 
 	// Step 5: Send PAKE3.
+	slog.Debug("PASE: → PAKE3 (SPAKE2+ cA), session keys derived")
 	if err := sendSecureChannelMsg(ctx, exchange, OpcodePASEPake3, pake3Bytes); err != nil {
 		return nil, 0, fmt.Errorf("secure: sending PAKE3: %w", err)
 	}
 
 	// Step 6: Receive StatusReport.
+	slog.Debug("PASE: waiting for status report...")
 	statusMsg, err := exchange.Receive(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("secure: receiving status report: %w", err)
@@ -430,6 +439,7 @@ func EstablishPASE(ctx context.Context, exchange *protocol.Exchange, passcode ui
 		return nil, 0, fmt.Errorf("secure: expected status report, got opcode 0x%02x", statusMsg.Protocol.ProtocolOpcode)
 	}
 
+	slog.Debug("PASE: session established", "peerSessionID", peerSessionID)
 	return initiator.SessionKeys(), peerSessionID, nil
 }
 
