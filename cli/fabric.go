@@ -164,12 +164,14 @@ func newFabricRemoveCmd() *cobra.Command {
 				return fmt.Errorf("removing node %d: %w", nodeID, err)
 			}
 
-			label := fmt.Sprintf("%d", nodeID)
+			var label string
 			if lookupErr == nil && node.Name != "" {
-				label = fmt.Sprintf("%s (node %d)", node.Name, nodeID)
+				label = output.Bold(node.Name) + " " + output.Muted(fmt.Sprintf("(node %d)", nodeID))
+			} else {
+				label = output.Bold(fmt.Sprintf("%d", nodeID))
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s Removed %s from fabric.\n",
-				output.SuccessIcon(), output.Bold(label))
+				output.SuccessIcon(), label)
 			return nil
 		},
 	}

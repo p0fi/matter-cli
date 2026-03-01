@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/store"
-	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
@@ -18,88 +16,6 @@ import (
 // opening the store directly from completion paths (only reached when no
 // daemon is running, so no lock contention is expected).
 const completionStoreTimeout = 100 * time.Millisecond
-
-func init() {
-	rootCmd.AddCommand(withGroup(newDeviceCmd(), groupDevices))
-}
-
-// newDeviceCmd creates the `matter-cli device` subcommand group.
-func newDeviceCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "device",
-		Short: "Inspect and manage individual devices",
-	}
-	cmd.AddCommand(newDeviceInspectCmd())
-	cmd.AddCommand(newDeviceAliasCmd())
-	return cmd
-}
-
-func newDeviceInspectCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "inspect",
-		Short: "Inspect a commissioned device",
-		Example: `  matter @1 device inspect
-  matter @kitchen device inspect`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _, err := requireTarget(cmd)
-			if err != nil {
-				return err
-			}
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			node, err := getNodeForCompletion(fabricID, nodeID)
-			if err != nil {
-				return fmt.Errorf("getting node %d: %w", nodeID, err)
-			}
-
-			format, _ := cmd.Flags().GetString("format")
-			f := output.New(format)
-			if _, ok := f.(*output.TableFormatter); ok {
-				return output.FormatTree(cmd.OutOrStdout(), node)
-			}
-			return f.Format(cmd.OutOrStdout(), node)
-		},
-	}
-}
-
-func newDeviceAliasCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "alias",
-		Short: "Set a friendly name for a device",
-		Example: `  matter @1 device alias --name "Kitchen Light"`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			nodeID, _, err := requireTarget(cmd)
-			if err != nil {
-				return err
-			}
-			name, _ := cmd.Flags().GetString("name")
-			if name == "" {
-				return fmt.Errorf("--name is required")
-			}
-
-			fabricID := viper.GetUint64("default-fabric-id")
-			if fabricID == 0 {
-				fabricID = 1
-			}
-			node, err := getNodeForCompletion(fabricID, nodeID)
-			if err != nil {
-				return fmt.Errorf("getting node %d: %w", nodeID, err)
-			}
-			node.Name = name
-			if err := saveNode(fabricID, node); err != nil {
-				return fmt.Errorf("saving node %d: %w", nodeID, err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Node %s aliased to %s\n",
-				output.SuccessIcon(), output.Bold(fmt.Sprintf("%d", nodeID)), output.Success(fmt.Sprintf("%q", name)))
-			return nil
-		},
-	}
-	cmd.Flags().String("name", "", "friendly name for the device")
-	return cmd
-}
 
 // openStore returns a BoltDB-backed store opened at the default config location.
 func openStore() (store.Store, error) {
@@ -205,6 +121,19 @@ func deleteNode(fabricID, nodeID uint64) error {
 	}
 	defer s.Close()
 	return s.DeleteNode(fabricID, nodeID)
+}
+
+// resolveNodeLabel returns the node's name if it has one, otherwise "node X".
+// Used to build consistent Bold-ready labels throughout CLI output.
+func resolveNodeLabel(nodeID uint64) string {
+	fid := viper.GetUint64("default-fabric-id")
+	if fid == 0 {
+		fid = 1
+	}
+	if node, err := getNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
+		return node.Name
+	}
+	return fmt.Sprintf("node %d", nodeID)
 }
 
 func formatLastSeen(t time.Time) string {

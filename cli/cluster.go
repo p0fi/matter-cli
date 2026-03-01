@@ -84,7 +84,7 @@ var targetUnawareCommands = map[string]bool{
 // device (node) level but not when a specific endpoint is targeted. They are
 // hidden from completion when an endpoint-explicit target is set.
 var deviceOnlyCommands = map[string]bool{
-	"device": true,
+	"tree": true,
 }
 
 // filterShorthandCommands hides commands that are irrelevant for the resolved
@@ -325,9 +325,9 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
 
-	stepper.Step(fmt.Sprintf("Reading %s/%s from node %s endpoint %s %s",
+	stepper.Step(fmt.Sprintf("Reading %s/%s from %s endpoint %s %s",
 		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-		output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
+		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
 		output.Muted(fmt.Sprintf("(0x%04X/0x%04X)", cl.ID, attr.ID))))
 
 	// Try the daemon first for faster session reuse.
@@ -403,9 +403,9 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
 
-	stepper.Step(fmt.Sprintf("Invoking %s/%s on node %s endpoint %s %s",
+	stepper.Step(fmt.Sprintf("Invoking %s/%s on %s endpoint %s %s",
 		output.Bold(cl.DisplayName), output.Info(ci.DisplayName),
-		output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
+		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
 		output.Muted(fmt.Sprintf("(0x%04X/0x%04X)", cl.ID, ci.ID))))
 
 	// Build command fields from --field flags and/or positional args.
@@ -691,10 +691,10 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
 
-	stepper.Step(fmt.Sprintf("Writing %s/%s = %s on node %s endpoint %s %s",
+	stepper.Step(fmt.Sprintf("Writing %s/%s = %s on %s endpoint %s %s",
 		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
 		output.Success(value),
-		output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
+		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
 		output.Muted(fmt.Sprintf("(0x%04X/0x%04X)", cl.ID, attr.ID))))
 
 	tlvData, err := encodeTLVValue(attr.Type, value)
@@ -770,9 +770,9 @@ func subscribeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
 
-	stepper.Step(fmt.Sprintf("Subscribing to %s/%s on node %s endpoint %s %s",
+	stepper.Step(fmt.Sprintf("Subscribing to %s/%s on %s endpoint %s %s",
 		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-		output.Bold(fmt.Sprintf("%d", nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
+		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
 		output.Muted(fmt.Sprintf("(0x%04X/0x%04X) [%d..%d]s", cl.ID, attr.ID, minInterval, maxInterval))))
 
 	// Intercept SIGINT so Ctrl+C cancels the subscription cleanly.
