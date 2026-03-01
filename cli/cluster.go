@@ -230,6 +230,10 @@ func connectToNode(ctx context.Context, nodeID uint64) (
 	return client, session, cleanup, nil
 }
 
+// maxValueLen is the maximum display length for a formatted TLV value before
+// it gets truncated.
+const maxValueLen = 40
+
 // decodeTLVValue reads a single TLV element from raw bytes and returns a
 // human-readable string representation of the value.
 func decodeTLVValue(raw []byte) string {
@@ -240,6 +244,18 @@ func decodeTLVValue(raw []byte) string {
 	if err := r.Next(); err != nil {
 		return fmt.Sprintf("0x%s", hex.EncodeToString(raw))
 	}
+	return formatTLVElement(r)
+}
+
+// formatTLVElement formats the current TLV element (after Next() has been called).
+func formatTLVElement(r *tlv.Reader) string {
+	t := r.Type()
+
+	// Handle container types by iterating their elements.
+	if t == tlv.TypeArray || t == tlv.TypeList || t == tlv.TypeStructure {
+		return formatTLVContainer(r, t)
+	}
+
 	v := r.Value()
 	switch val := v.(type) {
 	case bool:
@@ -256,14 +272,75 @@ func decodeTLVValue(raw []byte) string {
 	case float64:
 		return fmt.Sprintf("%g", val)
 	case string:
-		return fmt.Sprintf("%q", val)
+		return truncateMiddle(fmt.Sprintf("%q", val))
 	case []byte:
-		return fmt.Sprintf("0x%s", hex.EncodeToString(val))
+		return truncateMiddle(fmt.Sprintf("0x%s", hex.EncodeToString(val)))
 	case nil:
 		return "null"
 	default:
 		return fmt.Sprintf("%v", val)
 	}
+}
+
+// formatTLVContainer formats an array, list, or structure container.
+// Long containers are truncated to show the first and last element with
+// an ellipsis in between, e.g. [0, 1, ..., 65533].
+func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
+	isStruct := ct == tlv.TypeStructure
+	open, close := "[", "]"
+	if isStruct {
+		open, close = "{", "}"
+	}
+
+	var parts []string
+	for {
+		if err := r.Next(); err != nil {
+			break
+		}
+		if r.Type() == tlv.TypeEndOfContainer {
+			break
+		}
+
+		elem := formatTLVElement(r)
+		if isStruct {
+			tag := r.TagValue()
+			elem = fmt.Sprintf("%d: %s", tag.TagNum, elem)
+		}
+		parts = append(parts, elem)
+	}
+
+	full := open + strings.Join(parts, ", ") + close
+	if len(full) <= maxValueLen || len(parts) <= 2 {
+		return full
+	}
+
+	// Truncate: show first elements, ..., last element.
+	last := parts[len(parts)-1]
+	var truncated string
+	for i := 1; i < len(parts)-1; i++ {
+		candidate := open + strings.Join(parts[:i], ", ") + ", ..., " + last + close
+		if len(candidate) > maxValueLen {
+			break
+		}
+		truncated = candidate
+	}
+	if truncated == "" {
+		truncated = open + parts[0] + ", ..., " + last + close
+	}
+	return truncated
+}
+
+// truncateMiddle truncates a string that exceeds maxValueLen by replacing
+// the middle portion with "...".
+func truncateMiddle(s string) string {
+	if len(s) <= maxValueLen {
+		return s
+	}
+	// Keep slightly more of the prefix than the suffix.
+	keep := maxValueLen - 3 // account for "..."
+	pre := keep/2 + keep%2
+	suf := keep / 2
+	return s[:pre] + "..." + s[len(s)-suf:]
 }
 
 // newClusterCmd creates the `matter-cli cluster` subcommand group.
