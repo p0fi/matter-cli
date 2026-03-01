@@ -327,8 +327,6 @@ func buildNodeFromResult(nodeID uint64, result *commissioning.CommissioningResul
 			ref := store.ClusterRef{ID: cid, Side: "server"}
 			if cl, ok := clusters.Global.ClusterByID(cid); ok {
 				ref.Name = cl.DisplayName
-			} else {
-				ref.Name = fmt.Sprintf("0x%04X", cid)
 			}
 			storeEp.Clusters = append(storeEp.Clusters, ref)
 		}
