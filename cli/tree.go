@@ -77,10 +77,20 @@ func newTreeCmd() *cobra.Command {
 				return err
 			}
 
+			outFile, _ := cmd.Flags().GetString("out")
+			if outFile != "" {
+				if err := output.RenderTreeSVG(data, outFile); err != nil {
+					return err
+				}
+				fmt.Fprintf(w, "Tree rendered to %s\n", outFile)
+				return nil
+			}
+
 			return output.FormatRichTree(w, data)
 		},
 	}
 	cmd.Flags().IntP("level", "L", 2, "tree depth: 1=endpoints, 2=+clusters, 3=+attribute names, 4=+values")
+	cmd.Flags().String("out", "", "render tree as SVG to file")
 	return cmd
 }
 
