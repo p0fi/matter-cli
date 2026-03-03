@@ -23,26 +23,8 @@ import (
 	"github.com/p0fi/matter-cli/internal/protocol"
 	"github.com/p0fi/matter-cli/internal/tlv"
 
-	// Import cluster packages so they register via init().
-	_ "github.com/p0fi/matter-cli/internal/clusters/accesscontrol"
-	_ "github.com/p0fi/matter-cli/internal/clusters/activatedcarbonfiltermonitoring"
-	_ "github.com/p0fi/matter-cli/internal/clusters/airquality"
-	_ "github.com/p0fi/matter-cli/internal/clusters/basicinformation"
-	_ "github.com/p0fi/matter-cli/internal/clusters/colorcontrol"
-	_ "github.com/p0fi/matter-cli/internal/clusters/descriptor"
-	_ "github.com/p0fi/matter-cli/internal/clusters/doorlock"
-	_ "github.com/p0fi/matter-cli/internal/clusters/fancontrol"
-	_ "github.com/p0fi/matter-cli/internal/clusters/generalcommissioning"
-	_ "github.com/p0fi/matter-cli/internal/clusters/hepafiltermonitoring"
-	_ "github.com/p0fi/matter-cli/internal/clusters/identify"
-	_ "github.com/p0fi/matter-cli/internal/clusters/levelcontrol"
-	_ "github.com/p0fi/matter-cli/internal/clusters/networkcommissioning"
-	_ "github.com/p0fi/matter-cli/internal/clusters/onoff"
-	_ "github.com/p0fi/matter-cli/internal/clusters/operationalcredentials"
-	_ "github.com/p0fi/matter-cli/internal/clusters/pm10concentrationmeasurement"
-	_ "github.com/p0fi/matter-cli/internal/clusters/pm25concentrationmeasurement"
-	_ "github.com/p0fi/matter-cli/internal/clusters/thermostat"
-	_ "github.com/p0fi/matter-cli/internal/clusters/windowcovering"
+	// Import all generated cluster packages so they register via init().
+	_ "github.com/p0fi/matter-cli/internal/clusters/all"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

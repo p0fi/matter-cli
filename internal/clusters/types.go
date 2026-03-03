@@ -17,8 +17,16 @@ type ClusterInfo struct {
 	ID          uint32
 	Name        string // PascalCase for CLI usage (e.g. "FanControl")
 	DisplayName string // human-friendly name (e.g. "Fan Control")
+	Features    []FeatureInfo
 	Attributes  []AttributeInfo
 	Commands    []CommandInfo
+}
+
+// FeatureInfo describes a single feature flag within a cluster's FeatureMap.
+type FeatureInfo struct {
+	Bit  uint8  // bit position in the FeatureMap bitmap (0-31)
+	Code string // short code (e.g. "LT", "PIN")
+	Name string // human-friendly name (e.g. "Lighting", "PINCredential")
 }
 
 // AttributeInfo describes a single attribute within a cluster.
