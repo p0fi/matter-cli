@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Thermostat.
 	ID uint32 = 0x0201
 	// Name is the CLI-friendly cluster name.
-	Name = "thermostat"
+	Name = "Thermostat"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Thermostat"
 )
@@ -65,29 +65,29 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrLocalTemperature, Name: "local-temperature", DisplayName: "LocalTemperature", Type: "int16", Readable: true, Nullable: true},
-			{ID: AttrOutdoorTemperature, Name: "outdoor-temperature", DisplayName: "OutdoorTemperature", Type: "int16", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrOccupancy, Name: "occupancy", DisplayName: "Occupancy", Type: "bitmap8", Readable: true, Optional: true},
-			{ID: AttrAbsMinHeatSetpointLimit, Name: "abs-min-heat-setpoint-limit", DisplayName: "AbsMinHeatSetpointLimit", Type: "int16", Readable: true, Optional: true},
-			{ID: AttrAbsMaxHeatSetpointLimit, Name: "abs-max-heat-setpoint-limit", DisplayName: "AbsMaxHeatSetpointLimit", Type: "int16", Readable: true, Optional: true},
-			{ID: AttrAbsMinCoolSetpointLimit, Name: "abs-min-cool-setpoint-limit", DisplayName: "AbsMinCoolSetpointLimit", Type: "int16", Readable: true, Optional: true},
-			{ID: AttrAbsMaxCoolSetpointLimit, Name: "abs-max-cool-setpoint-limit", DisplayName: "AbsMaxCoolSetpointLimit", Type: "int16", Readable: true, Optional: true},
-			{ID: AttrOccupiedCoolingSetpoint, Name: "occupied-cooling-setpoint", DisplayName: "OccupiedCoolingSetpoint", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrOccupiedHeatingSetpoint, Name: "occupied-heating-setpoint", DisplayName: "OccupiedHeatingSetpoint", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrMinHeatSetpointLimit, Name: "min-heat-setpoint-limit", DisplayName: "MinHeatSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrMaxHeatSetpointLimit, Name: "max-heat-setpoint-limit", DisplayName: "MaxHeatSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrMinCoolSetpointLimit, Name: "min-cool-setpoint-limit", DisplayName: "MinCoolSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrMaxCoolSetpointLimit, Name: "max-cool-setpoint-limit", DisplayName: "MaxCoolSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrMinSetpointDeadBand, Name: "min-setpoint-dead-band", DisplayName: "MinSetpointDeadBand", Type: "int8", Readable: true, Writable: true, Optional: true},
-			{ID: AttrControlSequenceOfOperation, Name: "control-sequence-of-operation", DisplayName: "ControlSequenceOfOperation", Type: "enum8", Readable: true, Writable: true},
-			{ID: AttrSystemMode, Name: "system-mode", DisplayName: "SystemMode", Type: "enum8", Readable: true, Writable: true},
-			{ID: AttrThermostatRunningMode, Name: "thermostat-running-mode", DisplayName: "ThermostatRunningMode", Type: "enum8", Readable: true, Optional: true},
+			{ID: AttrLocalTemperature, Name: "LocalTemperature", DisplayName: "LocalTemperature", Type: "int16", Readable: true, Nullable: true},
+			{ID: AttrOutdoorTemperature, Name: "OutdoorTemperature", DisplayName: "OutdoorTemperature", Type: "int16", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrOccupancy, Name: "Occupancy", DisplayName: "Occupancy", Type: "bitmap8", Readable: true, Optional: true},
+			{ID: AttrAbsMinHeatSetpointLimit, Name: "AbsMinHeatSetpointLimit", DisplayName: "AbsMinHeatSetpointLimit", Type: "int16", Readable: true, Optional: true},
+			{ID: AttrAbsMaxHeatSetpointLimit, Name: "AbsMaxHeatSetpointLimit", DisplayName: "AbsMaxHeatSetpointLimit", Type: "int16", Readable: true, Optional: true},
+			{ID: AttrAbsMinCoolSetpointLimit, Name: "AbsMinCoolSetpointLimit", DisplayName: "AbsMinCoolSetpointLimit", Type: "int16", Readable: true, Optional: true},
+			{ID: AttrAbsMaxCoolSetpointLimit, Name: "AbsMaxCoolSetpointLimit", DisplayName: "AbsMaxCoolSetpointLimit", Type: "int16", Readable: true, Optional: true},
+			{ID: AttrOccupiedCoolingSetpoint, Name: "OccupiedCoolingSetpoint", DisplayName: "OccupiedCoolingSetpoint", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrOccupiedHeatingSetpoint, Name: "OccupiedHeatingSetpoint", DisplayName: "OccupiedHeatingSetpoint", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrMinHeatSetpointLimit, Name: "MinHeatSetpointLimit", DisplayName: "MinHeatSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrMaxHeatSetpointLimit, Name: "MaxHeatSetpointLimit", DisplayName: "MaxHeatSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrMinCoolSetpointLimit, Name: "MinCoolSetpointLimit", DisplayName: "MinCoolSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrMaxCoolSetpointLimit, Name: "MaxCoolSetpointLimit", DisplayName: "MaxCoolSetpointLimit", Type: "int16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrMinSetpointDeadBand, Name: "MinSetpointDeadBand", DisplayName: "MinSetpointDeadBand", Type: "int8", Readable: true, Writable: true, Optional: true},
+			{ID: AttrControlSequenceOfOperation, Name: "ControlSequenceOfOperation", DisplayName: "ControlSequenceOfOperation", Type: "enum8", Readable: true, Writable: true},
+			{ID: AttrSystemMode, Name: "SystemMode", DisplayName: "SystemMode", Type: "enum8", Readable: true, Writable: true},
+			{ID: AttrThermostatRunningMode, Name: "ThermostatRunningMode", DisplayName: "ThermostatRunningMode", Type: "enum8", Readable: true, Optional: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdSetpointRaiseLower, Name: "setpoint-raise-lower", DisplayName: "SetpointRaiseLower", HasRequest: true},
-			{ID: CmdSetWeeklySchedule, Name: "set-weekly-schedule", DisplayName: "SetWeeklySchedule", HasRequest: true},
-			{ID: CmdGetWeeklySchedule, Name: "get-weekly-schedule", DisplayName: "GetWeeklySchedule", HasRequest: true, HasResponse: true},
-			{ID: CmdClearWeeklySchedule, Name: "clear-weekly-schedule", DisplayName: "ClearWeeklySchedule"},
+			{ID: CmdSetpointRaiseLower, Name: "SetpointRaiseLower", DisplayName: "SetpointRaiseLower", HasRequest: true},
+			{ID: CmdSetWeeklySchedule, Name: "SetWeeklySchedule", DisplayName: "SetWeeklySchedule", HasRequest: true},
+			{ID: CmdGetWeeklySchedule, Name: "GetWeeklySchedule", DisplayName: "GetWeeklySchedule", HasRequest: true, HasResponse: true},
+			{ID: CmdClearWeeklySchedule, Name: "ClearWeeklySchedule", DisplayName: "ClearWeeklySchedule"},
 		},
 	})
 }

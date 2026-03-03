@@ -34,13 +34,13 @@ func TestLookupCluster(t *testing.T) {
 		wantID  uint32
 		wantOK  bool
 	}{
-		{"on-off", 0x0006, true},
-		{"level-control", 0x0008, true},
-		{"color-control", 0x0300, true},
-		{"door-lock", 0x0101, true},
-		{"thermostat", 0x0201, true},
-		{"window-covering", 0x0102, true},
-		{"descriptor", 0x001D, true},
+		{"OnOff", 0x0006, true},
+		{"LevelControl", 0x0008, true},
+		{"ColorControl", 0x0300, true},
+		{"DoorLock", 0x0101, true},
+		{"Thermostat", 0x0201, true},
+		{"WindowCovering", 0x0102, true},
+		{"Descriptor", 0x001D, true},
 		{"nonexistent", 0, false},
 	}
 
@@ -62,8 +62,8 @@ func TestLookupClusterByID(t *testing.T) {
 	if !ok {
 		t.Fatal("LookupClusterByID(0x0006) not found")
 	}
-	if info.Name != "on-off" {
-		t.Errorf("Name = %q, want %q", info.Name, "on-off")
+	if info.Name != "OnOff" {
+		t.Errorf("Name = %q, want %q", info.Name, "OnOff")
 	}
 }
 

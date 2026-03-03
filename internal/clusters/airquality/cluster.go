@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Air Quality.
 	ID uint32 = 0x005B
 	// Name is the CLI-friendly cluster name.
-	Name = "air-quality"
+	Name = "AirQuality"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Air Quality"
 )
@@ -26,7 +26,7 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrAirQuality, Name: "air-quality", DisplayName: "AirQuality", Type: "enum8", Readable: true},
+			{ID: AttrAirQuality, Name: "AirQuality", DisplayName: "AirQuality", Type: "enum8", Readable: true},
 		},
 	})
 }

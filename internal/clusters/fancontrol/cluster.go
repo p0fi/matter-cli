@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Fan Control.
 	ID uint32 = 0x0202
 	// Name is the CLI-friendly cluster name.
-	Name = "fan-control"
+	Name = "FanControl"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Fan Control"
 )
@@ -49,21 +49,21 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrFanMode, Name: "fan-mode", DisplayName: "FanMode", Type: "enum8", Readable: true, Writable: true},
-			{ID: AttrFanModeSequence, Name: "fan-mode-sequence", DisplayName: "FanModeSequence", Type: "enum8", Readable: true},
-			{ID: AttrPercentSetting, Name: "percent-setting", DisplayName: "PercentSetting", Type: "uint8", Readable: true, Writable: true, Nullable: true},
-			{ID: AttrPercentCurrent, Name: "percent-current", DisplayName: "PercentCurrent", Type: "uint8", Readable: true},
-			{ID: AttrSpeedMax, Name: "speed-max", DisplayName: "SpeedMax", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrSpeedSetting, Name: "speed-setting", DisplayName: "SpeedSetting", Type: "uint8", Readable: true, Writable: true, Nullable: true, Optional: true},
-			{ID: AttrSpeedCurrent, Name: "speed-current", DisplayName: "SpeedCurrent", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrRockSupport, Name: "rock-support", DisplayName: "RockSupport", Type: "bitmap8", Readable: true, Optional: true},
-			{ID: AttrRockSetting, Name: "rock-setting", DisplayName: "RockSetting", Type: "bitmap8", Readable: true, Writable: true, Optional: true},
-			{ID: AttrWindSupport, Name: "wind-support", DisplayName: "WindSupport", Type: "bitmap8", Readable: true, Optional: true},
-			{ID: AttrWindSetting, Name: "wind-setting", DisplayName: "WindSetting", Type: "bitmap8", Readable: true, Writable: true, Optional: true},
-			{ID: AttrAirflowDirection, Name: "airflow-direction", DisplayName: "AirflowDirection", Type: "enum8", Readable: true, Writable: true, Optional: true},
+			{ID: AttrFanMode, Name: "FanMode", DisplayName: "FanMode", Type: "enum8", Readable: true, Writable: true},
+			{ID: AttrFanModeSequence, Name: "FanModeSequence", DisplayName: "FanModeSequence", Type: "enum8", Readable: true},
+			{ID: AttrPercentSetting, Name: "PercentSetting", DisplayName: "PercentSetting", Type: "uint8", Readable: true, Writable: true, Nullable: true},
+			{ID: AttrPercentCurrent, Name: "PercentCurrent", DisplayName: "PercentCurrent", Type: "uint8", Readable: true},
+			{ID: AttrSpeedMax, Name: "SpeedMax", DisplayName: "SpeedMax", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrSpeedSetting, Name: "SpeedSetting", DisplayName: "SpeedSetting", Type: "uint8", Readable: true, Writable: true, Nullable: true, Optional: true},
+			{ID: AttrSpeedCurrent, Name: "SpeedCurrent", DisplayName: "SpeedCurrent", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrRockSupport, Name: "RockSupport", DisplayName: "RockSupport", Type: "bitmap8", Readable: true, Optional: true},
+			{ID: AttrRockSetting, Name: "RockSetting", DisplayName: "RockSetting", Type: "bitmap8", Readable: true, Writable: true, Optional: true},
+			{ID: AttrWindSupport, Name: "WindSupport", DisplayName: "WindSupport", Type: "bitmap8", Readable: true, Optional: true},
+			{ID: AttrWindSetting, Name: "WindSetting", DisplayName: "WindSetting", Type: "bitmap8", Readable: true, Writable: true, Optional: true},
+			{ID: AttrAirflowDirection, Name: "AirflowDirection", DisplayName: "AirflowDirection", Type: "enum8", Readable: true, Writable: true, Optional: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdStep, Name: "step", DisplayName: "Step", HasRequest: true},
+			{ID: CmdStep, Name: "Step", DisplayName: "Step", HasRequest: true},
 		},
 	})
 }

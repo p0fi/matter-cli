@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Basic Information.
 	ID uint32 = 0x0028
 	// Name is the CLI-friendly cluster name.
-	Name = "basic-information"
+	Name = "BasicInformation"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Basic Information"
 )
@@ -44,25 +44,25 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrDataModelRevision, Name: "data-model-revision", DisplayName: "DataModelRevision", Type: "uint16", Readable: true},
-			{ID: AttrVendorName, Name: "vendor-name", DisplayName: "VendorName", Type: "string", Readable: true},
-			{ID: AttrVendorID, Name: "vendor-id", DisplayName: "VendorID", Type: "vendor-id", Readable: true},
-			{ID: AttrProductName, Name: "product-name", DisplayName: "ProductName", Type: "string", Readable: true},
-			{ID: AttrProductID, Name: "product-id", DisplayName: "ProductID", Type: "uint16", Readable: true},
-			{ID: AttrNodeLabel, Name: "node-label", DisplayName: "NodeLabel", Type: "string", Readable: true, Writable: true},
-			{ID: AttrLocation, Name: "location", DisplayName: "Location", Type: "string", Readable: true, Writable: true},
-			{ID: AttrHardwareVersion, Name: "hardware-version", DisplayName: "HardwareVersion", Type: "uint16", Readable: true},
-			{ID: AttrHardwareVersionStr, Name: "hardware-version-string", DisplayName: "HardwareVersionString", Type: "string", Readable: true},
-			{ID: AttrSoftwareVersion, Name: "software-version", DisplayName: "SoftwareVersion", Type: "uint32", Readable: true},
-			{ID: AttrSoftwareVersionStr, Name: "software-version-string", DisplayName: "SoftwareVersionString", Type: "string", Readable: true},
-			{ID: AttrManufacturingDate, Name: "manufacturing-date", DisplayName: "ManufacturingDate", Type: "string", Readable: true, Optional: true},
-			{ID: AttrPartNumber, Name: "part-number", DisplayName: "PartNumber", Type: "string", Readable: true, Optional: true},
-			{ID: AttrProductURL, Name: "product-url", DisplayName: "ProductURL", Type: "string", Readable: true, Optional: true},
-			{ID: AttrProductLabel, Name: "product-label", DisplayName: "ProductLabel", Type: "string", Readable: true, Optional: true},
-			{ID: AttrSerialNumber, Name: "serial-number", DisplayName: "SerialNumber", Type: "string", Readable: true, Optional: true},
-			{ID: AttrLocalConfigDisabled, Name: "local-config-disabled", DisplayName: "LocalConfigDisabled", Type: "bool", Readable: true, Writable: true, Optional: true},
-			{ID: AttrReachable, Name: "reachable", DisplayName: "Reachable", Type: "bool", Readable: true, Optional: true},
-			{ID: AttrUniqueID, Name: "unique-id", DisplayName: "UniqueID", Type: "string", Readable: true, Optional: true},
+			{ID: AttrDataModelRevision, Name: "DataModelRevision", DisplayName: "DataModelRevision", Type: "uint16", Readable: true},
+			{ID: AttrVendorName, Name: "VendorName", DisplayName: "VendorName", Type: "string", Readable: true},
+			{ID: AttrVendorID, Name: "VendorID", DisplayName: "VendorID", Type: "vendor-id", Readable: true},
+			{ID: AttrProductName, Name: "ProductName", DisplayName: "ProductName", Type: "string", Readable: true},
+			{ID: AttrProductID, Name: "ProductID", DisplayName: "ProductID", Type: "uint16", Readable: true},
+			{ID: AttrNodeLabel, Name: "NodeLabel", DisplayName: "NodeLabel", Type: "string", Readable: true, Writable: true},
+			{ID: AttrLocation, Name: "Location", DisplayName: "Location", Type: "string", Readable: true, Writable: true},
+			{ID: AttrHardwareVersion, Name: "HardwareVersion", DisplayName: "HardwareVersion", Type: "uint16", Readable: true},
+			{ID: AttrHardwareVersionStr, Name: "HardwareVersionString", DisplayName: "HardwareVersionString", Type: "string", Readable: true},
+			{ID: AttrSoftwareVersion, Name: "SoftwareVersion", DisplayName: "SoftwareVersion", Type: "uint32", Readable: true},
+			{ID: AttrSoftwareVersionStr, Name: "SoftwareVersionString", DisplayName: "SoftwareVersionString", Type: "string", Readable: true},
+			{ID: AttrManufacturingDate, Name: "ManufacturingDate", DisplayName: "ManufacturingDate", Type: "string", Readable: true, Optional: true},
+			{ID: AttrPartNumber, Name: "PartNumber", DisplayName: "PartNumber", Type: "string", Readable: true, Optional: true},
+			{ID: AttrProductURL, Name: "ProductURL", DisplayName: "ProductURL", Type: "string", Readable: true, Optional: true},
+			{ID: AttrProductLabel, Name: "ProductLabel", DisplayName: "ProductLabel", Type: "string", Readable: true, Optional: true},
+			{ID: AttrSerialNumber, Name: "SerialNumber", DisplayName: "SerialNumber", Type: "string", Readable: true, Optional: true},
+			{ID: AttrLocalConfigDisabled, Name: "LocalConfigDisabled", DisplayName: "LocalConfigDisabled", Type: "bool", Readable: true, Writable: true, Optional: true},
+			{ID: AttrReachable, Name: "Reachable", DisplayName: "Reachable", Type: "bool", Readable: true, Optional: true},
+			{ID: AttrUniqueID, Name: "UniqueID", DisplayName: "UniqueID", Type: "string", Readable: true, Optional: true},
 		},
 	})
 }

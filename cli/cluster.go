@@ -234,6 +234,21 @@ func connectToNode(ctx context.Context, nodeID uint64) (
 // it gets truncated.
 const maxValueLen = 40
 
+// formatAttrValue decodes raw TLV bytes and returns a display string.
+// For bitmap types, the binary representation is appended (e.g. "11 (0b1011)").
+func formatAttrValue(raw []byte, attrType string) string {
+	value := decodeTLVValue(raw)
+	if !strings.HasPrefix(attrType, "bitmap") {
+		return value
+	}
+	// Parse the decimal value back so we can show it in binary.
+	n, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return value
+	}
+	return fmt.Sprintf("%d (0b%b)", n, n)
+}
+
 // decodeTLVValue reads a single TLV element from raw bytes and returns a
 // human-readable string representation of the value.
 func decodeTLVValue(raw []byte) string {
@@ -361,8 +376,8 @@ func newClusterReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read a cluster attribute",
-		Example: `  matter @1/1 cluster read --cluster on-off --attribute on-off
-  matter @kitchen cluster read --cluster level-control --attribute current-level`,
+		Example: `  matter @1/1 cluster read --cluster OnOff --attribute OnOff
+  matter @kitchen cluster read --cluster LevelControl --attribute CurrentLevel`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -427,7 +442,7 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			}
 			data, _ := daemon.DecodeFields(r.Data)
 			if len(data) > 0 {
-				value := decodeTLVValue(data)
+				value := formatAttrValue(data, attr.Type)
 				stepper.Success(fmt.Sprintf("%s/%s = %s",
 					output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
 					output.Success(value)))
@@ -462,7 +477,7 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			return fmt.Errorf("read error: status 0x%02X", r.Status.Status.Status)
 		}
 		if r.Data != nil {
-			value := decodeTLVValue(r.Data.Data)
+			value := formatAttrValue(r.Data.Data, attr.Type)
 			stepper.Success(fmt.Sprintf("%s/%s = %s",
 				output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
 				output.Success(value)))
@@ -722,8 +737,8 @@ func newClusterWriteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "write",
 		Short: "Write a cluster attribute",
-		Example: `  matter @1/1 cluster write --cluster on-off --attribute on-time --value 300
-  matter @kitchen cluster write --cluster fan-control --attribute fan-mode --value 0`,
+		Example: `  matter @1/1 cluster write --cluster OnOff --attribute OnTime --value 300
+  matter @kitchen cluster write --cluster FanControl --attribute FanMode --value 0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -986,8 +1001,8 @@ func newClusterInvokeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "invoke",
 		Short: "Invoke a cluster command",
-		Example: `  matter @1/1 cluster invoke --cluster on-off --command toggle
-  matter @kitchen cluster invoke --cluster identify --command identify -F identify-time=10`,
+		Example: `  matter @1/1 cluster invoke --cluster OnOff --command Toggle
+  matter @kitchen cluster invoke --cluster Identify --command Identify -F IdentifyTime=10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -1017,7 +1032,7 @@ func newClusterInvokeCmd() *cobra.Command {
 	}
 	cmd.Flags().String("cluster", "", "cluster name or ID")
 	cmd.Flags().String("command", "", "command name or ID")
-	cmd.Flags().StringSliceP("field", "F", nil, "command field as key=value (repeatable, e.g. -F identify-time=10)")
+	cmd.Flags().StringSliceP("field", "F", nil, "command field as key=value (repeatable, e.g. -F IdentifyTime=10)")
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
 	_ = cmd.RegisterFlagCompletionFunc("command", completion.CommandNameCompletion(clusters.Global))
 	return cmd
@@ -1027,8 +1042,8 @@ func newClusterSubscribeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
-		Example: `  matter @1/1 cluster subscribe --cluster on-off --attribute on-off --min 1 --max 10
-  matter @kitchen cluster subscribe --cluster on-off --attribute on-off --min 1 --max 10`,
+		Example: `  matter @1/1 cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10
+  matter @kitchen cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {

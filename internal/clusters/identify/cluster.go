@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Identify.
 	ID uint32 = 0x0003
 	// Name is the CLI-friendly cluster name.
-	Name = "identify"
+	Name = "Identify"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Identify"
 )
@@ -44,16 +44,16 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrIdentifyTime, Name: "identify-time", DisplayName: "IdentifyTime", Type: "uint16", Readable: true, Writable: true},
-			{ID: AttrIdentifyType, Name: "identify-type", DisplayName: "IdentifyType", Type: "enum8", Readable: true},
+			{ID: AttrIdentifyTime, Name: "IdentifyTime", DisplayName: "IdentifyTime", Type: "uint16", Readable: true, Writable: true},
+			{ID: AttrIdentifyType, Name: "IdentifyType", DisplayName: "IdentifyType", Type: "enum8", Readable: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdIdentify, Name: "identify", DisplayName: "Identify", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "identify-time", DisplayName: "IdentifyTime", Type: "uint16"},
+			{ID: CmdIdentify, Name: "Identify", DisplayName: "Identify", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "IdentifyTime", DisplayName: "IdentifyTime", Type: "uint16"},
 			}},
-			{ID: CmdTriggerEffect, Name: "trigger-effect", DisplayName: "TriggerEffect", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "effect-identifier", DisplayName: "EffectIdentifier", Type: "enum8"},
-				{ID: 1, Name: "effect-variant", DisplayName: "EffectVariant", Type: "enum8"},
+			{ID: CmdTriggerEffect, Name: "TriggerEffect", DisplayName: "TriggerEffect", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "EffectIdentifier", DisplayName: "EffectIdentifier", Type: "enum8"},
+				{ID: 1, Name: "EffectVariant", DisplayName: "EffectVariant", Type: "enum8"},
 			}},
 		},
 	})

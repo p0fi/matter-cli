@@ -15,8 +15,8 @@ type CommandID = uint32
 // ClusterInfo describes a Matter cluster for CLI discovery and interaction.
 type ClusterInfo struct {
 	ID          uint32
-	Name        string // kebab-case for CLI usage
-	DisplayName string // human-friendly name
+	Name        string // PascalCase for CLI usage (e.g. "FanControl")
+	DisplayName string // human-friendly name (e.g. "Fan Control")
 	Attributes  []AttributeInfo
 	Commands    []CommandInfo
 }
@@ -24,7 +24,7 @@ type ClusterInfo struct {
 // AttributeInfo describes a single attribute within a cluster.
 type AttributeInfo struct {
 	ID          uint32
-	Name        string // kebab-case
+	Name        string // PascalCase (e.g. "FanMode")
 	DisplayName string
 	Type        string
 	Readable    bool
@@ -36,7 +36,7 @@ type AttributeInfo struct {
 // CommandFieldInfo describes a single field within a command request payload.
 type CommandFieldInfo struct {
 	ID          uint8  // TLV context tag number
-	Name        string // kebab-case for CLI usage (e.g. "identify-time")
+	Name        string // PascalCase for CLI usage (e.g. "IdentifyTime")
 	DisplayName string // human-friendly name (e.g. "IdentifyTime")
 	Type        string // TLV type: "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "bool", "string", "octets", "enum8", "enum16", "bitmap8", "bitmap16", "bitmap32", "float32", "float64"
 	Optional    bool   // whether the field may be omitted
@@ -46,7 +46,7 @@ type CommandFieldInfo struct {
 // CommandInfo describes a single command within a cluster.
 type CommandInfo struct {
 	ID            uint32
-	Name          string // kebab-case
+	Name          string // PascalCase (e.g. "Toggle")
 	DisplayName   string
 	HasRequest    bool
 	HasResponse   bool
@@ -64,7 +64,7 @@ func (ci *CommandInfo) RequiredFields() []CommandFieldInfo {
 	return required
 }
 
-// FieldByName looks up a request field by its kebab-case CLI name (case-insensitive).
+// FieldByName looks up a request field by name (case-insensitive).
 func (ci *CommandInfo) FieldByName(name string) (*CommandFieldInfo, bool) {
 	for i := range ci.RequestFields {
 		if equalFold(ci.RequestFields[i].Name, name) {

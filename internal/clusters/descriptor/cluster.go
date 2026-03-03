@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Descriptor.
 	ID uint32 = 0x001D
 	// Name is the CLI-friendly cluster name.
-	Name = "descriptor"
+	Name = "Descriptor"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Descriptor"
 )
@@ -35,10 +35,10 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrDeviceTypeList, Name: "device-type-list", DisplayName: "DeviceTypeList", Type: "list[struct]", Readable: true},
-			{ID: AttrServerList, Name: "server-list", DisplayName: "ServerList", Type: "list[cluster-id]", Readable: true},
-			{ID: AttrClientList, Name: "client-list", DisplayName: "ClientList", Type: "list[cluster-id]", Readable: true},
-			{ID: AttrPartsList, Name: "parts-list", DisplayName: "PartsList", Type: "list[endpoint-no]", Readable: true},
+			{ID: AttrDeviceTypeList, Name: "DeviceTypeList", DisplayName: "DeviceTypeList", Type: "list[struct]", Readable: true},
+			{ID: AttrServerList, Name: "ServerList", DisplayName: "ServerList", Type: "list[cluster-id]", Readable: true},
+			{ID: AttrClientList, Name: "ClientList", DisplayName: "ClientList", Type: "list[cluster-id]", Readable: true},
+			{ID: AttrPartsList, Name: "PartsList", DisplayName: "PartsList", Type: "list[endpoint-no]", Readable: true},
 		},
 	})
 }

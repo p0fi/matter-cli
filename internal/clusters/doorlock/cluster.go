@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Door Lock.
 	ID uint32 = 0x0101
 	// Name is the CLI-friendly cluster name.
-	Name = "door-lock"
+	Name = "DoorLock"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Door Lock"
 )
@@ -75,33 +75,33 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrLockState, Name: "lock-state", DisplayName: "LockState", Type: "enum8", Readable: true, Nullable: true},
-			{ID: AttrLockType, Name: "lock-type", DisplayName: "LockType", Type: "enum8", Readable: true},
-			{ID: AttrActuatorEnabled, Name: "actuator-enabled", DisplayName: "ActuatorEnabled", Type: "bool", Readable: true},
-			{ID: AttrDoorState, Name: "door-state", DisplayName: "DoorState", Type: "enum8", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrNumberOfTotalUsersSupported, Name: "number-of-total-users-supported", DisplayName: "NumberOfTotalUsersSupported", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrNumberOfPINUsersSupported, Name: "number-of-pin-users-supported", DisplayName: "NumberOfPINUsersSupported", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrNumberOfRFIDUsersSupported, Name: "number-of-rfid-users-supported", DisplayName: "NumberOfRFIDUsersSupported", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrMaxPINCodeLength, Name: "max-pin-code-length", DisplayName: "MaxPINCodeLength", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrMinPINCodeLength, Name: "min-pin-code-length", DisplayName: "MinPINCodeLength", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrLanguage, Name: "language", DisplayName: "Language", Type: "string", Readable: true, Writable: true, Optional: true},
-			{ID: AttrAutoRelockTime, Name: "auto-relock-time", DisplayName: "AutoRelockTime", Type: "uint32", Readable: true, Writable: true, Optional: true},
-			{ID: AttrSoundVolume, Name: "sound-volume", DisplayName: "SoundVolume", Type: "uint8", Readable: true, Writable: true, Optional: true},
-			{ID: AttrOperatingMode, Name: "operating-mode", DisplayName: "OperatingMode", Type: "enum8", Readable: true, Writable: true},
-			{ID: AttrSupportedOperatingModes, Name: "supported-operating-modes", DisplayName: "SupportedOperatingModes", Type: "bitmap16", Readable: true},
-			{ID: AttrEnableOneTouchLocking, Name: "enable-one-touch-locking", DisplayName: "EnableOneTouchLocking", Type: "bool", Readable: true, Writable: true, Optional: true},
-			{ID: AttrRequirePINForRemoteOperation, Name: "require-pin-for-remote-operation", DisplayName: "RequirePINForRemoteOperation", Type: "bool", Readable: true, Writable: true, Optional: true},
+			{ID: AttrLockState, Name: "LockState", DisplayName: "LockState", Type: "enum8", Readable: true, Nullable: true},
+			{ID: AttrLockType, Name: "LockType", DisplayName: "LockType", Type: "enum8", Readable: true},
+			{ID: AttrActuatorEnabled, Name: "ActuatorEnabled", DisplayName: "ActuatorEnabled", Type: "bool", Readable: true},
+			{ID: AttrDoorState, Name: "DoorState", DisplayName: "DoorState", Type: "enum8", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrNumberOfTotalUsersSupported, Name: "NumberOfTotalUsersSupported", DisplayName: "NumberOfTotalUsersSupported", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrNumberOfPINUsersSupported, Name: "NumberOfPINUsersSupported", DisplayName: "NumberOfPINUsersSupported", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrNumberOfRFIDUsersSupported, Name: "NumberOfRFIDUsersSupported", DisplayName: "NumberOfRFIDUsersSupported", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrMaxPINCodeLength, Name: "MaxPINCodeLength", DisplayName: "MaxPINCodeLength", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrMinPINCodeLength, Name: "MinPINCodeLength", DisplayName: "MinPINCodeLength", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrLanguage, Name: "Language", DisplayName: "Language", Type: "string", Readable: true, Writable: true, Optional: true},
+			{ID: AttrAutoRelockTime, Name: "AutoRelockTime", DisplayName: "AutoRelockTime", Type: "uint32", Readable: true, Writable: true, Optional: true},
+			{ID: AttrSoundVolume, Name: "SoundVolume", DisplayName: "SoundVolume", Type: "uint8", Readable: true, Writable: true, Optional: true},
+			{ID: AttrOperatingMode, Name: "OperatingMode", DisplayName: "OperatingMode", Type: "enum8", Readable: true, Writable: true},
+			{ID: AttrSupportedOperatingModes, Name: "SupportedOperatingModes", DisplayName: "SupportedOperatingModes", Type: "bitmap16", Readable: true},
+			{ID: AttrEnableOneTouchLocking, Name: "EnableOneTouchLocking", DisplayName: "EnableOneTouchLocking", Type: "bool", Readable: true, Writable: true, Optional: true},
+			{ID: AttrRequirePINForRemoteOperation, Name: "RequirePINForRemoteOperation", DisplayName: "RequirePINForRemoteOperation", Type: "bool", Readable: true, Writable: true, Optional: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdLockDoor, Name: "lock-door", DisplayName: "LockDoor", HasRequest: true},
-			{ID: CmdUnlockDoor, Name: "unlock-door", DisplayName: "UnlockDoor", HasRequest: true},
-			{ID: CmdUnlockWithTimeout, Name: "unlock-with-timeout", DisplayName: "UnlockWithTimeout", HasRequest: true},
-			{ID: CmdSetUser, Name: "set-user", DisplayName: "SetUser", HasRequest: true},
-			{ID: CmdGetUser, Name: "get-user", DisplayName: "GetUser", HasRequest: true, HasResponse: true},
-			{ID: CmdClearUser, Name: "clear-user", DisplayName: "ClearUser", HasRequest: true},
-			{ID: CmdSetCredential, Name: "set-credential", DisplayName: "SetCredential", HasRequest: true, HasResponse: true},
-			{ID: CmdGetCredentialStatus, Name: "get-credential-status", DisplayName: "GetCredentialStatus", HasRequest: true, HasResponse: true},
-			{ID: CmdClearCredential, Name: "clear-credential", DisplayName: "ClearCredential", HasRequest: true},
+			{ID: CmdLockDoor, Name: "LockDoor", DisplayName: "LockDoor", HasRequest: true},
+			{ID: CmdUnlockDoor, Name: "UnlockDoor", DisplayName: "UnlockDoor", HasRequest: true},
+			{ID: CmdUnlockWithTimeout, Name: "UnlockWithTimeout", DisplayName: "UnlockWithTimeout", HasRequest: true},
+			{ID: CmdSetUser, Name: "SetUser", DisplayName: "SetUser", HasRequest: true},
+			{ID: CmdGetUser, Name: "GetUser", DisplayName: "GetUser", HasRequest: true, HasResponse: true},
+			{ID: CmdClearUser, Name: "ClearUser", DisplayName: "ClearUser", HasRequest: true},
+			{ID: CmdSetCredential, Name: "SetCredential", DisplayName: "SetCredential", HasRequest: true, HasResponse: true},
+			{ID: CmdGetCredentialStatus, Name: "GetCredentialStatus", DisplayName: "GetCredentialStatus", HasRequest: true, HasResponse: true},
+			{ID: CmdClearCredential, Name: "ClearCredential", DisplayName: "ClearCredential", HasRequest: true},
 		},
 	})
 }

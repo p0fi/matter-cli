@@ -221,7 +221,7 @@ func TestTargetCompletionFunc_NoAt(t *testing.T) {
 	cleanup := setupTestStore(t, 1, testNodes())
 	defer cleanup()
 
-	completions, _ := runTargetCompletion(t, "on-off")
+	completions, _ := runTargetCompletion(t, "OnOff")
 	if completions != nil {
 		t.Errorf("expected nil completions for non-@ input, got %v", completions)
 	}

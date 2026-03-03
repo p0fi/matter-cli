@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Level Control.
 	ID uint32 = 0x0008
 	// Name is the CLI-friendly cluster name.
-	Name = "level-control"
+	Name = "LevelControl"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Level Control"
 )
@@ -82,67 +82,67 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrCurrentLevel, Name: "current-level", DisplayName: "CurrentLevel", Type: "uint8", Readable: true, Nullable: true},
-			{ID: AttrRemainingTime, Name: "remaining-time", DisplayName: "RemainingTime", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrMinLevel, Name: "min-level", DisplayName: "MinLevel", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrMaxLevel, Name: "max-level", DisplayName: "MaxLevel", Type: "uint8", Readable: true, Optional: true},
-			{ID: AttrCurrentFrequency, Name: "current-frequency", DisplayName: "CurrentFrequency", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrMinFrequency, Name: "min-frequency", DisplayName: "MinFrequency", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrMaxFrequency, Name: "max-frequency", DisplayName: "MaxFrequency", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrOptions, Name: "options", DisplayName: "Options", Type: "bitmap8", Readable: true, Writable: true},
-			{ID: AttrOnOffTransitionTime, Name: "on-off-transition-time", DisplayName: "OnOffTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true},
-			{ID: AttrOnLevel, Name: "on-level", DisplayName: "OnLevel", Type: "uint8", Readable: true, Writable: true, Nullable: true},
-			{ID: AttrOnTransitionTime, Name: "on-transition-time", DisplayName: "OnTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true, Nullable: true},
-			{ID: AttrOffTransitionTime, Name: "off-transition-time", DisplayName: "OffTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true, Nullable: true},
-			{ID: AttrDefaultMoveRate, Name: "default-move-rate", DisplayName: "DefaultMoveRate", Type: "uint8", Readable: true, Writable: true, Optional: true, Nullable: true},
-			{ID: AttrStartUpCurrentLevel, Name: "start-up-current-level", DisplayName: "StartUpCurrentLevel", Type: "uint8", Readable: true, Writable: true, Nullable: true},
+			{ID: AttrCurrentLevel, Name: "CurrentLevel", DisplayName: "CurrentLevel", Type: "uint8", Readable: true, Nullable: true},
+			{ID: AttrRemainingTime, Name: "RemainingTime", DisplayName: "RemainingTime", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrMinLevel, Name: "MinLevel", DisplayName: "MinLevel", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrMaxLevel, Name: "MaxLevel", DisplayName: "MaxLevel", Type: "uint8", Readable: true, Optional: true},
+			{ID: AttrCurrentFrequency, Name: "CurrentFrequency", DisplayName: "CurrentFrequency", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrMinFrequency, Name: "MinFrequency", DisplayName: "MinFrequency", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrMaxFrequency, Name: "MaxFrequency", DisplayName: "MaxFrequency", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrOptions, Name: "Options", DisplayName: "Options", Type: "bitmap8", Readable: true, Writable: true},
+			{ID: AttrOnOffTransitionTime, Name: "OnOffTransitionTime", DisplayName: "OnOffTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true},
+			{ID: AttrOnLevel, Name: "OnLevel", DisplayName: "OnLevel", Type: "uint8", Readable: true, Writable: true, Nullable: true},
+			{ID: AttrOnTransitionTime, Name: "OnTransitionTime", DisplayName: "OnTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true, Nullable: true},
+			{ID: AttrOffTransitionTime, Name: "OffTransitionTime", DisplayName: "OffTransitionTime", Type: "uint16", Readable: true, Writable: true, Optional: true, Nullable: true},
+			{ID: AttrDefaultMoveRate, Name: "DefaultMoveRate", DisplayName: "DefaultMoveRate", Type: "uint8", Readable: true, Writable: true, Optional: true, Nullable: true},
+			{ID: AttrStartUpCurrentLevel, Name: "StartUpCurrentLevel", DisplayName: "StartUpCurrentLevel", Type: "uint8", Readable: true, Writable: true, Nullable: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdMoveToLevel, Name: "move-to-level", DisplayName: "MoveToLevel", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "level", DisplayName: "Level", Type: "uint8"},
-				{ID: 1, Name: "transition-time", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
-				{ID: 2, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 3, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdMoveToLevel, Name: "MoveToLevel", DisplayName: "MoveToLevel", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "Level", DisplayName: "Level", Type: "uint8"},
+				{ID: 1, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
+				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdMove, Name: "move", DisplayName: "Move", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "move-mode", DisplayName: "MoveMode", Type: "enum8"},
-				{ID: 1, Name: "rate", DisplayName: "Rate", Type: "uint8", Nullable: true},
-				{ID: 2, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 3, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdMove, Name: "Move", DisplayName: "Move", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint8", Nullable: true},
+				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdStep, Name: "step", DisplayName: "Step", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "step-mode", DisplayName: "StepMode", Type: "enum8"},
-				{ID: 1, Name: "step-size", DisplayName: "StepSize", Type: "uint8"},
-				{ID: 2, Name: "transition-time", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
-				{ID: 3, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 4, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdStep, Name: "Step", DisplayName: "Step", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint8"},
+				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
+				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 4, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdStop, Name: "stop", DisplayName: "Stop", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 1, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdStop, Name: "Stop", DisplayName: "Stop", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 1, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdMoveToLevelWithOnOff, Name: "move-to-level-with-on-off", DisplayName: "MoveToLevelWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "level", DisplayName: "Level", Type: "uint8"},
-				{ID: 1, Name: "transition-time", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
-				{ID: 2, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 3, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdMoveToLevelWithOnOff, Name: "MoveToLevelWithOnOff", DisplayName: "MoveToLevelWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "Level", DisplayName: "Level", Type: "uint8"},
+				{ID: 1, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
+				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdMoveWithOnOff, Name: "move-with-on-off", DisplayName: "MoveWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "move-mode", DisplayName: "MoveMode", Type: "enum8"},
-				{ID: 1, Name: "rate", DisplayName: "Rate", Type: "uint8", Nullable: true},
-				{ID: 2, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 3, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdMoveWithOnOff, Name: "MoveWithOnOff", DisplayName: "MoveWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint8", Nullable: true},
+				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdStepWithOnOff, Name: "step-with-on-off", DisplayName: "StepWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "step-mode", DisplayName: "StepMode", Type: "enum8"},
-				{ID: 1, Name: "step-size", DisplayName: "StepSize", Type: "uint8"},
-				{ID: 2, Name: "transition-time", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
-				{ID: 3, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 4, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdStepWithOnOff, Name: "StepWithOnOff", DisplayName: "StepWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint8"},
+				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
+				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 4, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
-			{ID: CmdStopWithOnOff, Name: "stop-with-on-off", DisplayName: "StopWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "options-mask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
-				{ID: 1, Name: "options-override", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
+			{ID: CmdStopWithOnOff, Name: "StopWithOnOff", DisplayName: "StopWithOnOff", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
+				{ID: 0, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8", Optional: true},
+				{ID: 1, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8", Optional: true},
 			}},
 		},
 	})

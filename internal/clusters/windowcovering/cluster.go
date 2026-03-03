@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Window Covering.
 	ID uint32 = 0x0102
 	// Name is the CLI-friendly cluster name.
-	Name = "window-covering"
+	Name = "WindowCovering"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Window Covering"
 )
@@ -68,29 +68,29 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrType, Name: "type", DisplayName: "Type", Type: "enum8", Readable: true},
-			{ID: AttrConfigStatus, Name: "config-status", DisplayName: "ConfigStatus", Type: "bitmap8", Readable: true},
-			{ID: AttrCurrentPositionLiftPercentage, Name: "current-position-lift-percentage", DisplayName: "CurrentPositionLiftPercentage", Type: "uint8", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrCurrentPositionTiltPercentage, Name: "current-position-tilt-percentage", DisplayName: "CurrentPositionTiltPercentage", Type: "uint8", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrOperationalStatus, Name: "operational-status", DisplayName: "OperationalStatus", Type: "bitmap8", Readable: true},
-			{ID: AttrTargetPositionLiftPercent100ths, Name: "target-position-lift-percent-100ths", DisplayName: "TargetPositionLiftPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrTargetPositionTiltPercent100ths, Name: "target-position-tilt-percent-100ths", DisplayName: "TargetPositionTiltPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrEndProductType, Name: "end-product-type", DisplayName: "EndProductType", Type: "enum8", Readable: true},
-			{ID: AttrCurrentPositionLiftPercent100ths, Name: "current-position-lift-percent-100ths", DisplayName: "CurrentPositionLiftPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrCurrentPositionTiltPercent100ths, Name: "current-position-tilt-percent-100ths", DisplayName: "CurrentPositionTiltPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
-			{ID: AttrInstalledOpenLimitLift, Name: "installed-open-limit-lift", DisplayName: "InstalledOpenLimitLift", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrInstalledClosedLimitLift, Name: "installed-closed-limit-lift", DisplayName: "InstalledClosedLimitLift", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrInstalledOpenLimitTilt, Name: "installed-open-limit-tilt", DisplayName: "InstalledOpenLimitTilt", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrInstalledClosedLimitTilt, Name: "installed-closed-limit-tilt", DisplayName: "InstalledClosedLimitTilt", Type: "uint16", Readable: true, Optional: true},
-			{ID: AttrMode, Name: "mode", DisplayName: "Mode", Type: "bitmap8", Readable: true, Writable: true},
-			{ID: AttrSafetyStatus, Name: "safety-status", DisplayName: "SafetyStatus", Type: "bitmap16", Readable: true, Optional: true},
+			{ID: AttrType, Name: "Type", DisplayName: "Type", Type: "enum8", Readable: true},
+			{ID: AttrConfigStatus, Name: "ConfigStatus", DisplayName: "ConfigStatus", Type: "bitmap8", Readable: true},
+			{ID: AttrCurrentPositionLiftPercentage, Name: "CurrentPositionLiftPercentage", DisplayName: "CurrentPositionLiftPercentage", Type: "uint8", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrCurrentPositionTiltPercentage, Name: "CurrentPositionTiltPercentage", DisplayName: "CurrentPositionTiltPercentage", Type: "uint8", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrOperationalStatus, Name: "OperationalStatus", DisplayName: "OperationalStatus", Type: "bitmap8", Readable: true},
+			{ID: AttrTargetPositionLiftPercent100ths, Name: "TargetPositionLiftPercent100ths", DisplayName: "TargetPositionLiftPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrTargetPositionTiltPercent100ths, Name: "TargetPositionTiltPercent100ths", DisplayName: "TargetPositionTiltPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrEndProductType, Name: "EndProductType", DisplayName: "EndProductType", Type: "enum8", Readable: true},
+			{ID: AttrCurrentPositionLiftPercent100ths, Name: "CurrentPositionLiftPercent100ths", DisplayName: "CurrentPositionLiftPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrCurrentPositionTiltPercent100ths, Name: "CurrentPositionTiltPercent100ths", DisplayName: "CurrentPositionTiltPercent100ths", Type: "uint16", Readable: true, Nullable: true, Optional: true},
+			{ID: AttrInstalledOpenLimitLift, Name: "InstalledOpenLimitLift", DisplayName: "InstalledOpenLimitLift", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrInstalledClosedLimitLift, Name: "InstalledClosedLimitLift", DisplayName: "InstalledClosedLimitLift", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrInstalledOpenLimitTilt, Name: "InstalledOpenLimitTilt", DisplayName: "InstalledOpenLimitTilt", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrInstalledClosedLimitTilt, Name: "InstalledClosedLimitTilt", DisplayName: "InstalledClosedLimitTilt", Type: "uint16", Readable: true, Optional: true},
+			{ID: AttrMode, Name: "Mode", DisplayName: "Mode", Type: "bitmap8", Readable: true, Writable: true},
+			{ID: AttrSafetyStatus, Name: "SafetyStatus", DisplayName: "SafetyStatus", Type: "bitmap16", Readable: true, Optional: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdUpOrOpen, Name: "up-or-open", DisplayName: "UpOrOpen"},
-			{ID: CmdDownOrClose, Name: "down-or-close", DisplayName: "DownOrClose"},
-			{ID: CmdStopMotion, Name: "stop-motion", DisplayName: "StopMotion"},
-			{ID: CmdGoToLiftPercentage, Name: "go-to-lift-percentage", DisplayName: "GoToLiftPercentage", HasRequest: true},
-			{ID: CmdGoToTiltPercentage, Name: "go-to-tilt-percentage", DisplayName: "GoToTiltPercentage", HasRequest: true},
+			{ID: CmdUpOrOpen, Name: "UpOrOpen", DisplayName: "UpOrOpen"},
+			{ID: CmdDownOrClose, Name: "DownOrClose", DisplayName: "DownOrClose"},
+			{ID: CmdStopMotion, Name: "StopMotion", DisplayName: "StopMotion"},
+			{ID: CmdGoToLiftPercentage, Name: "GoToLiftPercentage", DisplayName: "GoToLiftPercentage", HasRequest: true},
+			{ID: CmdGoToTiltPercentage, Name: "GoToTiltPercentage", DisplayName: "GoToTiltPercentage", HasRequest: true},
 		},
 	})
 }

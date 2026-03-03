@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Access Control.
 	ID uint32 = 0x001F
 	// Name is the CLI-friendly cluster name.
-	Name = "access-control"
+	Name = "AccessControl"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Access Control"
 )
@@ -46,11 +46,11 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrACL, Name: "acl", DisplayName: "ACL", Type: "list[struct]", Readable: true, Writable: true},
-			{ID: AttrExtension, Name: "extension", DisplayName: "Extension", Type: "list[struct]", Readable: true, Writable: true, Optional: true},
-			{ID: AttrSubjectsPerEntry, Name: "subjects-per-access-control-entry", DisplayName: "SubjectsPerAccessControlEntry", Type: "uint16", Readable: true},
-			{ID: AttrTargetsPerEntry, Name: "targets-per-access-control-entry", DisplayName: "TargetsPerAccessControlEntry", Type: "uint16", Readable: true},
-			{ID: AttrEntriesPerFabric, Name: "access-control-entries-per-fabric", DisplayName: "AccessControlEntriesPerFabric", Type: "uint16", Readable: true},
+			{ID: AttrACL, Name: "ACL", DisplayName: "ACL", Type: "list[struct]", Readable: true, Writable: true},
+			{ID: AttrExtension, Name: "Extension", DisplayName: "Extension", Type: "list[struct]", Readable: true, Writable: true, Optional: true},
+			{ID: AttrSubjectsPerEntry, Name: "SubjectsPerAccessControlEntry", DisplayName: "SubjectsPerAccessControlEntry", Type: "uint16", Readable: true},
+			{ID: AttrTargetsPerEntry, Name: "TargetsPerAccessControlEntry", DisplayName: "TargetsPerAccessControlEntry", Type: "uint16", Readable: true},
+			{ID: AttrEntriesPerFabric, Name: "AccessControlEntriesPerFabric", DisplayName: "AccessControlEntriesPerFabric", Type: "uint16", Readable: true},
 		},
 	})
 }

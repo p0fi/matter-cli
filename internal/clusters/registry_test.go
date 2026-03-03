@@ -10,15 +10,15 @@ import (
 func newTestCluster() ClusterInfo {
 	return ClusterInfo{
 		ID:          0x0006,
-		Name:        "on-off",
+		Name:        "OnOff",
 		DisplayName: "On/Off",
 		Attributes: []AttributeInfo{
-			{ID: 0, Name: "on-off", DisplayName: "OnOff", Type: "bool", Readable: true},
+			{ID: 0, Name: "OnOff", DisplayName: "OnOff", Type: "bool", Readable: true},
 		},
 		Commands: []CommandInfo{
-			{ID: 0, Name: "off", DisplayName: "Off"},
-			{ID: 1, Name: "on", DisplayName: "On"},
-			{ID: 2, Name: "toggle", DisplayName: "Toggle"},
+			{ID: 0, Name: "Off", DisplayName: "Off"},
+			{ID: 1, Name: "On", DisplayName: "On"},
+			{ID: 2, Name: "Toggle", DisplayName: "Toggle"},
 		},
 	}
 }
@@ -63,10 +63,10 @@ func TestClusterByName(t *testing.T) {
 		query string
 		found bool
 	}{
-		{"exact", "on-off", true},
-		{"upper", "ON-OFF", true},
-		{"mixed", "On-Off", true},
-		{"missing", "level-control", false},
+		{"exact", "OnOff", true},
+		{"upper", "ONOFF", true},
+		{"mixed", "onoff", true},
+		{"missing", "LevelControl", false},
 	}
 
 	for _, tt := range tests {
@@ -115,10 +115,10 @@ func TestAttributeByName(t *testing.T) {
 		attrName  string
 		found     bool
 	}{
-		{"exact", 0x0006, "on-off", true},
-		{"case-insensitive", 0x0006, "ON-OFF", true},
+		{"exact", 0x0006, "OnOff", true},
+		{"case-insensitive", 0x0006, "onoff", true},
 		{"missing-attr", 0x0006, "brightness", false},
-		{"missing-cluster", 0x9999, "on-off", false},
+		{"missing-cluster", 0x9999, "OnOff", false},
 	}
 
 	for _, tt := range tests {
@@ -141,11 +141,11 @@ func TestCommandByName(t *testing.T) {
 		cmdName   string
 		found     bool
 	}{
-		{"exact", 0x0006, "on", true},
-		{"case-insensitive", 0x0006, "ON", true},
-		{"toggle", 0x0006, "toggle", true},
+		{"exact", 0x0006, "On", true},
+		{"case-insensitive", 0x0006, "on", true},
+		{"toggle", 0x0006, "Toggle", true},
 		{"missing-cmd", 0x0006, "dimmer", false},
-		{"missing-cluster", 0x9999, "on", false},
+		{"missing-cluster", 0x9999, "On", false},
 	}
 
 	for _, tt := range tests {
@@ -163,7 +163,7 @@ func TestSearchClusters(t *testing.T) {
 	r.Register(newTestCluster())
 	r.Register(ClusterInfo{
 		ID:          0x0008,
-		Name:        "level-control",
+		Name:        "LevelControl",
 		DisplayName: "Level Control",
 	})
 
@@ -172,9 +172,9 @@ func TestSearchClusters(t *testing.T) {
 		query string
 		count int
 	}{
-		{"matches-both", "on", 2},       // "on-off" and "level-control" both contain "on"
+		{"matches-both", "Control", 1}, // "LevelControl" Name and "Level Control" DisplayName both match, but it's the same cluster
 		{"exact-match", "level", 1},
-		{"display-name", "Control", 1},
+		{"display-name", "On/Off", 1},
 		{"no-match", "thermostat", 0},
 	}
 
@@ -198,9 +198,10 @@ func TestSearchAttributes(t *testing.T) {
 		query     string
 		count     int
 	}{
-		{"found", 0x0006, "on", 1},
+		{"found", 0x0006, "OnOff", 1},
+		{"global-attr", 0x0006, "FeatureMap", 1},
 		{"no-match", 0x0006, "brightness", 0},
-		{"missing-cluster", 0x9999, "on", 0},
+		{"missing-cluster", 0x9999, "OnOff", 0},
 	}
 
 	for _, tt := range tests {

@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for Network Commissioning.
 	ID uint32 = 0x0031
 	// Name is the CLI-friendly cluster name.
-	Name = "network-commissioning"
+	Name = "NetworkCommissioning"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "Network Commissioning"
 )
@@ -91,22 +91,22 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrMaxNetworks, Name: "max-networks", DisplayName: "MaxNetworks", Type: "uint8", Readable: true},
-			{ID: AttrNetworks, Name: "networks", DisplayName: "Networks", Type: "list[struct]", Readable: true},
-			{ID: AttrScanMaxTimeSeconds, Name: "scan-max-time-seconds", DisplayName: "ScanMaxTimeSeconds", Type: "uint8", Readable: true},
-			{ID: AttrConnectMaxTimeSeconds, Name: "connect-max-time-seconds", DisplayName: "ConnectMaxTimeSeconds", Type: "uint8", Readable: true},
-			{ID: AttrInterfaceEnabled, Name: "interface-enabled", DisplayName: "InterfaceEnabled", Type: "bool", Readable: true, Writable: true},
-			{ID: AttrLastNetworkingStatus, Name: "last-networking-status", DisplayName: "LastNetworkingStatus", Type: "enum8", Readable: true, Nullable: true},
-			{ID: AttrLastNetworkID, Name: "last-network-id", DisplayName: "LastNetworkID", Type: "octets", Readable: true, Nullable: true},
-			{ID: AttrLastConnectErrorValue, Name: "last-connect-error-value", DisplayName: "LastConnectErrorValue", Type: "int32", Readable: true, Nullable: true},
+			{ID: AttrMaxNetworks, Name: "MaxNetworks", DisplayName: "MaxNetworks", Type: "uint8", Readable: true},
+			{ID: AttrNetworks, Name: "Networks", DisplayName: "Networks", Type: "list[struct]", Readable: true},
+			{ID: AttrScanMaxTimeSeconds, Name: "ScanMaxTimeSeconds", DisplayName: "ScanMaxTimeSeconds", Type: "uint8", Readable: true},
+			{ID: AttrConnectMaxTimeSeconds, Name: "ConnectMaxTimeSeconds", DisplayName: "ConnectMaxTimeSeconds", Type: "uint8", Readable: true},
+			{ID: AttrInterfaceEnabled, Name: "InterfaceEnabled", DisplayName: "InterfaceEnabled", Type: "bool", Readable: true, Writable: true},
+			{ID: AttrLastNetworkingStatus, Name: "LastNetworkingStatus", DisplayName: "LastNetworkingStatus", Type: "enum8", Readable: true, Nullable: true},
+			{ID: AttrLastNetworkID, Name: "LastNetworkID", DisplayName: "LastNetworkID", Type: "octets", Readable: true, Nullable: true},
+			{ID: AttrLastConnectErrorValue, Name: "LastConnectErrorValue", DisplayName: "LastConnectErrorValue", Type: "int32", Readable: true, Nullable: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdScanNetworks, Name: "scan-networks", DisplayName: "ScanNetworks", HasRequest: true, HasResponse: true},
-			{ID: CmdAddOrUpdateWiFiNetwork, Name: "add-or-update-wifi-network", DisplayName: "AddOrUpdateWiFiNetwork", HasRequest: true, HasResponse: true},
-			{ID: CmdAddOrUpdateThreadNetwork, Name: "add-or-update-thread-network", DisplayName: "AddOrUpdateThreadNetwork", HasRequest: true, HasResponse: true},
-			{ID: CmdRemoveNetwork, Name: "remove-network", DisplayName: "RemoveNetwork", HasRequest: true, HasResponse: true},
-			{ID: CmdConnectNetwork, Name: "connect-network", DisplayName: "ConnectNetwork", HasRequest: true, HasResponse: true},
-			{ID: CmdReorderNetwork, Name: "reorder-network", DisplayName: "ReorderNetwork", HasRequest: true, HasResponse: true},
+			{ID: CmdScanNetworks, Name: "ScanNetworks", DisplayName: "ScanNetworks", HasRequest: true, HasResponse: true},
+			{ID: CmdAddOrUpdateWiFiNetwork, Name: "AddOrUpdateWiFiNetwork", DisplayName: "AddOrUpdateWiFiNetwork", HasRequest: true, HasResponse: true},
+			{ID: CmdAddOrUpdateThreadNetwork, Name: "AddOrUpdateThreadNetwork", DisplayName: "AddOrUpdateThreadNetwork", HasRequest: true, HasResponse: true},
+			{ID: CmdRemoveNetwork, Name: "RemoveNetwork", DisplayName: "RemoveNetwork", HasRequest: true, HasResponse: true},
+			{ID: CmdConnectNetwork, Name: "ConnectNetwork", DisplayName: "ConnectNetwork", HasRequest: true, HasResponse: true},
+			{ID: CmdReorderNetwork, Name: "ReorderNetwork", DisplayName: "ReorderNetwork", HasRequest: true, HasResponse: true},
 		},
 	})
 }

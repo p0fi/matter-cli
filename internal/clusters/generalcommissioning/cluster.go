@@ -10,7 +10,7 @@ const (
 	// ID is the Matter cluster ID for General Commissioning.
 	ID uint32 = 0x0030
 	// Name is the CLI-friendly cluster name.
-	Name = "general-commissioning"
+	Name = "GeneralCommissioning"
 	// DisplayName is the human-friendly cluster name.
 	DisplayName = "General Commissioning"
 )
@@ -71,16 +71,16 @@ func init() {
 		Name:        Name,
 		DisplayName: DisplayName,
 		Attributes: []clusters.AttributeInfo{
-			{ID: AttrBreadcrumb, Name: "breadcrumb", DisplayName: "Breadcrumb", Type: "uint64", Readable: true, Writable: true},
-			{ID: AttrBasicCommissioningInfo, Name: "basic-commissioning-info", DisplayName: "BasicCommissioningInfo", Type: "struct", Readable: true},
-			{ID: AttrRegulatoryConfig, Name: "regulatory-config", DisplayName: "RegulatoryConfig", Type: "enum8", Readable: true},
-			{ID: AttrLocationCapability, Name: "location-capability", DisplayName: "LocationCapability", Type: "enum8", Readable: true},
-			{ID: AttrSupportsConcurrentConn, Name: "supports-concurrent-connection", DisplayName: "SupportsConcurrentConnection", Type: "bool", Readable: true},
+			{ID: AttrBreadcrumb, Name: "Breadcrumb", DisplayName: "Breadcrumb", Type: "uint64", Readable: true, Writable: true},
+			{ID: AttrBasicCommissioningInfo, Name: "BasicCommissioningInfo", DisplayName: "BasicCommissioningInfo", Type: "struct", Readable: true},
+			{ID: AttrRegulatoryConfig, Name: "RegulatoryConfig", DisplayName: "RegulatoryConfig", Type: "enum8", Readable: true},
+			{ID: AttrLocationCapability, Name: "LocationCapability", DisplayName: "LocationCapability", Type: "enum8", Readable: true},
+			{ID: AttrSupportsConcurrentConn, Name: "SupportsConcurrentConnection", DisplayName: "SupportsConcurrentConnection", Type: "bool", Readable: true},
 		},
 		Commands: []clusters.CommandInfo{
-			{ID: CmdArmFailSafe, Name: "arm-fail-safe", DisplayName: "ArmFailSafe", HasRequest: true, HasResponse: true},
-			{ID: CmdSetRegulatoryConfig, Name: "set-regulatory-config", DisplayName: "SetRegulatoryConfig", HasRequest: true, HasResponse: true},
-			{ID: CmdCommissioningComplete, Name: "commissioning-complete", DisplayName: "CommissioningComplete", HasResponse: true},
+			{ID: CmdArmFailSafe, Name: "ArmFailSafe", DisplayName: "ArmFailSafe", HasRequest: true, HasResponse: true},
+			{ID: CmdSetRegulatoryConfig, Name: "SetRegulatoryConfig", DisplayName: "SetRegulatoryConfig", HasRequest: true, HasResponse: true},
+			{ID: CmdCommissioningComplete, Name: "CommissioningComplete", DisplayName: "CommissioningComplete", HasResponse: true},
 		},
 	})
 }

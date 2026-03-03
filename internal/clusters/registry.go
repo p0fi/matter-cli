@@ -12,6 +12,18 @@ import (
 // themselves here via init() functions.
 var Global = NewRegistry()
 
+// GlobalAttributes are the standard Matter global attributes present on every
+// cluster (spec section 7.13 "Global Attributes"). They are automatically
+// appended to each cluster's Attributes list during Register().
+var GlobalAttributes = []AttributeInfo{
+	{ID: 0xFFF8, Name: "GeneratedCommandList", DisplayName: "GeneratedCommandList", Type: "list", Readable: true},
+	{ID: 0xFFF9, Name: "AcceptedCommandList", DisplayName: "AcceptedCommandList", Type: "list", Readable: true},
+	{ID: 0xFFFA, Name: "EventList", DisplayName: "EventList", Type: "list", Readable: true},
+	{ID: 0xFFFB, Name: "AttributeList", DisplayName: "AttributeList", Type: "list", Readable: true},
+	{ID: 0xFFFC, Name: "FeatureMap", DisplayName: "FeatureMap", Type: "bitmap32", Readable: true},
+	{ID: 0xFFFD, Name: "ClusterRevision", DisplayName: "ClusterRevision", Type: "uint16", Readable: true},
+}
+
 // Registry holds known Matter cluster definitions and provides lookup and
 // search operations for CLI auto-complete and validation.
 type Registry struct {
@@ -45,6 +57,9 @@ func (r *Registry) Register(info ClusterInfo) {
 			}
 		}
 	}
+
+	// Append standard global attributes so they are available for read/subscribe.
+	info.Attributes = append(info.Attributes, GlobalAttributes...)
 
 	r.byID[info.ID] = info
 	r.byName[strings.ToLower(info.Name)] = info
