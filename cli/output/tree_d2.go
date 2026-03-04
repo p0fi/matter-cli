@@ -33,8 +33,10 @@ func RenderTreeSVG(data *TreeData, filename string) error {
 	}
 
 	pad := int64(d2svg.DEFAULT_PADDING)
+	themeID := int64(1) // Neutral theme
 	renderOpts := &d2svg.RenderOpts{
-		Pad: &pad,
+		Pad:     &pad,
+		ThemeID: &themeID,
 	}
 
 	compileOpts := &d2lib.CompileOptions{
@@ -56,6 +58,64 @@ func RenderTreeSVG(data *TreeData, filename string) error {
 	return os.WriteFile(filename, out, 0644)
 }
 
+// utilityClusterIDs contains cluster IDs that are infrastructure/utility
+// clusters (present on most endpoints) rather than application-specific.
+var utilityClusterIDs = map[uint32]bool{
+	0x001D: true, // Descriptor
+	0x001E: true, // Binding
+	0x001F: true, // AccessControl
+	0x0028: true, // BasicInformation
+	0x0030: true, // GeneralCommissioning
+	0x0031: true, // NetworkCommissioning
+	0x0033: true, // GeneralDiagnostics
+	0x0034: true, // SoftwareDiagnostics
+	0x0035: true, // ThreadNetworkDiagnostics
+	0x0036: true, // WiFiNetworkDiagnostics
+	0x0037: true, // EthernetNetworkDiagnostics
+	0x003C: true, // AdministratorCommissioning
+	0x003E: true, // OperationalCredentials
+	0x003F: true, // GroupKeyManagement
+	0x0040: true, // FixedLabel
+	0x0041: true, // UserLabel
+}
+
+// epCategoryColor returns a hex fill color for an endpoint based on its
+// primary device type, giving a subtle visual cue about its role.
+func epCategoryColor(ep TreeEndpoint) string {
+	if len(ep.DeviceTypes) == 0 {
+		return "#F0F0F0"
+	}
+	dtID := ep.DeviceTypes[0].ID
+	switch {
+	case dtID == 0x0016: // Root Node
+		return "#E8EAF6" // light indigo
+	case dtID >= 0x0100 && dtID <= 0x0105: // Lighting & plugs
+		return "#FFF8E1" // light amber
+	case dtID >= 0x010A && dtID <= 0x010D, dtID == 0x0840, dtID == 0x0050: // Switches & controls
+		return "#E8F5E9" // light green
+	case dtID == 0x0202 || dtID == 0x0203: // Window coverings
+		return "#E3F2FD" // light blue
+	case dtID >= 0x0300 && dtID <= 0x0307, dtID == 0x002B: // HVAC, fans, sensors
+		return "#FFF3E0" // light orange
+	case dtID == 0x000A || dtID == 0x000B: // Door lock
+		return "#FCE4EC" // light pink
+	default:
+		return "#F5F5F5" // light grey
+	}
+}
+
+// clusterSideTag returns a short side indicator for cluster labels.
+func clusterSideTag(side string) string {
+	switch side {
+	case "server":
+		return " [S]"
+	case "client":
+		return " [C]"
+	default:
+		return ""
+	}
+}
+
 // buildD2Script generates a D2 script from TreeData. The node is an outer
 // container holding endpoint containers. Each endpoint uses a 2-column grid
 // for its clusters.
@@ -73,6 +133,8 @@ func buildD2Script(data *TreeData) string {
 
 	fmt.Fprintf(&sb, "%s: %q {\n", d2SafeKey(name), nodeLabel)
 	fmt.Fprintf(&sb, "    grid-columns: 2\n")
+	fmt.Fprintf(&sb, "    style.stroke-width: 3\n")
+	fmt.Fprintf(&sb, "    style.fill: %q\n", "#FAFAFA")
 
 	// Endpoints nested inside the node container.
 	for _, ep := range data.Endpoints {
@@ -84,10 +146,13 @@ func buildD2Script(data *TreeData) string {
 			}
 		}
 
+		epFill := epCategoryColor(ep)
+
 		if data.Level >= 2 && len(ep.Clusters) > 0 {
 			// Endpoint container with 2-column cluster grid.
 			fmt.Fprintf(&sb, "  %s: %q {\n", epKey, epLabel)
 			fmt.Fprintf(&sb, "    grid-columns: 2\n")
+			fmt.Fprintf(&sb, "    style.fill: %q\n", epFill)
 			for _, cl := range ep.Clusters {
 				clKey := fmt.Sprintf("cl%04x", cl.ID)
 				clName := cl.Name
@@ -95,10 +160,15 @@ func buildD2Script(data *TreeData) string {
 					clName = fmt.Sprintf("0x%04X", cl.ID)
 				}
 
+				sideTag := clusterSideTag(cl.Side)
+
 				if data.Level >= 3 && len(cl.Attrs) > 0 {
 					// Cluster with attribute list using class shape.
-					fmt.Fprintf(&sb, "    %s: %q {\n", clKey, fmt.Sprintf("%s (0x%04X)", clName, cl.ID))
+					fmt.Fprintf(&sb, "    %s: %q {\n", clKey, fmt.Sprintf("%s (0x%04X)%s", clName, cl.ID, sideTag))
 					fmt.Fprintf(&sb, "      shape: class\n")
+					if utilityClusterIDs[cl.ID] {
+						fmt.Fprintf(&sb, "      style.opacity: 0.7\n")
+					}
 					for _, attr := range cl.Attrs {
 						attrKey := d2SafeKey(attr.Name)
 						switch {
@@ -114,17 +184,24 @@ func buildD2Script(data *TreeData) string {
 				} else {
 					label := clName
 					if cl.Name != "" {
-						label = fmt.Sprintf("%s (0x%04X)", clName, cl.ID)
+						label = fmt.Sprintf("%s (0x%04X)%s", clName, cl.ID, sideTag)
 					}
 					if cl.ListErr != "" {
 						label += " " + cl.ListErr
 					}
-					fmt.Fprintf(&sb, "    %s: %q\n", clKey, label)
+					fmt.Fprintf(&sb, "    %s: %q", clKey, label)
+					if utilityClusterIDs[cl.ID] {
+						fmt.Fprintf(&sb, " {\n      style.opacity: 0.7\n    }\n")
+					} else {
+						fmt.Fprintf(&sb, "\n")
+					}
 				}
 			}
 			fmt.Fprintf(&sb, "  }\n")
 		} else {
-			fmt.Fprintf(&sb, "  %s: %q\n", epKey, epLabel)
+			fmt.Fprintf(&sb, "  %s: %q {\n", epKey, epLabel)
+			fmt.Fprintf(&sb, "    style.fill: %q\n", epFill)
+			fmt.Fprintf(&sb, "  }\n")
 		}
 	}
 

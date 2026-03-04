@@ -8,6 +8,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -79,10 +82,19 @@ func newTreeCmd() *cobra.Command {
 
 			outFile, _ := cmd.Flags().GetString("out")
 			if outFile != "" {
+				stepper := output.NewStepper(w, verbose)
 				if err := output.RenderTreeSVG(data, outFile); err != nil {
+					stepper.Fail(fmt.Sprintf("Failed to render SVG: %v", err))
 					return err
 				}
-				fmt.Fprintf(w, "Tree rendered to %s\n", outFile)
+				stepper.Success(fmt.Sprintf("Tree rendered to %s", output.Value(outFile)))
+
+				openFlag, _ := cmd.Flags().GetBool("open")
+				if openFlag {
+					if err := openFile(outFile); err != nil {
+						stepper.Fail(fmt.Sprintf("Could not open file: %v", err))
+					}
+				}
 				return nil
 			}
 
@@ -91,7 +103,26 @@ func newTreeCmd() *cobra.Command {
 	}
 	cmd.Flags().IntP("level", "L", 2, "tree depth: 1=endpoints, 2=+clusters, 3=+attribute names, 4=+values")
 	cmd.Flags().String("out", "", "render tree as SVG to file")
+	cmd.Flags().Bool("open", false, "open the SVG file after rendering (requires --out)")
 	return cmd
+}
+
+// openFile opens a file with the OS default application.
+func openFile(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", abs)
+	case "linux":
+		cmd = exec.Command("xdg-open", abs)
+	default:
+		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
+	}
+	return cmd.Run()
 }
 
 // buildTreeData collects all tree data up to the requested depth level and
@@ -128,6 +159,7 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 			te.Clusters = append(te.Clusters, output.TreeCluster{
 				ID:   cl.ID,
 				Name: name,
+				Side: cl.Side,
 			})
 		}
 		data.Endpoints = append(data.Endpoints, te)
