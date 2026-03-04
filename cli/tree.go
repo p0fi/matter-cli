@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -108,14 +109,20 @@ func newTreeCmd() *cobra.Command {
 
 // openFile opens a file with the OS default application.
 func openFile(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", path).Start()
+		cmd = exec.Command("open", abs)
 	case "linux":
-		return exec.Command("xdg-open", path).Start()
+		cmd = exec.Command("xdg-open", abs)
 	default:
 		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
 	}
+	return cmd.Run()
 }
 
 // buildTreeData collects all tree data up to the requested depth level and
