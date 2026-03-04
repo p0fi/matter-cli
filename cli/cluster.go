@@ -1182,6 +1182,9 @@ func registerShorthandClusters() {
 			Short: fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
 			Args:  cobra.ExactArgs(1),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				if len(args) >= 1 {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
 				results := clusters.Global.SearchAttributes(clCopy.ID, toComplete)
 				names := make([]string, len(results))
 				for i, a := range results {
