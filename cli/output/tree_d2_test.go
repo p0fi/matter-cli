@@ -145,6 +145,85 @@ func TestBuildD2Script_UnknownCluster(t *testing.T) {
 	assert.Contains(t, script, `"0x9999"`)
 }
 
+func TestBuildD2Script_NodeStyling(t *testing.T) {
+	data := &TreeData{
+		NodeID:   1,
+		NodeName: "Test",
+		Level:    1,
+		Endpoints: []TreeEndpoint{
+			{ID: 0, DeviceTypes: []store.DeviceType{{ID: 0x0016}}},
+		},
+	}
+
+	script := buildD2Script(data)
+
+	assert.Contains(t, script, "style.stroke-width: 3")
+	assert.Contains(t, script, `style.fill: "#FAFAFA"`)
+}
+
+func TestBuildD2Script_EndpointColors(t *testing.T) {
+	data := &TreeData{
+		NodeID:   1,
+		NodeName: "Test",
+		Level:    1,
+		Endpoints: []TreeEndpoint{
+			{ID: 0, DeviceTypes: []store.DeviceType{{ID: 0x0016}}}, // Root Node → indigo
+			{ID: 1, DeviceTypes: []store.DeviceType{{ID: 0x0100}}}, // On/Off Light → amber
+		},
+	}
+
+	script := buildD2Script(data)
+
+	assert.Contains(t, script, `"#E8EAF6"`) // Root Node color
+	assert.Contains(t, script, `"#FFF8E1"`) // Lighting color
+}
+
+func TestBuildD2Script_ClusterSideTag(t *testing.T) {
+	data := &TreeData{
+		NodeID:   1,
+		NodeName: "Test",
+		Level:    2,
+		Endpoints: []TreeEndpoint{
+			{
+				ID: 0,
+				Clusters: []TreeCluster{
+					{ID: 0x0006, Name: "OnOff", Side: "server"},
+					{ID: 0x0008, Name: "LevelControl", Side: "client"},
+				},
+			},
+		},
+	}
+
+	script := buildD2Script(data)
+
+	assert.Contains(t, script, "OnOff (0x0006) [S]")
+	assert.Contains(t, script, "LevelControl (0x0008) [C]")
+}
+
+func TestBuildD2Script_UtilityClusterOpacity(t *testing.T) {
+	data := &TreeData{
+		NodeID:   1,
+		NodeName: "Test",
+		Level:    2,
+		Endpoints: []TreeEndpoint{
+			{
+				ID: 0,
+				Clusters: []TreeCluster{
+					{ID: 0x001D, Name: "Descriptor"},  // utility
+					{ID: 0x0006, Name: "OnOff"},        // application
+				},
+			},
+		},
+	}
+
+	script := buildD2Script(data)
+
+	// Descriptor should have opacity styling
+	assert.Contains(t, script, "style.opacity: 0.7")
+	// Count occurrences - only utility cluster should have it
+	assert.Equal(t, 1, strings.Count(script, "style.opacity"))
+}
+
 func TestD2SafeKey(t *testing.T) {
 	assert.Equal(t, "OnOff", d2SafeKey("OnOff"))
 	assert.Equal(t, "ClusterRevision", d2SafeKey("ClusterRevision"))
