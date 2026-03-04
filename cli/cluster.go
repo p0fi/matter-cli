@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -231,6 +232,58 @@ func formatAttrValue(raw []byte, attrType string) string {
 	return fmt.Sprintf("%d (0b%b)", n, n)
 }
 
+// displayReadValue formats and prints an attribute read result. For FeatureMap
+// attributes on clusters with known features, it appends a detailed breakdown
+// showing which feature flags are enabled and which are not.
+func displayReadValue(cmd *cobra.Command, stepper *output.Stepper, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo, data []byte) {
+	if attr.ID == 0xFFFC && len(cl.Features) > 0 {
+		if n, ok := decodeTLVUint(data); ok {
+			stepper.Success(fmt.Sprintf("%s/%s = %s",
+				output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
+				output.Success(fmt.Sprintf("%d (0b%b)", n, n))))
+			printFeatureMap(cmd.OutOrStdout(), cl.Features, uint32(n))
+			return
+		}
+	}
+	value := formatAttrValue(data, attr.Type)
+	stepper.Success(fmt.Sprintf("%s/%s = %s",
+		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
+		output.Success(value)))
+}
+
+// decodeTLVUint decodes a single unsigned integer from raw TLV bytes.
+func decodeTLVUint(raw []byte) (uint64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	r := tlv.NewReader(bytes.NewReader(raw))
+	if err := r.Next(); err != nil {
+		return 0, false
+	}
+	if v, ok := r.Value().(uint64); ok {
+		return v, true
+	}
+	return 0, false
+}
+
+// printFeatureMap writes a list of feature flags showing which are enabled
+// and which are disabled based on the bitmap value.
+func printFeatureMap(w io.Writer, features []clusters.FeatureInfo, value uint32) {
+	fmt.Fprintf(w, "\n  %s\n", output.Bold("Feature Flags"))
+	for _, f := range features {
+		enabled := value&(1<<f.Bit) != 0
+		if enabled {
+			fmt.Fprintf(w, "    %s %s %s\n",
+				output.Success("✓"), f.Name,
+				output.Muted("("+f.Code+")"))
+		} else {
+			fmt.Fprintf(w, "    %s %s %s\n",
+				output.Muted("✗"), output.Muted(f.Name),
+				output.Muted("("+f.Code+")"))
+		}
+	}
+}
+
 // decodeTLVValue reads a single TLV element from raw bytes and returns a
 // human-readable string representation of the value.
 func decodeTLVValue(raw []byte) string {
@@ -424,10 +477,7 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			}
 			data, _ := daemon.DecodeFields(r.Data)
 			if len(data) > 0 {
-				value := formatAttrValue(data, attr.Type)
-				stepper.Success(fmt.Sprintf("%s/%s = %s",
-					output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-					output.Success(value)))
+				displayReadValue(cmd, stepper, cl, attr, data)
 				return nil
 			}
 		}
@@ -459,10 +509,7 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			return fmt.Errorf("read error: status 0x%02X", r.Status.Status.Status)
 		}
 		if r.Data != nil {
-			value := formatAttrValue(r.Data.Data, attr.Type)
-			stepper.Success(fmt.Sprintf("%s/%s = %s",
-				output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-				output.Success(value)))
+			displayReadValue(cmd, stepper, cl, attr, r.Data.Data)
 			return nil
 		}
 	}
