@@ -11,28 +11,22 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	// bleWriteRetryInitialBackoff is the initial delay before retrying a
-	// C1 Write Without Response that was deferred because
-	// canSendWriteWithoutResponse was false.
-	bleWriteRetryInitialBackoff = 5 * time.Millisecond
-
-	// bleWriteRetryMaxBackoff caps the exponential backoff between retries.
-	bleWriteRetryMaxBackoff = 200 * time.Millisecond
-
-	// bleWriteRetryMaxAttempts is the number of Write Without Response
-	// attempts before falling back to Write With Response.
-	bleWriteRetryMaxAttempts = 50
-
 	// bleAckTickInterval is how often we check whether a standalone BTP
 	// ACK needs to be sent.  This must be shorter than btpAckTimeout so
 	// the ACK is dispatched before the peer times out.
 	bleAckTickInterval = 500 * time.Millisecond
+
+	// bleDataPollInterval is how often we poll C2 cached values on Darwin
+	// after the handshake. This bypasses tinygo callback dropouts for some
+	// indications (notably large attestation responses).
+	bleDataPollInterval = 5 * time.Millisecond
 )
 
 // BLEConn implements transport.Conn over a BLE GATT connection using the BTP
@@ -188,6 +182,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	// the notification callback feeds BTP data segments directly to
 	// btp.handleSegment instead of ignoring them.
 	var dataMode atomic.Bool
+	useC2PollData := runtime.GOOS == "darwin"
 
 	// Register the notification callback — the sole delivery path for all
 	// incoming C2 data. During the handshake it forwards BTP capabilities
@@ -202,7 +197,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 			}
 			return
 		}
-		if dataMode.Load() {
+		if dataMode.Load() && !useC2PollData {
 			if err := btp.handleSegment(data); err != nil {
 				slog.Debug("ble: BTP segment error", "err", err)
 			}
@@ -347,6 +342,9 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	// out.  This goroutine periodically checks for a pending ACK and
 	// writes it to C1.
 	conn.startAckTimer()
+	if useC2PollData {
+		conn.startC2DataPoller()
+	}
 
 	return conn, nil
 }
@@ -400,6 +398,8 @@ func (c *BLEConn) Send(ctx context.Context, msg []byte, _ net.Addr) error {
 		if err := c.btp.waitCanSend(ctx); err != nil {
 			return fmt.Errorf("ble: flow control: %w", err)
 		}
+		slog.Debug("ble: BTP TX segment", "seg", fmt.Sprintf("%d/%d", i+1, len(segments)),
+			"len", len(seg), "hex", hex.EncodeToString(seg))
 		if err := c.writeSegmentC1(ctx, seg, i, len(segments)); err != nil {
 			return err
 		}
@@ -408,63 +408,32 @@ func (c *BLEConn) Send(ctx context.Context, msg []byte, _ net.Addr) error {
 	return nil
 }
 
-// writeSegmentC1 writes a single BTP segment to C1, retrying with
-// exponential backoff when the peripheral reports that
-// canSendWriteWithoutResponse is false (Write returns -2, nil).
+// writeSegmentC1 writes a single BTP segment to C1 using a GATT Write
+// Request (WriteWithResponse / ATT_WRITE_REQ).
 //
-// After bleWriteRetryMaxAttempts failed attempts it falls back to
-// WriteWithResponse, which blocks in CoreBluetooth until the ATT-level
-// response arrives but is guaranteed to deliver the data.
+// Write Without Response (ATT_WRITE_CMD) has no ATT-level delivery guarantee
+// and can be silently dropped by the BLE stack — particularly on macOS where
+// CoreBluetooth may report canSendWriteWithoutResponse=true yet still fail
+// to deliver the data to the peripheral. This causes the device to never
+// receive the segment and never respond, leading to a 30-second timeout at
+// the Interaction Model layer.
+//
+// Write With Response (ATT_WRITE_REQ) provides ATT-level acknowledgment:
+// CoreBluetooth will retry at the link layer until the peripheral's GATT
+// server acknowledges receipt. This is reliable and matches the Matter spec
+// §4.17.3.2 which specifies the "Write" GATT property (ATT_WRITE_REQ) for
+// the C1 characteristic.
 func (c *BLEConn) writeSegmentC1(ctx context.Context, seg []byte, segIdx, segTotal int) error {
-	backoff := bleWriteRetryInitialBackoff
-
-	for attempt := 1; attempt <= bleWriteRetryMaxAttempts; attempt++ {
-		select {
-		case <-c.closed:
-			return fmt.Errorf("ble: %w", ErrConnClosed)
-		case <-ctx.Done():
-			return fmt.Errorf("ble: writing segment to C1: %w", ctx.Err())
-		default:
-		}
-
-		n, err := c.c1.Write(seg)
-		if err != nil {
-			return fmt.Errorf("ble: writing segment to C1: %w", err)
-		}
-		if n >= 0 {
-			// Success.
-			return nil
-		}
-
-		// n == -2: canSendWriteWithoutResponse is false. Wait and retry.
-		if attempt%10 == 0 {
-			slog.Debug("ble: C1 write still deferred, retrying",
-				"attempt", attempt,
-				"segment", fmt.Sprintf("%d/%d", segIdx+1, segTotal),
-				"backoff", backoff.String())
-		}
-
-		select {
-		case <-time.After(backoff):
-		case <-ctx.Done():
-			return fmt.Errorf("ble: writing segment to C1: %w", ctx.Err())
-		case <-c.closed:
-			return fmt.Errorf("ble: %w", ErrConnClosed)
-		}
-
-		// Exponential backoff, capped.
-		backoff = backoff * 2
-		if backoff > bleWriteRetryMaxBackoff {
-			backoff = bleWriteRetryMaxBackoff
-		}
+	select {
+	case <-c.closed:
+		return fmt.Errorf("ble: %w", ErrConnClosed)
+	case <-ctx.Done():
+		return fmt.Errorf("ble: writing segment to C1: %w", ctx.Err())
+	default:
 	}
 
-	// Exhausted Write Without Response retries — fall back to Write With
-	// Response. This is slower (waits for ATT-level ACK) but reliable.
-	slog.Debug("ble: C1 WriteWithoutResponse exhausted retries, falling back to WriteWithResponse",
-		"segment", fmt.Sprintf("%d/%d", segIdx+1, segTotal))
 	if _, err := c.c1.WriteWithResponse(seg); err != nil {
-		return fmt.Errorf("ble: writing segment to C1 (WriteWithResponse fallback): %w", err)
+		return fmt.Errorf("ble: writing segment to C1: %w", err)
 	}
 	return nil
 }
@@ -508,24 +477,45 @@ func (c *BLEConn) startAckTimer() {
 					continue
 				}
 				slog.Debug("ble: sending standalone BTP ack", "len", len(ack), "hex", hex.EncodeToString(ack))
-				n, err := c.c1.Write(ack)
+				_, err := c.c1.WriteWithResponse(ack)
 				if err != nil {
-					// Hard write error — rollback so the ACK is retried
+					// Write error — rollback so the ACK is retried
 					// on the next tick.
 					c.btp.rollbackStandaloneAck(ack[1])
 					slog.Debug("ble: failed to send standalone ack, rolled back", "err", err)
-				} else if n == -2 {
-					// canSendWriteWithoutResponse is false — the ACK was
-					// not delivered.  Rollback the seqNum increment and
-					// re-arm hasPendingAck so the next timer tick (or the
-					// next outgoing data segment) can retry.  Without
-					// rollback the consumed-but-never-sent seqNum creates
-					// a gap that makes the peer reject all subsequent
-					// segments.
-					c.btp.rollbackStandaloneAck(ack[1])
-					slog.Debug("ble: standalone ack deferred (canSend=false), rolled back for retry")
 				}
 				c.c1Mu.Unlock()
+			}
+		}
+	}()
+}
+
+// startC2DataPoller launches a polling fallback for C2 indications.
+// On Darwin, tinygo callback delivery can miss some indications; polling
+// the CoreBluetooth cached value path avoids lost responses.
+func (c *BLEConn) startC2DataPoller() {
+	if c.c2 == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(bleDataPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.closed:
+				return
+			case <-ticker.C:
+				data := c.c2.ReadAndClearCachedValue()
+				if len(data) == 0 {
+					continue
+				}
+				slog.Debug("ble: C2 data received (poll data path)", "len", len(data), "hex", hex.EncodeToString(data))
+				if isBTPCapabilitiesMessage(data) {
+					continue
+				}
+				if err := c.btp.handleSegment(data); err != nil {
+					slog.Debug("ble: BTP segment error", "err", err)
+				}
 			}
 		}
 	}()

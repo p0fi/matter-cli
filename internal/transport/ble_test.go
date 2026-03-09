@@ -7,6 +7,7 @@ package transport
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -182,6 +183,43 @@ func TestDialBLE_HandshakeTimeout(t *testing.T) {
 	_, err := DialBLE(ctx, adapter, "AA:BB:CC:DD:EE:FF")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "BTP handshake")
+}
+
+func TestDialBLE_DataPathPollFallback_Darwin(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin-only poll fallback test")
+	}
+
+	adapter, _, c2 := buildMockDeviceForDial()
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		c2.waitCh <- buildBTPHandshakeResponse()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := DialBLE(ctx, adapter, "AA:BB:CC:DD:EE:FF")
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	peerBTP := newBTPSession()
+	peerBTP.initHandshake(btpCurrentVersion, btpDefaultATTMTU, btpDefaultWindowSize)
+	want := []byte("attestation-response")
+	segs := peerBTP.segment(want)
+	require.Len(t, segs, 1)
+
+	// Simulate dropped notification callback: publish data only via cached-value
+	// path so the Darwin poll fallback must deliver it.
+	c2.waitCh <- segs[0]
+
+	recvCtx, recvCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer recvCancel()
+	got, _, err := conn.Receive(recvCtx)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 // ─── BLEConn.Send/Receive tests ──────────────────────────────────────────────

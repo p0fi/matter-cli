@@ -192,7 +192,7 @@ static int ble_chr_write_with_response(void *chr, void *data, int data_len) {
 // no value was available.
 static int ble_chr_read_and_clear(void *chr, void *buf, int buf_len) {
 	if (chr == NULL || bt_queue == NULL) return 0;
-	CBCharacteristic *racChr = (CBCharacteristic *)chr;
+	CBCharacteristic *racChr = ble_find_fresh_characteristic((CBCharacteristic *)chr);
 	__block int n = 0;
 	dispatch_sync(bt_queue, ^{
 		NSData *racVal = racChr.value;
