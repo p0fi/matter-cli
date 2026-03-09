@@ -104,8 +104,8 @@ func init() {
 		Commands: []clusters.CommandInfo{
 			{ID: CmdSetUTCTime, Name: "SetUTCTime", DisplayName: "SetUTCTime", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "UTCTime", DisplayName: "UTCTime", Type: "uint64"},
-				{ID: 1, Name: "Granularity", DisplayName: "Granularity", Type: "enum8"},
-				{ID: 2, Name: "TimeSource", DisplayName: "TimeSource", Type: "enum8", Optional: true},
+				{ID: 1, Name: "Granularity", DisplayName: "Granularity", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "NoTimeGranularity"}, {Value: 1, Name: "MinutesGranularity"}, {Value: 2, Name: "SecondsGranularity"}, {Value: 3, Name: "MillisecondsGranularity"}, {Value: 4, Name: "MicrosecondsGranularity"}}},
+				{ID: 2, Name: "TimeSource", DisplayName: "TimeSource", Type: "enum8", Optional: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "None"}, {Value: 1, Name: "Unknown"}, {Value: 2, Name: "Admin"}, {Value: 3, Name: "NodeTimeCluster"}, {Value: 4, Name: "NonMatterSNTP"}, {Value: 5, Name: "NonMatterNTP"}, {Value: 6, Name: "MatterSNTP"}, {Value: 7, Name: "MatterNTP"}, {Value: 8, Name: "MixedNTP"}, {Value: 9, Name: "NonMatterSNTPNTS"}, {Value: 10, Name: "NonMatterNTPNTS"}, {Value: 11, Name: "MatterSNTPNTS"}, {Value: 12, Name: "MatterNTPNTS"}, {Value: 13, Name: "MixedNTPNTS"}, {Value: 14, Name: "CloudSource"}, {Value: 15, Name: "PTP"}, {Value: 16, Name: "GNSS"}}},
 			}},
 			{ID: CmdSetTrustedTimeSource, Name: "SetTrustedTimeSource", DisplayName: "SetTrustedTimeSource", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "TrustedTimeSource", DisplayName: "TrustedTimeSource", Type: "struct", Nullable: true},

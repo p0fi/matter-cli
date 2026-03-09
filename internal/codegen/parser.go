@@ -172,15 +172,22 @@ type Command struct {
 	Fields      []CommandField
 }
 
+// EnumVal is a named value within an enum data type.
+type EnumVal struct {
+	Value uint16
+	Name  string
+}
+
 // CommandField is a parsed field inside a command request.
 type CommandField struct {
-	ID       uint8
-	Name     string // PascalCase
-	Type     string // matter type for registry
-	GoType   string // Go type for struct field
-	TLVKind  string // TLV tag kind: "uint", "int", "bool", "utf8", "bytes"
-	Optional bool
-	Nullable bool
+	ID         uint8
+	Name       string // PascalCase
+	Type       string // matter type for registry
+	GoType     string // Go type for struct field
+	TLVKind    string // TLV tag kind: "uint", "int", "bool", "utf8", "bytes"
+	Optional   bool
+	Nullable   bool
+	EnumValues []EnumVal // populated when the field references a named enum type
 }
 
 // ParseFile parses a single Alchemy cluster XML file and returns one or more Clusters
@@ -202,8 +209,13 @@ func Parse(data []byte) ([]Cluster, error) {
 
 	// Build data type lookup maps.
 	enumNames := make(map[string]bool, len(xc.DataTypes.Enums))
+	enumItems := make(map[string][]EnumVal, len(xc.DataTypes.Enums))
 	for _, e := range xc.DataTypes.Enums {
 		enumNames[e.Name] = true
+		for _, item := range e.Items {
+			v, _ := parseHexOrDec(item.Value)
+			enumItems[e.Name] = append(enumItems[e.Name], EnumVal{Value: uint16(v), Name: item.Name})
+		}
 	}
 	bitmapNames := make(map[string]bool, len(xc.DataTypes.Bitmaps))
 	for _, b := range xc.DataTypes.Bitmaps {
@@ -263,7 +275,7 @@ func Parse(data []byte) ([]Cluster, error) {
 				return nil, fmt.Errorf("command %s field %s ID: %w", xcmd.Name, xf.Name, err)
 			}
 			matterType := resolveType(xf.Type, enumNames, bitmapNames)
-			cmd.Fields = append(cmd.Fields, CommandField{
+			cf := CommandField{
 				ID:       uint8(fid),
 				Name:     xf.Name,
 				Type:     matterType,
@@ -271,7 +283,11 @@ func Parse(data []byte) ([]Cluster, error) {
 				TLVKind:  matterTypeToTLVKind(matterType),
 				Optional: xf.OptionalConform != nil,
 				Nullable: xf.Quality.Nullable == "true",
-			})
+			}
+			if vals, ok := enumItems[xf.Type]; ok {
+				cf.EnumValues = vals
+			}
+			cmd.Fields = append(cmd.Fields, cf)
 		}
 		cmds = append(cmds, cmd)
 	}

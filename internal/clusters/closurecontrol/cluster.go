@@ -78,7 +78,7 @@ func init() {
 		Commands: []clusters.CommandInfo{
 			{ID: CmdStop, Name: "Stop", DisplayName: "Stop"},
 			{ID: CmdMoveTo, Name: "MoveTo", DisplayName: "MoveTo", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "Position", DisplayName: "Position", Type: "enum8", Optional: true},
+				{ID: 0, Name: "Position", DisplayName: "Position", Type: "enum8", Optional: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "MoveToFullyClosed"}, {Value: 1, Name: "MoveToFullyOpen"}, {Value: 2, Name: "MoveToPedestrianPosition"}, {Value: 3, Name: "MoveToVentilationPosition"}, {Value: 4, Name: "MoveToSignaturePosition"}}},
 				{ID: 1, Name: "Latch", DisplayName: "Latch", Type: "bool", Optional: true},
 				{ID: 2, Name: "Speed", DisplayName: "Speed", Type: "enum8", Optional: true},
 			}},

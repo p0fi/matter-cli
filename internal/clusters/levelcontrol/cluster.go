@@ -122,13 +122,13 @@ func init() {
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdMove, Name: "Move", DisplayName: "Move", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Up"}, {Value: 1, Name: "Down"}}},
 				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint8", Nullable: true},
 				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdStep, Name: "Step", DisplayName: "Step", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Up"}, {Value: 1, Name: "Down"}}},
 				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint8"},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16", Nullable: true},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},

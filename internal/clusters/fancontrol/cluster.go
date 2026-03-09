@@ -81,7 +81,7 @@ func init() {
 		},
 		Commands: []clusters.CommandInfo{
 			{ID: CmdStep, Name: "Step", DisplayName: "Step", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "Direction", DisplayName: "Direction", Type: "enum8"},
+				{ID: 0, Name: "Direction", DisplayName: "Direction", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Increase"}, {Value: 1, Name: "Decrease"}}},
 				{ID: 1, Name: "Wrap", DisplayName: "Wrap", Type: "bool", Optional: true},
 				{ID: 2, Name: "LowestOff", DisplayName: "LowestOff", Type: "bool", Optional: true},
 			}},

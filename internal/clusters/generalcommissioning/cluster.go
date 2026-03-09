@@ -94,7 +94,7 @@ func init() {
 				{ID: 1, Name: "Breadcrumb", DisplayName: "Breadcrumb", Type: "uint64"},
 			}},
 			{ID: CmdSetRegulatoryConfig, Name: "SetRegulatoryConfig", DisplayName: "SetRegulatoryConfig", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "NewRegulatoryConfig", DisplayName: "NewRegulatoryConfig", Type: "enum8"},
+				{ID: 0, Name: "NewRegulatoryConfig", DisplayName: "NewRegulatoryConfig", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Indoor"}, {Value: 1, Name: "Outdoor"}, {Value: 2, Name: "IndoorOutdoor"}}},
 				{ID: 1, Name: "CountryCode", DisplayName: "CountryCode", Type: "string"},
 				{ID: 2, Name: "Breadcrumb", DisplayName: "Breadcrumb", Type: "uint64"},
 			}},

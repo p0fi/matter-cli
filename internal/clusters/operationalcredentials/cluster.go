@@ -115,7 +115,7 @@ func init() {
 				{ID: 0, Name: "AttestationNonce", DisplayName: "AttestationNonce", Type: "octets"},
 			}},
 			{ID: CmdCertificateChainRequest, Name: "CertificateChainRequest", DisplayName: "CertificateChainRequest", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "CertificateType", DisplayName: "CertificateType", Type: "enum8"},
+				{ID: 0, Name: "CertificateType", DisplayName: "CertificateType", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "DACCertificate"}, {Value: 2, Name: "PAICertificate"}}},
 			}},
 			{ID: CmdCSRRequest, Name: "CSRRequest", DisplayName: "CSRRequest", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "CSRNonce", DisplayName: "CSRNonce", Type: "octets"},

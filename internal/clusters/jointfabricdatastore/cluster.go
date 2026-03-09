@@ -222,7 +222,7 @@ func init() {
 				{ID: 2, Name: "GroupKeySetID", DisplayName: "GroupKeySetID", Type: "uint16", Nullable: true},
 				{ID: 3, Name: "GroupCAT", DisplayName: "GroupCAT", Type: "uint16", Nullable: true},
 				{ID: 4, Name: "GroupCATVersion", DisplayName: "GroupCATVersion", Type: "uint16", Nullable: true},
-				{ID: 5, Name: "GroupPermission", DisplayName: "GroupPermission", Type: "enum8"},
+				{ID: 5, Name: "GroupPermission", DisplayName: "GroupPermission", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "View"}, {Value: 2, Name: "ProxyView"}, {Value: 3, Name: "Operate"}, {Value: 4, Name: "Manage"}, {Value: 5, Name: "Administer"}}},
 			}},
 			{ID: CmdUpdateGroup, Name: "UpdateGroup", DisplayName: "UpdateGroup", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "GroupID", DisplayName: "GroupID", Type: "uint16"},
@@ -230,7 +230,7 @@ func init() {
 				{ID: 2, Name: "GroupKeySetID", DisplayName: "GroupKeySetID", Type: "uint16", Nullable: true},
 				{ID: 3, Name: "GroupCAT", DisplayName: "GroupCAT", Type: "uint16", Nullable: true},
 				{ID: 4, Name: "GroupCATVersion", DisplayName: "GroupCATVersion", Type: "uint16", Nullable: true},
-				{ID: 5, Name: "GroupPermission", DisplayName: "GroupPermission", Type: "enum8", Nullable: true},
+				{ID: 5, Name: "GroupPermission", DisplayName: "GroupPermission", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 1, Name: "View"}, {Value: 2, Name: "ProxyView"}, {Value: 3, Name: "Operate"}, {Value: 4, Name: "Manage"}, {Value: 5, Name: "Administer"}}},
 			}},
 			{ID: CmdRemoveGroup, Name: "RemoveGroup", DisplayName: "RemoveGroup", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "GroupID", DisplayName: "GroupID", Type: "uint16"},

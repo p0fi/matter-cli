@@ -98,7 +98,7 @@ func init() {
 				{ID: 2, Name: "Speed", DisplayName: "Speed", Type: "enum8", Optional: true},
 			}},
 			{ID: CmdStep, Name: "Step", DisplayName: "Step", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "Direction", DisplayName: "Direction", Type: "enum8"},
+				{ID: 0, Name: "Direction", DisplayName: "Direction", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Decrease"}, {Value: 1, Name: "Increase"}}},
 				{ID: 1, Name: "NumberOfSteps", DisplayName: "NumberOfSteps", Type: "uint16"},
 				{ID: 2, Name: "Speed", DisplayName: "Speed", Type: "enum8", Optional: true},
 			}},

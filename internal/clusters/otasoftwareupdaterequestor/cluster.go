@@ -51,7 +51,7 @@ func init() {
 			{ID: CmdAnnounceOTAProvider, Name: "AnnounceOTAProvider", DisplayName: "AnnounceOTAProvider", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "ProviderNodeID", DisplayName: "ProviderNodeID", Type: "uint64"},
 				{ID: 1, Name: "VendorID", DisplayName: "VendorID", Type: "uint16"},
-				{ID: 2, Name: "AnnouncementReason", DisplayName: "AnnouncementReason", Type: "enum8"},
+				{ID: 2, Name: "AnnouncementReason", DisplayName: "AnnouncementReason", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "SimpleAnnouncement"}, {Value: 1, Name: "UpdateAvailable"}, {Value: 2, Name: "UrgentUpdateAvailable"}}},
 				{ID: 3, Name: "MetadataForNode", DisplayName: "MetadataForNode", Type: "octets", Optional: true},
 				{ID: 4, Name: "Endpoint", DisplayName: "Endpoint", Type: "uint16"},
 			}},

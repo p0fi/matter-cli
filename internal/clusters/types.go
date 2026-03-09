@@ -41,14 +41,21 @@ type AttributeInfo struct {
 	Nullable    bool
 }
 
+// EnumValue describes a single named value in an enum type.
+type EnumValue struct {
+	Value uint16
+	Name  string
+}
+
 // CommandFieldInfo describes a single field within a command request payload.
 type CommandFieldInfo struct {
-	ID          uint8  // TLV context tag number
-	Name        string // PascalCase for CLI usage (e.g. "IdentifyTime")
-	DisplayName string // human-friendly name (e.g. "IdentifyTime")
-	Type        string // TLV type: "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "bool", "string", "octets", "enum8", "enum16", "bitmap8", "bitmap16", "bitmap32", "float32", "float64"
-	Optional    bool   // whether the field may be omitted
-	Nullable    bool   // whether the field may be null
+	ID          uint8       // TLV context tag number
+	Name        string      // PascalCase for CLI usage (e.g. "IdentifyTime")
+	DisplayName string      // human-friendly name (e.g. "IdentifyTime")
+	Type        string      // TLV type: "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "bool", "string", "octets", "enum8", "enum16", "bitmap8", "bitmap16", "bitmap32", "float32", "float64"
+	Optional    bool        // whether the field may be omitted
+	Nullable    bool        // whether the field may be null
+	EnumValues  []EnumValue // named enum values; nil for non-enum fields
 }
 
 // CommandInfo describes a single command within a cluster.

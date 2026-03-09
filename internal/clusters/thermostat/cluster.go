@@ -186,7 +186,7 @@ func init() {
 		},
 		Commands: []clusters.CommandInfo{
 			{ID: CmdSetpointRaiseLower, Name: "SetpointRaiseLower", DisplayName: "SetpointRaiseLower", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "Mode", DisplayName: "Mode", Type: "enum8"},
+				{ID: 0, Name: "Mode", DisplayName: "Mode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Heat"}, {Value: 1, Name: "Cool"}, {Value: 2, Name: "Both"}}},
 				{ID: 1, Name: "Amount", DisplayName: "Amount", Type: "int8"},
 			}},
 			{ID: CmdSetActiveScheduleRequest, Name: "SetActiveScheduleRequest", DisplayName: "SetActiveScheduleRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{

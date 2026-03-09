@@ -338,19 +338,19 @@ func init() {
 		Commands: []clusters.CommandInfo{
 			{ID: CmdMoveToHue, Name: "MoveToHue", DisplayName: "MoveToHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "Hue", DisplayName: "Hue", Type: "uint8"},
-				{ID: 1, Name: "Direction", DisplayName: "Direction", Type: "enum8"},
+				{ID: 1, Name: "Direction", DisplayName: "Direction", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Shortest"}, {Value: 1, Name: "Longest"}, {Value: 2, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16"},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 4, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdMoveHue, Name: "MoveHue", DisplayName: "MoveHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Stop"}, {Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint8"},
 				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdStepHue, Name: "StepHue", DisplayName: "StepHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint8"},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint8"},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
@@ -363,13 +363,13 @@ func init() {
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdMoveSaturation, Name: "MoveSaturation", DisplayName: "MoveSaturation", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Stop"}, {Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint8"},
 				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdStepSaturation, Name: "StepSaturation", DisplayName: "StepSaturation", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint8"},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint8"},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
@@ -410,19 +410,19 @@ func init() {
 			}},
 			{ID: CmdEnhancedMoveToHue, Name: "EnhancedMoveToHue", DisplayName: "EnhancedMoveToHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "EnhancedHue", DisplayName: "EnhancedHue", Type: "uint16"},
-				{ID: 1, Name: "Direction", DisplayName: "Direction", Type: "enum8"},
+				{ID: 1, Name: "Direction", DisplayName: "Direction", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Shortest"}, {Value: 1, Name: "Longest"}, {Value: 2, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16"},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 4, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdEnhancedMoveHue, Name: "EnhancedMoveHue", DisplayName: "EnhancedMoveHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Stop"}, {Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint16"},
 				{ID: 2, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
 				{ID: 3, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdEnhancedStepHue, Name: "EnhancedStepHue", DisplayName: "EnhancedStepHue", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint16"},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16"},
 				{ID: 3, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
@@ -437,8 +437,8 @@ func init() {
 			}},
 			{ID: CmdColorLoopSet, Name: "ColorLoopSet", DisplayName: "ColorLoopSet", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "UpdateFlags", DisplayName: "UpdateFlags", Type: "bitmap8"},
-				{ID: 1, Name: "Action", DisplayName: "Action", Type: "enum8"},
-				{ID: 2, Name: "Direction", DisplayName: "Direction", Type: "enum8"},
+				{ID: 1, Name: "Action", DisplayName: "Action", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Deactivate"}, {Value: 1, Name: "ActivateFromColorLoopStartEnhancedHue"}, {Value: 2, Name: "ActivateFromEnhancedCurrentHue"}}},
+				{ID: 2, Name: "Direction", DisplayName: "Direction", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Decrement"}, {Value: 1, Name: "Increment"}}},
 				{ID: 3, Name: "Time", DisplayName: "Time", Type: "uint16"},
 				{ID: 4, Name: "StartHue", DisplayName: "StartHue", Type: "uint16"},
 				{ID: 5, Name: "OptionsMask", DisplayName: "OptionsMask", Type: "bitmap8"},
@@ -449,7 +449,7 @@ func init() {
 				{ID: 1, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdMoveColorTemperature, Name: "MoveColorTemperature", DisplayName: "MoveColorTemperature", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8"},
+				{ID: 0, Name: "MoveMode", DisplayName: "MoveMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Stop"}, {Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "Rate", DisplayName: "Rate", Type: "uint16"},
 				{ID: 2, Name: "ColorTemperatureMinimumMireds", DisplayName: "ColorTemperatureMinimumMireds", Type: "uint16"},
 				{ID: 3, Name: "ColorTemperatureMaximumMireds", DisplayName: "ColorTemperatureMaximumMireds", Type: "uint16"},
@@ -457,7 +457,7 @@ func init() {
 				{ID: 5, Name: "OptionsOverride", DisplayName: "OptionsOverride", Type: "bitmap8"},
 			}},
 			{ID: CmdStepColorTemperature, Name: "StepColorTemperature", DisplayName: "StepColorTemperature", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8"},
+				{ID: 0, Name: "StepMode", DisplayName: "StepMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 1, Name: "Up"}, {Value: 3, Name: "Down"}}},
 				{ID: 1, Name: "StepSize", DisplayName: "StepSize", Type: "uint16"},
 				{ID: 2, Name: "TransitionTime", DisplayName: "TransitionTime", Type: "uint16"},
 				{ID: 3, Name: "ColorTemperatureMinimumMireds", DisplayName: "ColorTemperatureMinimumMireds", Type: "uint16"},

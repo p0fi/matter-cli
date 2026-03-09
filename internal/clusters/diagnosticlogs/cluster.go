@@ -33,8 +33,8 @@ func init() {
 		DisplayName: DisplayName,
 		Commands: []clusters.CommandInfo{
 			{ID: CmdRetrieveLogsRequest, Name: "RetrieveLogsRequest", DisplayName: "RetrieveLogsRequest", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "Intent", DisplayName: "Intent", Type: "enum8"},
-				{ID: 1, Name: "RequestedProtocol", DisplayName: "RequestedProtocol", Type: "enum8"},
+				{ID: 0, Name: "Intent", DisplayName: "Intent", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "EndUserSupport"}, {Value: 1, Name: "NetworkDiag"}, {Value: 2, Name: "CrashLogs"}}},
+				{ID: 1, Name: "RequestedProtocol", DisplayName: "RequestedProtocol", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "ResponsePayload"}, {Value: 1, Name: "BDX"}}},
 				{ID: 2, Name: "TransferFileDesignator", DisplayName: "TransferFileDesignator", Type: "string", Optional: true},
 			}},
 		},

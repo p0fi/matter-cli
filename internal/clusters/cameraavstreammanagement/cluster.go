@@ -228,7 +228,7 @@ func init() {
 		Commands: []clusters.CommandInfo{
 			{ID: CmdAudioStreamAllocate, Name: "AudioStreamAllocate", DisplayName: "AudioStreamAllocate", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "StreamUsage", DisplayName: "StreamUsage", Type: "enum8"},
-				{ID: 1, Name: "AudioCodec", DisplayName: "AudioCodec", Type: "enum8"},
+				{ID: 1, Name: "AudioCodec", DisplayName: "AudioCodec", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "OPUS"}, {Value: 1, Name: "AAC-LC"}}},
 				{ID: 2, Name: "ChannelCount", DisplayName: "ChannelCount", Type: "uint8"},
 				{ID: 3, Name: "SampleRate", DisplayName: "SampleRate", Type: "uint32"},
 				{ID: 4, Name: "BitRate", DisplayName: "BitRate", Type: "uint32"},
@@ -239,7 +239,7 @@ func init() {
 			}},
 			{ID: CmdVideoStreamAllocate, Name: "VideoStreamAllocate", DisplayName: "VideoStreamAllocate", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "StreamUsage", DisplayName: "StreamUsage", Type: "enum8"},
-				{ID: 1, Name: "VideoCodec", DisplayName: "VideoCodec", Type: "enum8"},
+				{ID: 1, Name: "VideoCodec", DisplayName: "VideoCodec", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "H264"}, {Value: 1, Name: "HEVC"}, {Value: 2, Name: "VVC"}, {Value: 3, Name: "AV1"}}},
 				{ID: 2, Name: "MinFrameRate", DisplayName: "MinFrameRate", Type: "uint16"},
 				{ID: 3, Name: "MaxFrameRate", DisplayName: "MaxFrameRate", Type: "uint16"},
 				{ID: 4, Name: "MinResolution", DisplayName: "MinResolution", Type: "struct"},
@@ -259,7 +259,7 @@ func init() {
 				{ID: 0, Name: "VideoStreamID", DisplayName: "VideoStreamID", Type: "uint8"},
 			}},
 			{ID: CmdSnapshotStreamAllocate, Name: "SnapshotStreamAllocate", DisplayName: "SnapshotStreamAllocate", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "ImageCodec", DisplayName: "ImageCodec", Type: "enum8"},
+				{ID: 0, Name: "ImageCodec", DisplayName: "ImageCodec", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "JPEG"}, {Value: 1, Name: "HEIC"}}},
 				{ID: 1, Name: "MaxFrameRate", DisplayName: "MaxFrameRate", Type: "uint16"},
 				{ID: 2, Name: "MinResolution", DisplayName: "MinResolution", Type: "struct"},
 				{ID: 3, Name: "MaxResolution", DisplayName: "MaxResolution", Type: "struct"},

@@ -100,7 +100,7 @@ func init() {
 {{- range .Commands}}
 			{ID: Cmd{{.Name}}, Name: "{{.Name}}", DisplayName: "{{.Name}}"{{if .HasRequest}}, HasRequest: true{{end}}{{if .HasResponse}}, HasResponse: true{{end}}{{if .Fields}}, RequestFields: []clusters.CommandFieldInfo{
 {{- range .Fields}}
-				{ID: {{.ID}}, Name: "{{.Name}}", DisplayName: "{{.Name}}", Type: "{{.Type}}"{{if .Optional}}, Optional: true{{end}}{{if .Nullable}}, Nullable: true{{end}}},
+				{ID: {{.ID}}, Name: "{{.Name}}", DisplayName: "{{.Name}}", Type: "{{.Type}}"{{if .Optional}}, Optional: true{{end}}{{if .Nullable}}, Nullable: true{{end}}{{if .EnumValues}}, EnumValues: []clusters.EnumValue{ {{- range .EnumValues}}{Value: {{.Value}}, Name: "{{.Name}}"},{{end}}}{{end}}},
 {{- end}}
 			}{{end}}},
 {{- end}}

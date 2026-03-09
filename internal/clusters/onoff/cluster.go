@@ -75,7 +75,7 @@ func init() {
 			{ID: CmdOn, Name: "On", DisplayName: "On"},
 			{ID: CmdToggle, Name: "Toggle", DisplayName: "Toggle"},
 			{ID: CmdOffWithEffect, Name: "OffWithEffect", DisplayName: "OffWithEffect", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "EffectIdentifier", DisplayName: "EffectIdentifier", Type: "enum8"},
+				{ID: 0, Name: "EffectIdentifier", DisplayName: "EffectIdentifier", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "DelayedAllOff"}, {Value: 1, Name: "DyingLight"}}},
 				{ID: 1, Name: "EffectVariant", DisplayName: "EffectVariant", Type: "enum8"},
 			}},
 			{ID: CmdOnWithRecallGlobalScene, Name: "OnWithRecallGlobalScene", DisplayName: "OnWithRecallGlobalScene"},

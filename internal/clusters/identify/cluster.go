@@ -51,8 +51,8 @@ func init() {
 				{ID: 0, Name: "IdentifyTime", DisplayName: "IdentifyTime", Type: "uint16"},
 			}},
 			{ID: CmdTriggerEffect, Name: "TriggerEffect", DisplayName: "TriggerEffect", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "EffectIdentifier", DisplayName: "EffectIdentifier", Type: "enum8"},
-				{ID: 1, Name: "EffectVariant", DisplayName: "EffectVariant", Type: "enum8"},
+				{ID: 0, Name: "EffectIdentifier", DisplayName: "EffectIdentifier", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Blink"}, {Value: 1, Name: "Breathe"}, {Value: 2, Name: "Okay"}, {Value: 11, Name: "ChannelChange"}, {Value: 254, Name: "FinishEffect"}, {Value: 255, Name: "StopEffect"}}},
+				{ID: 1, Name: "EffectVariant", DisplayName: "EffectVariant", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Default"}}},
 			}},
 		},
 	})

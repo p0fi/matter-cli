@@ -109,26 +109,26 @@ func init() {
 			{ID: CmdPowerAdjustRequest, Name: "PowerAdjustRequest", DisplayName: "PowerAdjustRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "Power", DisplayName: "Power", Type: "int64"},
 				{ID: 1, Name: "Duration", DisplayName: "Duration", Type: "uint32"},
-				{ID: 2, Name: "Cause", DisplayName: "Cause", Type: "enum8"},
+				{ID: 2, Name: "Cause", DisplayName: "Cause", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "LocalOptimization"}, {Value: 1, Name: "GridOptimization"}}},
 			}},
 			{ID: CmdCancelPowerAdjustRequest, Name: "CancelPowerAdjustRequest", DisplayName: "CancelPowerAdjustRequest"},
 			{ID: CmdStartTimeAdjustRequest, Name: "StartTimeAdjustRequest", DisplayName: "StartTimeAdjustRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "RequestedStartTime", DisplayName: "RequestedStartTime", Type: "uint32"},
-				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8"},
+				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "LocalOptimization"}, {Value: 1, Name: "GridOptimization"}}},
 			}},
 			{ID: CmdPauseRequest, Name: "PauseRequest", DisplayName: "PauseRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "Duration", DisplayName: "Duration", Type: "uint32"},
-				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8"},
+				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "LocalOptimization"}, {Value: 1, Name: "GridOptimization"}}},
 			}},
 			{ID: CmdResumeRequest, Name: "ResumeRequest", DisplayName: "ResumeRequest"},
 			{ID: CmdModifyForecastRequest, Name: "ModifyForecastRequest", DisplayName: "ModifyForecastRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "ForecastID", DisplayName: "ForecastID", Type: "uint32"},
 				{ID: 1, Name: "SlotAdjustments", DisplayName: "SlotAdjustments", Type: "list"},
-				{ID: 2, Name: "Cause", DisplayName: "Cause", Type: "enum8"},
+				{ID: 2, Name: "Cause", DisplayName: "Cause", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "LocalOptimization"}, {Value: 1, Name: "GridOptimization"}}},
 			}},
 			{ID: CmdRequestConstraintBasedForecast, Name: "RequestConstraintBasedForecast", DisplayName: "RequestConstraintBasedForecast", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "Constraints", DisplayName: "Constraints", Type: "list"},
-				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8"},
+				{ID: 1, Name: "Cause", DisplayName: "Cause", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "LocalOptimization"}, {Value: 1, Name: "GridOptimization"}}},
 			}},
 			{ID: CmdCancelRequest, Name: "CancelRequest", DisplayName: "CancelRequest"},
 		},

@@ -353,7 +353,7 @@ func init() {
 				{ID: 0, Name: "HolidayIndex", DisplayName: "HolidayIndex", Type: "uint8"},
 				{ID: 1, Name: "LocalStartTime", DisplayName: "LocalStartTime", Type: "uint32"},
 				{ID: 2, Name: "LocalEndTime", DisplayName: "LocalEndTime", Type: "uint32"},
-				{ID: 3, Name: "OperatingMode", DisplayName: "OperatingMode", Type: "enum8"},
+				{ID: 3, Name: "OperatingMode", DisplayName: "OperatingMode", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Normal"}, {Value: 1, Name: "Vacation"}, {Value: 2, Name: "Privacy"}, {Value: 3, Name: "NoRemoteLockUnlock"}, {Value: 4, Name: "Passage"}}},
 			}},
 			{ID: CmdGetHolidaySchedule, Name: "GetHolidaySchedule", DisplayName: "GetHolidaySchedule", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "HolidayIndex", DisplayName: "HolidayIndex", Type: "uint8"},
@@ -362,13 +362,13 @@ func init() {
 				{ID: 0, Name: "HolidayIndex", DisplayName: "HolidayIndex", Type: "uint8"},
 			}},
 			{ID: CmdSetUser, Name: "SetUser", DisplayName: "SetUser", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "OperationType", DisplayName: "OperationType", Type: "enum8"},
+				{ID: 0, Name: "OperationType", DisplayName: "OperationType", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Add"}, {Value: 1, Name: "Clear"}, {Value: 2, Name: "Modify"}}},
 				{ID: 1, Name: "UserIndex", DisplayName: "UserIndex", Type: "uint16"},
 				{ID: 2, Name: "UserName", DisplayName: "UserName", Type: "string", Nullable: true},
 				{ID: 3, Name: "UserUniqueID", DisplayName: "UserUniqueID", Type: "uint32", Nullable: true},
-				{ID: 4, Name: "UserStatus", DisplayName: "UserStatus", Type: "enum8", Nullable: true},
-				{ID: 5, Name: "UserType", DisplayName: "UserType", Type: "enum8", Nullable: true},
-				{ID: 6, Name: "CredentialRule", DisplayName: "CredentialRule", Type: "enum8", Nullable: true},
+				{ID: 4, Name: "UserStatus", DisplayName: "UserStatus", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "Available"}, {Value: 1, Name: "OccupiedEnabled"}, {Value: 3, Name: "OccupiedDisabled"}}},
+				{ID: 5, Name: "UserType", DisplayName: "UserType", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "UnrestrictedUser"}, {Value: 1, Name: "YearDayScheduleUser"}, {Value: 2, Name: "WeekDayScheduleUser"}, {Value: 3, Name: "ProgrammingUser"}, {Value: 4, Name: "NonAccessUser"}, {Value: 5, Name: "ForcedUser"}, {Value: 6, Name: "DisposableUser"}, {Value: 7, Name: "ExpiringUser"}, {Value: 8, Name: "ScheduleRestrictedUser"}, {Value: 9, Name: "RemoteOnlyUser"}}},
+				{ID: 6, Name: "CredentialRule", DisplayName: "CredentialRule", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "Single"}, {Value: 1, Name: "Dual"}, {Value: 2, Name: "Tri"}}},
 			}},
 			{ID: CmdGetUser, Name: "GetUser", DisplayName: "GetUser", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "UserIndex", DisplayName: "UserIndex", Type: "uint16"},
@@ -377,12 +377,12 @@ func init() {
 				{ID: 0, Name: "UserIndex", DisplayName: "UserIndex", Type: "uint16"},
 			}},
 			{ID: CmdSetCredential, Name: "SetCredential", DisplayName: "SetCredential", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
-				{ID: 0, Name: "OperationType", DisplayName: "OperationType", Type: "enum8"},
+				{ID: 0, Name: "OperationType", DisplayName: "OperationType", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Add"}, {Value: 1, Name: "Clear"}, {Value: 2, Name: "Modify"}}},
 				{ID: 1, Name: "Credential", DisplayName: "Credential", Type: "struct"},
 				{ID: 2, Name: "CredentialData", DisplayName: "CredentialData", Type: "octets"},
 				{ID: 3, Name: "UserIndex", DisplayName: "UserIndex", Type: "uint16", Nullable: true},
-				{ID: 4, Name: "UserStatus", DisplayName: "UserStatus", Type: "enum8", Nullable: true},
-				{ID: 5, Name: "UserType", DisplayName: "UserType", Type: "enum8", Nullable: true},
+				{ID: 4, Name: "UserStatus", DisplayName: "UserStatus", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "Available"}, {Value: 1, Name: "OccupiedEnabled"}, {Value: 3, Name: "OccupiedDisabled"}}},
+				{ID: 5, Name: "UserType", DisplayName: "UserType", Type: "enum8", Nullable: true, EnumValues: []clusters.EnumValue{{Value: 0, Name: "UnrestrictedUser"}, {Value: 1, Name: "YearDayScheduleUser"}, {Value: 2, Name: "WeekDayScheduleUser"}, {Value: 3, Name: "ProgrammingUser"}, {Value: 4, Name: "NonAccessUser"}, {Value: 5, Name: "ForcedUser"}, {Value: 6, Name: "DisposableUser"}, {Value: 7, Name: "ExpiringUser"}, {Value: 8, Name: "ScheduleRestrictedUser"}, {Value: 9, Name: "RemoteOnlyUser"}}},
 			}},
 			{ID: CmdGetCredentialStatus, Name: "GetCredentialStatus", DisplayName: "GetCredentialStatus", HasRequest: true, HasResponse: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "Credential", DisplayName: "Credential", Type: "struct"},

@@ -92,7 +92,7 @@ func init() {
 				{ID: 1, Name: "MonitoredSubject", DisplayName: "MonitoredSubject", Type: "uint64"},
 				{ID: 2, Name: "Key", DisplayName: "Key", Type: "octets"},
 				{ID: 3, Name: "VerificationKey", DisplayName: "VerificationKey", Type: "octets", Optional: true},
-				{ID: 4, Name: "ClientType", DisplayName: "ClientType", Type: "enum8"},
+				{ID: 4, Name: "ClientType", DisplayName: "ClientType", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Permanent"}, {Value: 1, Name: "Ephemeral"}}},
 			}},
 			{ID: CmdUnregisterClient, Name: "UnregisterClient", DisplayName: "UnregisterClient", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "CheckInNodeID", DisplayName: "CheckInNodeID", Type: "uint64"},

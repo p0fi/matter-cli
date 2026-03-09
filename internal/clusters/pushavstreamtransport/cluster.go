@@ -97,11 +97,11 @@ func init() {
 			}},
 			{ID: CmdSetTransportStatus, Name: "SetTransportStatus", DisplayName: "SetTransportStatus", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "ConnectionID", DisplayName: "ConnectionID", Type: "uint8", Nullable: true},
-				{ID: 1, Name: "TransportStatus", DisplayName: "TransportStatus", Type: "enum8"},
+				{ID: 1, Name: "TransportStatus", DisplayName: "TransportStatus", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Active"}, {Value: 1, Name: "Inactive"}}},
 			}},
 			{ID: CmdManuallyTriggerTransport, Name: "ManuallyTriggerTransport", DisplayName: "ManuallyTriggerTransport", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "ConnectionID", DisplayName: "ConnectionID", Type: "uint8"},
-				{ID: 1, Name: "ActivationReason", DisplayName: "ActivationReason", Type: "enum8"},
+				{ID: 1, Name: "ActivationReason", DisplayName: "ActivationReason", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "UserInitiated"}, {Value: 1, Name: "Automation"}, {Value: 2, Name: "Emergency"}}},
 				{ID: 2, Name: "TimeControl", DisplayName: "TimeControl", Type: "struct", Optional: true},
 				{ID: 3, Name: "UserDefined", DisplayName: "UserDefined", Type: "octets", Optional: true},
 			}},

@@ -68,7 +68,7 @@ func init() {
 		Commands: []clusters.CommandInfo{
 			{ID: CmdPresentMessagesRequest, Name: "PresentMessagesRequest", DisplayName: "PresentMessagesRequest", HasRequest: true, RequestFields: []clusters.CommandFieldInfo{
 				{ID: 0, Name: "MessageID", DisplayName: "MessageID", Type: "octets"},
-				{ID: 1, Name: "Priority", DisplayName: "Priority", Type: "enum8"},
+				{ID: 1, Name: "Priority", DisplayName: "Priority", Type: "enum8", EnumValues: []clusters.EnumValue{{Value: 0, Name: "Low"}, {Value: 1, Name: "Medium"}, {Value: 2, Name: "High"}, {Value: 3, Name: "Critical"}}},
 				{ID: 2, Name: "MessageControl", DisplayName: "MessageControl", Type: "bitmap8"},
 				{ID: 3, Name: "StartTime", DisplayName: "StartTime", Type: "uint32", Nullable: true},
 				{ID: 4, Name: "Duration", DisplayName: "Duration", Type: "uint64", Nullable: true},
