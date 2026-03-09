@@ -641,24 +641,37 @@ func collectCommandFields(cmd *cobra.Command, ci *clusters.CommandInfo) (map[str
 	}
 
 	// Collect from positional args (for shorthand commands).
-	// Positional args map to RequestFields in order, skipping any already
-	// provided via --field.
+	// Each arg can be either a bare value (mapped to the next unset field in
+	// order) or an explicit Key=Value pair.
 	args := cmd.Flags().Args()
 	if len(args) > 0 {
-		argIdx := 0
-		for _, f := range ci.RequestFields {
-			if argIdx >= len(args) {
-				break
+		posIdx := 0 // tracks the next positional RequestField slot
+		for _, arg := range args {
+			if name, value, ok := strings.Cut(arg, "="); ok {
+				name = strings.TrimSpace(name)
+				if _, found := ci.FieldByName(name); !found {
+					var valid []string
+					for _, f := range ci.RequestFields {
+						valid = append(valid, f.Name)
+					}
+					return nil, fmt.Errorf("unknown field %q, valid fields: %s", name, strings.Join(valid, ", "))
+				}
+				fieldMap[name] = strings.TrimSpace(value)
+			} else {
+				// Bare positional value — assign to the next unset field.
+				for posIdx < len(ci.RequestFields) {
+					f := ci.RequestFields[posIdx]
+					posIdx++
+					if _, already := fieldMap[f.Name]; !already {
+						fieldMap[f.Name] = arg
+						break
+					}
+				}
+				if posIdx > len(ci.RequestFields) {
+					return nil, fmt.Errorf("too many positional arguments: expected at most %d for fields %s",
+						len(ci.RequestFields), commandFieldUsage(ci))
+				}
 			}
-			if _, already := fieldMap[f.Name]; already {
-				continue
-			}
-			fieldMap[f.Name] = args[argIdx]
-			argIdx++
-		}
-		if argIdx < len(args) {
-			return nil, fmt.Errorf("too many positional arguments: expected at most %d for fields %s",
-				len(ci.RequestFields), commandFieldUsage(ci))
 		}
 	}
 
@@ -677,6 +690,15 @@ func encodeCommandFields(ci *clusters.CommandInfo, fieldMap map[string]string) (
 				continue
 			}
 			return nil, fmt.Errorf("missing required field %q", f.Name)
+		}
+		// Resolve enum name to numeric value (e.g. "Increase" → "0").
+		if len(f.EnumValues) > 0 {
+			for _, ev := range f.EnumValues {
+				if strings.EqualFold(ev.Name, val) {
+					val = fmt.Sprintf("%d", ev.Value)
+					break
+				}
+			}
 		}
 		tag := tlv.ContextTag(f.ID)
 		if err := encodeTaggedValue(w, tag, f.Type, val); err != nil {
@@ -1064,6 +1086,20 @@ func newClusterInvokeCmd() *cobra.Command {
 	cmd.Flags().StringSliceP("field", "F", nil, "command field as key=value (repeatable, e.g. -F IdentifyTime=10)")
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
 	_ = cmd.RegisterFlagCompletionFunc("command", completion.CommandNameCompletion(clusters.Global))
+	_ = cmd.RegisterFlagCompletionFunc("field", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clusterName, _ := cmd.Flags().GetString("cluster")
+		commandName, _ := cmd.Flags().GetString("command")
+		cl, ok := clusters.Global.ClusterByName(clusterName)
+		if !ok {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		ci, ok := clusters.Global.CommandByName(cl.ID, commandName)
+		if !ok {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		existing, _ := cmd.Flags().GetStringSlice("field")
+		return completion.FieldFlagCompletions(ci.RequestFields, existing, toComplete)
+	})
 	return cmd
 }
 
@@ -1162,6 +1198,12 @@ func registerShorthandClusters() {
 				Use:   use,
 				Short: fmt.Sprintf("Invoke %s.%s", clCopy.DisplayName, ciCopy.DisplayName),
 				Args:  cobra.ArbitraryArgs,
+				ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+					if len(ciCopy.RequestFields) == 0 {
+						return nil, cobra.ShellCompDirectiveNoFileComp
+					}
+					return completion.FieldFlagCompletions(ciCopy.RequestFields, args, toComplete)
+				},
 				RunE: func(cmd *cobra.Command, args []string) error {
 					nodeID, endpoint, err := requireTarget(cmd)
 					if err != nil {
@@ -1172,6 +1214,10 @@ func registerShorthandClusters() {
 			}
 			if ciCopy.HasRequest && len(ciCopy.RequestFields) > 0 {
 				sub.Flags().StringSliceP("field", "F", nil, "command field as key=value (repeatable)")
+				_ = sub.RegisterFlagCompletionFunc("field", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+					existing, _ := cmd.Flags().GetStringSlice("field")
+					return completion.FieldFlagCompletions(ciCopy.RequestFields, existing, toComplete)
+				})
 			}
 			cmd.AddCommand(sub)
 		}

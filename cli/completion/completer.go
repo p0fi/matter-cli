@@ -96,6 +96,46 @@ func CommandNameCompletion(registry *clusters.Registry) func(cmd *cobra.Command,
 
 
 
+// FieldFlagCompletions returns completions for command fields. When toComplete
+// contains "=" (e.g. "Direction="), it returns enum values for that field.
+// Otherwise it returns "FieldName=" completions for all unset fields.
+func FieldFlagCompletions(fields []clusters.CommandFieldInfo, existing []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	// If the user is typing a value (e.g. "Direction="), show enum values.
+	if name, _, ok := strings.Cut(toComplete, "="); ok {
+		for _, f := range fields {
+			if !strings.EqualFold(f.Name, name) || len(f.EnumValues) == 0 {
+				continue
+			}
+			completions := make([]string, len(f.EnumValues))
+			for i, ev := range f.EnumValues {
+				completions[i] = fmt.Sprintf("%s=%s\t%d", f.Name, ev.Name, ev.Value)
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// Show FieldName= completions for unset fields.
+	provided := make(map[string]bool)
+	for _, kv := range existing {
+		if n, _, ok := strings.Cut(kv, "="); ok {
+			provided[strings.TrimSpace(n)] = true
+		}
+	}
+	var completions []string
+	for _, f := range fields {
+		if provided[f.Name] {
+			continue
+		}
+		status := "required"
+		if f.Optional {
+			status = "optional"
+		}
+		completions = append(completions, fmt.Sprintf("%s=\t%s · %s", f.Name, f.Type, status))
+	}
+	return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
+}
+
 // endpointDescription builds a human-friendly description for an endpoint,
 // using its device type name (if known) and a summary of its server clusters.
 func endpointDescription(ep store.Endpoint) string {
