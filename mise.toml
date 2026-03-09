@@ -1,0 +1,57 @@
+[tools]
+go = "1.26.1"
+"go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "latest"
+
+[env]
+BINARY = "matter"
+MODULE = "github.com/p0fi/matter-cli"
+
+[tasks.build]
+description = "Build the matter binary"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+go build -ldflags "-X ${MODULE}/cli.version=${VERSION} -X ${MODULE}/cli.commit=${COMMIT} -X ${MODULE}/cli.date=${DATE}" -o bin/${BINARY} ./cmd/matter/
+"""
+
+[tasks.install]
+description = "Install the matter binary"
+run = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+go install -ldflags "-X ${MODULE}/cli.version=${VERSION} -X ${MODULE}/cli.commit=${COMMIT} -X ${MODULE}/cli.date=${DATE}" ./cmd/matter/
+"""
+
+[tasks.build-install]
+description = "Build and install"
+depends = ["build", "install"]
+
+[tasks.test]
+description = "Run tests with race detector"
+run = "go test ./... -race -count=1"
+
+[tasks.test-cover]
+description = "Run tests with coverage report"
+run = """
+go test ./... -race -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
+"""
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.lint]
+description = "Run golangci-lint (includes vet)"
+depends = ["vet"]
+run = "golangci-lint run ./..."
+
+[tasks.fmt]
+description = "Format Go source files"
+run = "gofmt -w ."
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "rm -rf bin/ coverage.out coverage.html"
