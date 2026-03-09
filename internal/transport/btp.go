@@ -31,6 +31,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -288,6 +289,10 @@ func (s *btpSession) segment(msg []byte) [][]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	slog.Debug("btp: segment()", "msgLen", len(msg),
+		"localSeq", s.localSeq, "txInflight", s.txInflight,
+		"hasPendingAck", s.hasPendingAck, "pendingAck", s.pendingAck)
+
 	totalLen := uint16(len(msg))
 	var out [][]byte
 
@@ -372,6 +377,11 @@ func (s *btpSession) buildSegment(payload []byte, beginSeg, endSeg bool, msgLen 
 
 	// ── Payload ──
 	buf.Write(payload)
+
+	slog.Debug("btp: TX segment", "flags", fmt.Sprintf("0x%02x", flags),
+		"B", beginSeg, "E", endSeg, "A", piggy,
+		"ackNum", s.pendingAck, "seqNum", s.localSeq-1,
+		"msgLen", msgLen, "payloadLen", len(payload))
 
 	return buf.Bytes()
 }
@@ -498,11 +508,14 @@ func (s *btpSession) handleSegment(data []byte) error {
 	}
 
 	// ── AckNum (present when A=1) ──────────────────────────────────────────
-	if flags&btpFlagAck != 0 {
+	var ackNum uint8
+	hasAck := flags&btpFlagAck != 0
+	if hasAck {
 		if idx >= len(data) {
 			return fmt.Errorf("btp: truncated segment: missing AckNum")
 		}
-		s.processAck(data[idx])
+		ackNum = data[idx]
+		s.processAck(ackNum)
 		idx++
 	}
 
@@ -512,6 +525,11 @@ func (s *btpSession) handleSegment(data []byte) error {
 	}
 	seqNum := data[idx]
 	idx++
+
+	slog.Debug("btp: RX segment", "flags", fmt.Sprintf("0x%02x", flags),
+		"B", flags&btpFlagBegin != 0, "E", flags&btpFlagEnd != 0,
+		"A", hasAck, "ackNum", ackNum, "seqNum", seqNum,
+		"dataLen", len(data))
 
 	// Record so we can ack the peer on the next outgoing segment.
 	s.mu.Lock()
