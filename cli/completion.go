@@ -510,19 +510,16 @@ _matter() {
     fi
   done <<< "$out"
 
-  if (( ${#target_cmds} )); then
-    if (( directive & 2 )); then
-      # ShellCompDirectiveNoSpace: node-level targets — suppress trailing space
-      # so the user can type / to select an endpoint or space for device commands.
-      _describe -t targets "Targets" target_cmds -S ''
-    else
-      _describe -t targets "Targets" target_cmds
-    fi
-  fi
-  (( ${#device_cmds}  )) && _describe -t device-commands  "Device Commands"  device_cmds
-  (( ${#cluster_cmds} )) && _describe -t cluster-commands "Cluster Commands" cluster_cmds
-  (( ${#tool_cmds}    )) && _describe -t tools             "Tools"            tool_cmds
-  (( ${#other_cmds}   )) && _describe -t arguments         ""                 other_cmds
+  # ShellCompDirectiveNoSpace (bit 1, value 2): suppress trailing space so the
+  # user can continue typing (e.g. after "Level=" or "@kitchen").
+  local -a nospace
+  (( directive & 2 )) && nospace=(-S '')
+
+  (( ${#target_cmds}  )) && _describe -t targets          "Targets"          target_cmds  "${nospace[@]}"
+  (( ${#device_cmds}  )) && _describe -t device-commands  "Device Commands"  device_cmds  "${nospace[@]}"
+  (( ${#cluster_cmds} )) && _describe -t cluster-commands "Cluster Commands" cluster_cmds "${nospace[@]}"
+  (( ${#tool_cmds}    )) && _describe -t tools             "Tools"            tool_cmds   "${nospace[@]}"
+  (( ${#other_cmds}   )) && _describe -t arguments         ""                 other_cmds  "${nospace[@]}"
 
   return 0
 }
