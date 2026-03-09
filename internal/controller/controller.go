@@ -139,8 +139,8 @@ func randomNodeID() uint64 {
 	return id
 }
 
-// sendMessage encodes a Message using the codec and sends it over UDP to the
-// current peer address.
+// sendMessage encodes a Message using the codec and sends it over the
+// current transport to the peer.
 func (c *Controller) sendMessage(ctx context.Context, msg *protocol.Message) error {
 	c.mu.Lock()
 	addr := c.peerAddr
@@ -148,6 +148,14 @@ func (c *Controller) sendMessage(ctx context.Context, msg *protocol.Message) err
 
 	if addr == nil {
 		return fmt.Errorf("controller: no peer address set")
+	}
+
+	// Matter spec §4.11.8.3: MRP SHALL NOT be used on BLE transport.
+	// BTP provides its own reliability at the transport layer, so the
+	// exchange-level reliable flag (R) must be cleared for BLE sessions.
+	// The CHIP SDK enforces this via AllowsMRP() → false for BLE.
+	if _, isBLE := c.conn.(*transport.BLEConn); isBLE {
+		msg.Protocol.ExchangeFlags &^= protocol.ExFlagReliable
 	}
 
 	// Look up session for encryption.
@@ -235,8 +243,11 @@ func (c *Controller) runMessagePump(ctx context.Context) {
 
 		// If the message requests reliable delivery (R flag), send a standalone
 		// MRP acknowledgment so the peer knows we received it.
+		// On BLE transport, MRP is not used so we skip MRP ACKs entirely.
 		if msg.Protocol.NeedsACK() {
-			c.sendMRPAck(ctx, msg)
+			if _, isBLE := c.conn.(*transport.BLEConn); !isBLE {
+				c.sendMRPAck(ctx, msg)
+			}
 		}
 
 		// Skip standalone MRP ACKs — they carry no application payload and
