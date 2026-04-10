@@ -1,5 +1,5 @@
 [tools]
-go = "1.26.1"
+go = "1.26.2"
 "go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "latest"
 
 [env]
