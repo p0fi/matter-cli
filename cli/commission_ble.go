@@ -280,6 +280,6 @@ type staticBLEDiscoverer struct {
 }
 
 // DiscoverCommissionable returns the pre-configured BLE address unconditionally.
-func (d *staticBLEDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16) (string, error) {
+func (d *staticBLEDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16, _ commissioning.DiscoveryCapabilities) (string, error) {
 	return d.addr, nil
 }

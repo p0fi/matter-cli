@@ -15,7 +15,7 @@ import (
 func TestStaticBLEDiscoverer_ReturnsAddr(t *testing.T) {
 	d := &staticBLEDiscoverer{addr: "ble://AA:BB:CC:DD:EE:FF"}
 
-	addr, err := d.DiscoverCommissionable(context.Background(), 0x0ABC)
+	addr, err := d.DiscoverCommissionable(context.Background(), 0x0ABC, 0)
 	if err != nil {
 		t.Fatalf("DiscoverCommissionable: unexpected error: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestStaticBLEDiscoverer_IgnoresDiscriminator(t *testing.T) {
 
 	// Different discriminator values must all return the same address.
 	for _, disc := range []uint16{0x000, 0x001, 0xABC, 0xFFF} {
-		addr, err := d.DiscoverCommissionable(context.Background(), disc)
+		addr, err := d.DiscoverCommissionable(context.Background(), disc, 0)
 		if err != nil {
 			t.Fatalf("discriminator 0x%03X: unexpected error: %v", disc, err)
 		}
@@ -47,7 +47,7 @@ func TestStaticBLEDiscoverer_ContextCancelled(t *testing.T) {
 	cancel() // already cancelled
 
 	// staticBLEDiscoverer returns immediately without blocking on context.
-	addr, err := d.DiscoverCommissionable(ctx, 0x100)
+	addr, err := d.DiscoverCommissionable(ctx, 0x100, 0)
 	if err != nil {
 		t.Fatalf("DiscoverCommissionable with cancelled ctx: unexpected error: %v", err)
 	}
