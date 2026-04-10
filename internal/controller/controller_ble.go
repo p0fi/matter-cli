@@ -238,8 +238,9 @@ type autoDiscoverer struct {
 const bleDiscoveryTimeout = 15 * time.Second
 
 type discoveryResult struct {
-	addr string
-	err  error
+	addr    string
+	err     error
+	fromBLE bool
 }
 
 func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16, caps commissioning.DiscoveryCapabilities) (string, error) {
@@ -277,7 +278,7 @@ func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminat
 	go func() {
 		if err := d.adapter.Enable(); err != nil {
 			slog.Debug("auto-discover: BLE adapter enable failed, skipping BLE", "err", err)
-			results <- discoveryResult{err: err}
+			results <- discoveryResult{err: err, fromBLE: true}
 			return
 		}
 		slog.Debug("auto-discover: BLE scan started")
@@ -287,7 +288,7 @@ func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminat
 		if err == nil {
 			slog.Debug("auto-discover: found device via BLE", "addr", addr)
 		}
-		results <- discoveryResult{addr, err}
+		results <- discoveryResult{addr: addr, err: err, fromBLE: true}
 	}()
 
 	go func() {
@@ -296,20 +297,29 @@ func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminat
 		if err == nil {
 			slog.Debug("auto-discover: found device via mDNS", "addr", addr)
 		}
-		results <- discoveryResult{addr, err}
+		results <- discoveryResult{addr: addr, err: err}
 	}()
 
-	// Return the first successful result; if both fail, return the last error.
-	var lastErr error
+	// Return the first successful result. If both fail, return the mDNS error:
+	// it is more actionable than a BLE scan timeout for the typical case where
+	// the device is on-network, and makes the error deterministic across runs.
+	var bleErr, mdnsErr error
 	for range 2 {
 		r := <-results
 		if r.err == nil {
 			cancel() // stop the other goroutine
 			return r.addr, nil
 		}
-		lastErr = r.err
+		if r.fromBLE {
+			bleErr = r.err
+		} else {
+			mdnsErr = r.err
+		}
 	}
-	return "", lastErr
+	if mdnsErr != nil {
+		return "", mdnsErr
+	}
+	return "", bleErr
 }
 
 // ─── Auto-detection session establisher ───────────────────────────────────────
