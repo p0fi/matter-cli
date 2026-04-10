@@ -33,7 +33,7 @@ type controllerDiscoverer struct {
 	browser *discovery.MDNSBrowser
 }
 
-func (d *controllerDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16) (string, error) {
+func (d *controllerDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16, _ commissioning.DiscoveryCapabilities) (string, error) {
 	devices, err := d.browser.DiscoverCommissionable(ctx, 15*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("mDNS discovery: %w", err)
@@ -70,7 +70,7 @@ type StaticDiscoverer struct {
 }
 
 // DiscoverCommissionable returns the pre-configured address regardless of discriminator.
-func (d *StaticDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16) (string, error) {
+func (d *StaticDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16, _ commissioning.DiscoveryCapabilities) (string, error) {
 	return d.Addr, nil
 }
 

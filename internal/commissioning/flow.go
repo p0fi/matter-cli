@@ -89,8 +89,10 @@ func (s CommissioningStep) String() string {
 // DeviceDiscoverer abstracts mDNS/DNS-SD device discovery.
 type DeviceDiscoverer interface {
 	// DiscoverCommissionable finds a commissionable device matching the given
-	// discriminator. Returns the device address (host:port).
-	DiscoverCommissionable(ctx context.Context, discriminator uint16) (addr string, err error)
+	// discriminator. caps is the DiscoveryCapabilities bitmask from the setup
+	// payload; implementations may use it to skip transports the device does
+	// not support. A zero value means unknown — try all transports.
+	DiscoverCommissionable(ctx context.Context, discriminator uint16, caps DiscoveryCapabilities) (addr string, err error)
 }
 
 // SessionEstablisher abstracts PASE and CASE session establishment.
@@ -189,11 +191,13 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		params.FailsafeSeconds = 60
 	}
 
-	// Step 1: Determine passcode and discriminator.
+	// Step 1: Determine passcode, discriminator, and discovery capabilities.
 	var passcode uint32
 	var discriminator uint16
+	var caps DiscoveryCapabilities
 	if params.Passcode != 0 {
 		// Direct passcode provided — skip setup code parsing.
+		// caps remains 0 (unknown): try all transports.
 		passcode = params.Passcode
 		discriminator = params.Discriminator
 	} else {
@@ -204,6 +208,7 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		}
 		passcode = payload.Passcode
 		discriminator = payload.Discriminator
+		caps = payload.DiscoveryCapabilities
 		shortDisc := discriminator&0xFF == 0
 		slog.Debug("commissioning: parsed setup code",
 			"passcode", passcode,
@@ -212,12 +217,12 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 			"vendorID", fmt.Sprintf("0x%04X", payload.VendorID),
 			"productID", fmt.Sprintf("0x%04X", payload.ProductID),
 			"flow", payload.CommissioningFlow,
-			"discoveryCapabilities", fmt.Sprintf("0x%02X", payload.DiscoveryCapabilities),
+			"discoveryCapabilities", fmt.Sprintf("0x%02X", caps),
 		)
 	}
 	// Step 2: Discover device.
 	c.reportProgress(StepDiscover)
-	addr, err := c.Discoverer.DiscoverCommissionable(ctx, discriminator)
+	addr, err := c.Discoverer.DiscoverCommissionable(ctx, discriminator, caps)
 	if err != nil {
 		return nil, fmt.Errorf("commissioning: discovering device: %w", err)
 	}

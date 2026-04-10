@@ -224,40 +224,90 @@ func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, 
 
 // ─── Auto-detection discoverer ────────────────────────────────────────────────
 
-// autoDiscoverer tries BLE discovery first, falling back to mDNS.
+// autoDiscoverer runs BLE and mDNS discovery in parallel and returns
+// whichever transport finds the device first.
 type autoDiscoverer struct {
 	ble     *discovery.BLEBrowser
 	mdns    *controllerDiscoverer
 	adapter transport.BLEAdapter
 }
 
-// bleDiscoveryTimeout is the maximum time the auto-discoverer waits for a BLE
-// scan before falling back to mDNS. BLE devices in range are typically found
-// within a few seconds.
+// bleDiscoveryTimeout caps how long the BLE scan runs when both transports
+// are tried in parallel. BLE devices in range are typically found within a
+// few seconds; 15 s matches the previous sequential timeout.
 const bleDiscoveryTimeout = 15 * time.Second
 
-func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16) (string, error) {
-	// Enable the BLE adapter before scanning. If this fails (e.g. no
-	// Bluetooth hardware or permissions), skip BLE and try mDNS directly.
-	if err := d.adapter.Enable(); err != nil {
-		slog.Debug("auto-discover: BLE adapter enable failed, skipping BLE", "err", err)
-		return d.mdns.DiscoverCommissionable(ctx, discriminator)
+type discoveryResult struct {
+	addr string
+	err  error
+}
+
+func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16, caps commissioning.DiscoveryCapabilities) (string, error) {
+	// When DiscoveryCapabilities is known (non-zero), skip transports the
+	// device does not advertise. This avoids the 15 s BLE-adapter warm-up
+	// cost for on-network devices and skips a pointless mDNS browse for
+	// BLE-only devices.
+	tryBLE := caps == 0 || caps&commissioning.DiscoveryBLE != 0
+	tryMDNS := caps == 0 || caps&commissioning.DiscoveryOnNetwork != 0
+
+	if !tryBLE {
+		slog.Debug("auto-discover: skipping BLE (not in DiscoveryCapabilities)")
+		return d.mdns.DiscoverCommissionable(ctx, discriminator, caps)
+	}
+	if !tryMDNS {
+		slog.Debug("auto-discover: skipping mDNS (not in DiscoveryCapabilities)")
+		if err := d.adapter.Enable(); err != nil {
+			return "", fmt.Errorf("BLE adapter: %w", err)
+		}
+		return d.ble.DiscoverCommissionable(ctx, discriminator, caps)
 	}
 
-	// Try BLE first with a bounded timeout so we don't hang forever if
-	// the device isn't advertising over BLE.
-	bleCtx, cancel := context.WithTimeout(ctx, bleDiscoveryTimeout)
+	// Both transports: run in parallel, return whichever responds first.
+	slog.Debug("auto-discover: running BLE and mDNS discovery in parallel")
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	addr, err := d.ble.DiscoverCommissionable(bleCtx, discriminator)
-	if err == nil {
-		slog.Debug("auto-discover: found device via BLE", "addr", addr)
-		return addr, nil
-	}
-	slog.Debug("auto-discover: BLE scan failed, falling back to mDNS", "err", err)
+	results := make(chan discoveryResult, 2)
 
-	// Fall back to mDNS.
-	return d.mdns.DiscoverCommissionable(ctx, discriminator)
+	// BLE goroutine: enable the adapter first (may block for a few seconds on
+	// macOS while CoreBluetooth initialises). Running inside the goroutine
+	// means mDNS starts immediately and is not delayed by BLE initialisation.
+	go func() {
+		if err := d.adapter.Enable(); err != nil {
+			slog.Debug("auto-discover: BLE adapter enable failed, skipping BLE", "err", err)
+			results <- discoveryResult{err: err}
+			return
+		}
+		slog.Debug("auto-discover: BLE scan started")
+		bleCtx, bleCancel := context.WithTimeout(ctx, bleDiscoveryTimeout)
+		defer bleCancel()
+		addr, err := d.ble.DiscoverCommissionable(bleCtx, discriminator, caps)
+		if err == nil {
+			slog.Debug("auto-discover: found device via BLE", "addr", addr)
+		}
+		results <- discoveryResult{addr, err}
+	}()
+
+	go func() {
+		slog.Debug("auto-discover: mDNS browse started")
+		addr, err := d.mdns.DiscoverCommissionable(ctx, discriminator, caps)
+		if err == nil {
+			slog.Debug("auto-discover: found device via mDNS", "addr", addr)
+		}
+		results <- discoveryResult{addr, err}
+	}()
+
+	// Return the first successful result; if both fail, return the last error.
+	var lastErr error
+	for range 2 {
+		r := <-results
+		if r.err == nil {
+			cancel() // stop the other goroutine
+			return r.addr, nil
+		}
+		lastErr = r.err
+	}
+	return "", lastErr
 }
 
 // ─── Auto-detection session establisher ───────────────────────────────────────

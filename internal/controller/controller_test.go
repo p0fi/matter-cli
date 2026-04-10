@@ -446,7 +446,7 @@ func TestExchangeSendNilFunc(t *testing.T) {
 // TestStaticDiscoverer verifies the static discoverer adapter.
 func TestStaticDiscoverer(t *testing.T) {
 	d := &StaticDiscoverer{Addr: "192.168.1.100:5540"}
-	addr, err := d.DiscoverCommissionable(context.Background(), 0)
+	addr, err := d.DiscoverCommissionable(context.Background(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

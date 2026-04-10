@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/p0fi/matter-cli/internal/commissioning"
 	"github.com/p0fi/matter-cli/internal/transport"
 )
 
@@ -44,7 +45,7 @@ func newBLEBrowserWithScanner(scanner bleScanner) *BLEBrowser {
 // "ble://<address>" that can be passed to a BLE-aware SessionEstablisher.
 //
 // This method satisfies the commissioning.DeviceDiscoverer interface.
-func (b *BLEBrowser) DiscoverCommissionable(ctx context.Context, discriminator uint16) (string, error) {
+func (b *BLEBrowser) DiscoverCommissionable(ctx context.Context, discriminator uint16, _ commissioning.DiscoveryCapabilities) (string, error) {
 	result, err := b.scanner.FindByDiscriminator(ctx, discriminator)
 	if err != nil {
 		return "", fmt.Errorf("BLE discovery: %w", err)

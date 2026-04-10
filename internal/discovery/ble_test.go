@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/p0fi/matter-cli/internal/commissioning"
 	"github.com/p0fi/matter-cli/internal/transport"
 )
 
@@ -57,7 +58,7 @@ func TestBLEBrowser_DiscoverCommissionable_Found(t *testing.T) {
 	}
 	browser := newBLEBrowserWithScanner(mock)
 
-	addr, err := browser.DiscoverCommissionable(context.Background(), 0x0ABC)
+	addr, err := browser.DiscoverCommissionable(context.Background(), 0x0ABC, 0)
 	if err != nil {
 		t.Fatalf("DiscoverCommissionable: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestBLEBrowser_DiscoverCommissionable_CoreBluetoothUUID(t *testing.T) {
 	}
 	browser := newBLEBrowserWithScanner(mock)
 
-	addr, err := browser.DiscoverCommissionable(context.Background(), 0x100)
+	addr, err := browser.DiscoverCommissionable(context.Background(), 0x100, 0)
 	if err != nil {
 		t.Fatalf("DiscoverCommissionable: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestBLEBrowser_DiscoverCommissionable_NotFound(t *testing.T) {
 	}
 	browser := newBLEBrowserWithScanner(mock)
 
-	_, err := browser.DiscoverCommissionable(context.Background(), 999)
+	_, err := browser.DiscoverCommissionable(context.Background(), 999, 0)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -108,7 +109,7 @@ func TestBLEBrowser_DiscoverCommissionable_ScanError(t *testing.T) {
 	mock := &mockBLEScanner{findErr: scanErr}
 	browser := newBLEBrowserWithScanner(mock)
 
-	_, err := browser.DiscoverCommissionable(context.Background(), 0x123)
+	_, err := browser.DiscoverCommissionable(context.Background(), 0x123, 0)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -278,7 +279,7 @@ func TestBLEBrowserImplementsDeviceDiscoverer(t *testing.T) {
 	// Compile-time check that BLEBrowser satisfies commissioning.DeviceDiscoverer.
 	// (We inline the interface to avoid an import cycle.)
 	type deviceDiscoverer interface {
-		DiscoverCommissionable(ctx context.Context, discriminator uint16) (addr string, err error)
+		DiscoverCommissionable(ctx context.Context, discriminator uint16, caps commissioning.DiscoveryCapabilities) (addr string, err error)
 	}
 	var _ deviceDiscoverer = (*BLEBrowser)(nil)
 }

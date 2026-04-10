@@ -48,7 +48,7 @@ type mockDiscoverer struct {
 	err  error
 }
 
-func (m *mockDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16) (string, error) {
+func (m *mockDiscoverer) DiscoverCommissionable(_ context.Context, _ uint16, _ DiscoveryCapabilities) (string, error) {
 	return m.addr, m.err
 }
 
