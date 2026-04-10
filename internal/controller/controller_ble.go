@@ -224,11 +224,19 @@ func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, 
 
 // ─── Auto-detection discoverer ────────────────────────────────────────────────
 
+// transportDiscoverer is the common interface used by autoDiscoverer for both
+// its BLE and mDNS sub-discoverers. It matches commissioning.DeviceDiscoverer
+// but is defined locally so autoDiscoverer can be tested without importing the
+// commissioning package in tests.
+type transportDiscoverer interface {
+	DiscoverCommissionable(ctx context.Context, discriminator uint16, caps commissioning.DiscoveryCapabilities) (string, error)
+}
+
 // autoDiscoverer runs BLE and mDNS discovery in parallel and returns
 // whichever transport finds the device first.
 type autoDiscoverer struct {
-	ble     *discovery.BLEBrowser
-	mdns    *controllerDiscoverer
+	ble     transportDiscoverer
+	mdns    transportDiscoverer
 	adapter transport.BLEAdapter
 }
 
