@@ -259,7 +259,9 @@ func (d *autoDiscoverer) DiscoverCommissionable(ctx context.Context, discriminat
 		if err := d.adapter.Enable(); err != nil {
 			return "", fmt.Errorf("BLE adapter: %w", err)
 		}
-		return d.ble.DiscoverCommissionable(ctx, discriminator, caps)
+		bleCtx, bleCancel := context.WithTimeout(ctx, bleDiscoveryTimeout)
+		defer bleCancel()
+		return d.ble.DiscoverCommissionable(bleCtx, discriminator, caps)
 	}
 
 	// Both transports: run in parallel, return whichever responds first.
