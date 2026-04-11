@@ -519,6 +519,8 @@ func TestParseSetupCode(t *testing.T) {
 
 func TestCommissioner_Commission_ThreadDeviceNoCredentials(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery so the device is NOT on-network.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// Override the NetworkCommissioning FeatureMap (cluster 0x0031, attr 0xFFFC)
 	// to report Thread-only (bit 1 = 0x02).
@@ -558,6 +560,8 @@ func TestCommissioner_Commission_ThreadDeviceNoCredentials(t *testing.T) {
 
 func TestCommissioner_Commission_WiFiThreadDeviceNoCredentials(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery so the device is NOT on-network.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// FeatureMap: WiFi (0x01) + Thread (0x02) = 0x03
 	mc := c.Client.(*mockInteractionClient)
@@ -621,8 +625,75 @@ func TestCommissioner_Commission_EthernetDeviceNoCredentials(t *testing.T) {
 	}
 }
 
+// TestCommissioner_Commission_OnNetworkSkipsFeatureMapCheck verifies that when
+// a device is discovered via IP (on-network), the commissioning flow skips the
+// NetworkCommissioning FeatureMap validation — even if the device incorrectly
+// reports Thread-only capabilities.
+func TestCommissioner_Commission_OnNetworkThreadDeviceNoCredentials(t *testing.T) {
+	c := newTestCommissioner()
+	// Default mock discoverer returns an IP address → auto-detected as on-network.
+
+	// FeatureMap: Thread-only (0x02) — would normally require credentials,
+	// but the device is on-network so this should be ignored.
+	mc := c.Client.(*mockInteractionClient)
+	mc.readOverrides = map[attrKey]struct {
+		data []byte
+		err  error
+	}{
+		{endpoint: 0, cluster: 0x0031, attribute: 0xFFFC}: {
+			data: encodeTLVUint32(0x02), // Thread only
+		},
+	}
+
+	payload := SetupPayload{
+		Discriminator: 3840,
+		Passcode:      20202021,
+	}
+	qr, _ := payload.QRCode()
+
+	params := CommissioningParams{
+		SetupCode: qr,
+		NodeID:    1,
+		// No Network credentials — device is on-network, so none needed.
+	}
+
+	// On-network device should succeed even with Thread-only FeatureMap.
+	if _, err := c.Commission(context.Background(), params); err != nil {
+		t.Fatalf("Commission should succeed for on-network device with Thread FeatureMap: %v", err)
+	}
+}
+
+// TestCommissioner_Commission_OnNetworkIgnoresSuppliedCredentials verifies that
+// when a device is on-network and the user supplies WiFi credentials, the
+// credentials are ignored (with a warning) and commissioning succeeds without
+// network provisioning.
+func TestCommissioner_Commission_OnNetworkIgnoresSuppliedCredentials(t *testing.T) {
+	c := newTestCommissioner()
+	// Default mock discoverer returns an IP address → auto-detected as on-network.
+
+	payload := SetupPayload{
+		Discriminator: 3840,
+		Passcode:      20202021,
+	}
+	qr, _ := payload.QRCode()
+
+	wifiCreds := NewWiFiCredentials("TestNet", "TestPass")
+	params := CommissioningParams{
+		SetupCode: qr,
+		NodeID:    1,
+		Network:   &wifiCreds,
+	}
+
+	// Should succeed — credentials are ignored for on-network devices.
+	if _, err := c.Commission(context.Background(), params); err != nil {
+		t.Fatalf("Commission should succeed (ignoring creds) for on-network device: %v", err)
+	}
+}
+
 func TestCommissioner_Commission_ThreadDeviceWithCredentials(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery — credentials are provided for the Thread network.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// FeatureMap: Thread-only (0x02) — but credentials ARE provided.
 	mc := c.Client.(*mockInteractionClient)
@@ -659,6 +730,8 @@ func TestCommissioner_Commission_ThreadDeviceWithCredentials(t *testing.T) {
 // the commissioner reconnects BLE and delivers the Thread dataset.
 func TestCommissioner_Commission_BLEDropDuringAddNOC_WithThread(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery — Thread credentials need to be delivered over BLE.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// Make InvokeTimed fail with ErrConnClosed on the 2nd call.
 	// Call order: 1=AddTrustedRoot (TimedInvoke), 2=AddNOC (TimedInvoke).
@@ -706,6 +779,8 @@ func TestCommissioner_Commission_BLEDropDuringAddNOC_WithThread(t *testing.T) {
 // returns an error explaining that the Thread dataset could not be delivered.
 func TestCommissioner_Commission_BLEDropDuringAddNOC_ReconnectFails(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery — Thread credentials need to be delivered over BLE.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// Make InvokeTimed fail with ErrConnClosed on the 2nd call (AddNOC).
 	mc := c.Client.(*mockInteractionClient)
@@ -749,6 +824,8 @@ func TestCommissioner_Commission_BLEDropDuringAddNOC_ReconnectFails(t *testing.T
 // reconnect logic works for WiFi devices (not just Thread).
 func TestCommissioner_Commission_BLEDropDuringAddNOC_WithWiFi(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery — WiFi credentials need to be delivered over BLE.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// Make InvokeTimed fail with ErrConnClosed on the 2nd call (AddNOC).
 	mc := c.Client.(*mockInteractionClient)
@@ -926,6 +1003,8 @@ func TestCommissioner_Commission_NonConcurrentDevice(t *testing.T) {
 // after AddNOC drops BLE, and commissioning succeeds.
 func TestCommissioner_Commission_NonConcurrentDeviceWithThread(t *testing.T) {
 	c := newTestCommissioner()
+	// Simulate BLE discovery — Thread credentials need to be delivered over BLE.
+	c.Discoverer = &mockDiscoverer{addr: "ble://mock"}
 
 	// SupportsConcurrentConnection = false
 	w := tlv.NewWriter()

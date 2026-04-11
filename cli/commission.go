@@ -269,9 +269,10 @@ func newCommissionIPCmd() *cobra.Command {
 			}
 
 			params := commissioning.CommissioningParams{
-				Passcode: pin,
-				NodeID:   nodeID,
-				Network:  network,
+				Passcode:  pin,
+				NodeID:    nodeID,
+				Network:   network,
+				OnNetwork: true,
 			}
 
 			stepper.Step(fmt.Sprintf("Commissioning device at %s with pin %s as node %s",
