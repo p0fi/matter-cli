@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(matter-js-test-device)",
+      "Skill(matter-js-test-device:*)",
+      "Bash(kill 23828)",
+      "Bash(go build:*)",
+      "Bash(go env:*)",
+      "Bash(go version:*)",
+      "Bash(go clean:*)",
+      "Bash(go vet:*)",
+      "Bash(gh issue:*)"
+    ]
+  }
+}
