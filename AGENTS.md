@@ -117,6 +117,48 @@ func TestTLVEncodeUint(t *testing.T) {
 
 ---
 
+## Build System
+
+This project uses **[mise-en-place](https://mise.jdx.dev/)** (`mise`) to manage tool versions and define build tasks. All agents **must** activate mise before running any build, test, or lint commands so that they use the exact Go and tool versions pinned in `mise.toml`.
+
+### Activating mise
+
+Before running any commands, activate mise in the current shell:
+
+```bash
+eval "$(mise activate bash)"   # or: eval "$(mise activate zsh)"
+```
+
+Alternatively, prefix every command with `mise exec --`:
+
+```bash
+mise exec -- go build ./...
+```
+
+### Available tasks
+
+Use `mise run <task>` instead of invoking tools directly:
+
+| Task | Description |
+|------|-------------|
+| `mise run build` | Build the `matter` binary into `bin/` with version/commit/date ldflags |
+| `mise run install` | Install the `matter` binary via `go install` with ldflags |
+| `mise run build-install` | Build and install (runs both tasks) |
+| `mise run test` | Run tests with race detector (`-race -count=1`) |
+| `mise run test-cover` | Run tests with coverage, generate HTML report |
+| `mise run vet` | Run `go vet ./...` |
+| `mise run lint` | Run `golangci-lint` (includes vet) |
+| `mise run fmt` | Format Go source files with `gofmt` |
+| `mise run clean` | Remove build artifacts (`bin/`, coverage files) |
+
+### Rules for agents
+
+1. **Always use `mise run`** for build, test, lint, and format tasks — never call `go build`, `go test`, `golangci-lint`, or `gofmt` directly. The mise tasks include required ldflags, dependencies, and consistent tool versions.
+2. **Never assume Go or tooling is on `$PATH`** without mise activation. The project pins specific versions in `mise.toml`; using a different version can cause subtle breakage.
+3. **When adding a new build step or tool**, add it to `mise.toml` rather than a Makefile or shell script.
+
+---
+
 ## Git workflow
 
 Agents must treat commits as part of the development process, not an afterthought. When starting a new feature or command, agents should create a new branch to develop the feature or command. When the feature or command is complete, agents should merge the branch into the main branch using a pull request.
