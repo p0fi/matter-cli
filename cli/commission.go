@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/clusters"
@@ -339,6 +340,7 @@ func buildNodeFromResult(nodeID uint64, result *commissioning.CommissioningResul
 		VendorID:    result.VendorID,
 		ProductID:   result.ProductID,
 		LastAddress: result.Address,
+		LastSeen:    time.Now(),
 	}
 	if result.ProductName != "" {
 		node.Name = result.ProductName
