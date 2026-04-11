@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/p0fi/matter-cli/internal/interaction"
@@ -34,6 +35,10 @@ type CommissioningParams struct {
 	// Network holds optional network credentials for WiFi or Thread provisioning.
 	// If nil, the device is assumed to be on an Ethernet network.
 	Network *NetworkCredentials
+	// OnNetwork indicates the device is already reachable over IP (e.g. mDNS
+	// discovery or static address). When true, network provisioning steps are
+	// skipped regardless of the device's reported NetworkCommissioning capabilities.
+	OnNetwork bool
 	// FailsafeSeconds is the failsafe timer duration. Defaults to 60 if zero.
 	FailsafeSeconds uint16
 }
@@ -227,6 +232,14 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		return nil, fmt.Errorf("commissioning: discovering device: %w", err)
 	}
 
+	// If the device was discovered via IP (not BLE), it is already on the
+	// network. This overrides any device-reported NetworkCommissioning
+	// capabilities that might incorrectly claim Thread/WiFi-only support.
+	if !params.OnNetwork && !strings.HasPrefix(addr, "ble://") {
+		params.OnNetwork = true
+		slog.Debug("commissioning: device discovered via IP — marking as on-network")
+	}
+
 	// Step 3: Establish PASE session.
 	c.reportProgress(StepEstablishPASE)
 	paseSession, err := c.Sessions.EstablishPASE(ctx, addr, passcode)
@@ -277,11 +290,19 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	//   Bit 1 (0x02): Thread
 	//   Bit 2 (0x04): Ethernet
 	//
+	// If the device is already on-network and the user supplied credentials,
+	// warn and discard them — network provisioning is unnecessary.
+	if params.OnNetwork && params.Network != nil {
+		slog.Warn("commissioning: device is already on-network; ignoring supplied network credentials",
+			"networkType", params.Network.Type.String())
+		params.Network = nil
+	}
+
 	// If the device only supports Thread (or only Wi-Fi) and no matching
 	// credentials were supplied, bail out now with a clear error message
 	// instead of proceeding to AddNOC where the BLE connection would drop
 	// and leave the user with a cryptic timeout.
-	if params.Network == nil {
+	if params.Network == nil && !params.OnNetwork {
 		if featureData, rdErr := c.Client.ReadAttribute(ctx, paseSession, 0, 0x0031, 0xFFFC); rdErr == nil {
 			features := decodeTLVUint32(featureData)
 			hasWiFi := features&0x01 != 0
