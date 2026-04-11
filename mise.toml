@@ -1,6 +1,7 @@
 [tools]
 go = "1.26.2"
 "go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "latest"
+"go:github.com/goreleaser/goreleaser/v2" = "latest"
 
 [env]
 BINARY = "matter"
@@ -55,3 +56,7 @@ run = "gofmt -w ."
 [tasks.clean]
 description = "Remove build artifacts"
 run = "rm -rf bin/ coverage.out coverage.html"
+
+[tasks.release-dry-run]
+description = "Dry-run a release build locally (snapshot, no publish)"
+run = "goreleaser release --snapshot --clean"

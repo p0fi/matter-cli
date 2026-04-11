@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: matter
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: matter-darwin
+    main: ./cmd/matter/
+    binary: matter
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w
+      - -X github.com/p0fi/matter-cli/cli.version={{.Version}}
+      - -X github.com/p0fi/matter-cli/cli.commit={{.ShortCommit}}
+      - -X github.com/p0fi/matter-cli/cli.date={{.Date}}
+
+  - id: matter-linux
+    main: ./cmd/matter/
+    binary: matter
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/p0fi/matter-cli/cli.version={{.Version}}
+      - -X github.com/p0fi/matter-cli/cli.commit={{.ShortCommit}}
+      - -X github.com/p0fi/matter-cli/cli.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: matter-cli
+    repository:
+      owner: p0fi
+      name: homebrew-tools
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/p0fi/matter-cli"
+    description: "Matter protocol CLI controller — commission and control Matter devices from your terminal"
+    license: "Apache-2.0"
+    install: |
+      bin.install "matter"
+    test: |
+      system "#{bin}/matter", "version"
