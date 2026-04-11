@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
@@ -203,6 +204,11 @@ func connectToNode(ctx context.Context, nodeID uint64) (
 		ctrl.Close()
 		s.Close()
 		return nil, nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
+	}
+
+	node.LastSeen = time.Now()
+	if saveErr := s.SaveNode(fabricID, node); saveErr != nil {
+		slog.Warn("failed to update LastSeen", "node", nodeID, "err", saveErr)
 	}
 
 	client := interaction.NewClient(ctrl.Exchanges())

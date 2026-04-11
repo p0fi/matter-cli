@@ -394,6 +394,11 @@ func (s *Server) getOrCreateSession(ctx context.Context, nodeID, fabricID uint64
 		return nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
 	}
 
+	node.LastSeen = time.Now()
+	if saveErr := s.store.SaveNode(fabricID, node); saveErr != nil {
+		slog.Warn("daemon: failed to update LastSeen", "node", nodeID, "err", saveErr)
+	}
+
 	client := interaction.NewClient(ctrl.Exchanges())
 
 	s.mu.Lock()
