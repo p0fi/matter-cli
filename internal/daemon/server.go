@@ -224,7 +224,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	// Set a deadline so a misbehaving client doesn't block forever.
-	conn.SetDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
@@ -614,7 +614,7 @@ func writeResponse(conn net.Conn, resp Response) {
 		return
 	}
 	data = append(data, '\n')
-	conn.Write(data)
+	_, _ = conn.Write(data)
 }
 
 // writePIDFile writes the current PID to the daemon PID file.

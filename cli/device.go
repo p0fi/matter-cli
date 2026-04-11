@@ -92,20 +92,6 @@ func getFabric(fabricID uint64) (*store.Fabric, error) {
 	return s.GetFabric(fabricID)
 }
 
-// saveNode persists a node record, routing through the daemon when it is
-// running so that the BoltDB exclusive lock held by the daemon is respected.
-func saveNode(fabricID uint64, node *store.Node) error {
-	dc := daemon.NewClient("")
-	if dc.IsRunning() {
-		return dc.SaveNode(fabricID, node)
-	}
-	s, err := openStore()
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-	return s.SaveNode(fabricID, node)
-}
 
 // deleteNode removes a node record from the store, routing through the daemon
 // when it is running so that the BoltDB exclusive lock is respected. The daemon

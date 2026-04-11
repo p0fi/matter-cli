@@ -130,7 +130,7 @@ func NewWithConn(cfg Config, conn transport.Conn) (*Controller, error) {
 // ID in unsecured messages.
 func randomNodeID() uint64 {
 	var buf [8]byte
-	rand.Read(buf[:])
+	_, _ = rand.Read(buf[:])
 	// Ensure non-zero.
 	id := binary.BigEndian.Uint64(buf[:])
 	if id == 0 {

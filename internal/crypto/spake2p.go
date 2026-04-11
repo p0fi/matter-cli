@@ -126,7 +126,7 @@ func (p *SPAKE2PProver) ComputePublicShare() ([]byte, error) {
 	w0Mx, w0My := curve.ScalarMult(spake2pM.X, spake2pM.Y, p.w0.Bytes())
 	Xx, Xy := curve.Add(xGx, xGy, w0Mx, w0My)
 
-	p.pA = elliptic.Marshal(curve, Xx, Xy)
+	p.pA = marshalEC(curve, Xx, Xy)
 	return p.pA, nil
 }
 
@@ -139,7 +139,7 @@ func (p *SPAKE2PProver) ComputeSecretAndConfirm(context, idProver, idVerifier, p
 	n := curve.Params().N
 
 	// Parse pB.
-	Yx, Yy := elliptic.Unmarshal(curve, pB)
+	Yx, Yy := unmarshalEC(curve, pB)
 	if Yx == nil {
 		return nil, nil, nil, fmt.Errorf("crypto: SPAKE2+ invalid pB point")
 	}
@@ -170,7 +170,7 @@ func NewSPAKE2PVerifier(w0, L []byte) (*SPAKE2PVerifier, error) {
 		return nil, fmt.Errorf("crypto: SPAKE2+ w0 out of range")
 	}
 
-	lx, ly := elliptic.Unmarshal(curve, L)
+	lx, ly := unmarshalEC(curve, L)
 	if lx == nil {
 		return nil, fmt.Errorf("crypto: SPAKE2+ invalid L point")
 	}
@@ -202,7 +202,7 @@ func (v *SPAKE2PVerifier) ComputePublicShare() ([]byte, error) {
 	w0Nx, w0Ny := curve.ScalarMult(spake2pN.X, spake2pN.Y, v.w0.Bytes())
 	Yx, Yy := curve.Add(yGx, yGy, w0Nx, w0Ny)
 
-	v.pB = elliptic.Marshal(curve, Yx, Yy)
+	v.pB = marshalEC(curve, Yx, Yy)
 	return v.pB, nil
 }
 
@@ -214,7 +214,7 @@ func (v *SPAKE2PVerifier) ComputeSecretAndConfirm(context, idProver, idVerifier,
 	curve := v.curve
 
 	// Parse pA.
-	Xx, Xy := elliptic.Unmarshal(curve, pA)
+	Xx, Xy := unmarshalEC(curve, pA)
 	if Xx == nil {
 		return nil, nil, nil, fmt.Errorf("crypto: SPAKE2+ invalid pA point")
 	}
@@ -246,10 +246,10 @@ func computeTranscriptAndKeys(curve elliptic.Curve, context, idProver, idVerifie
 	// Build TT = Hash(context_len || context || idProver_len || idProver || idVerifier_len || idVerifier ||
 	//               M_len || M || N_len || N || pA_len || pA || pB_len || pB ||
 	//               Z_len || Z || V_len || V || w0_len || w0)
-	mBytes := elliptic.Marshal(curve, spake2pM.X, spake2pM.Y)
-	nBytes := elliptic.Marshal(curve, spake2pN.X, spake2pN.Y)
-	zBytes := elliptic.Marshal(curve, zX, zY)
-	vBytes := elliptic.Marshal(curve, vX, vY)
+	mBytes := marshalEC(curve, spake2pM.X, spake2pM.Y)
+	nBytes := marshalEC(curve, spake2pN.X, spake2pN.Y)
+	zBytes := marshalEC(curve, zX, zY)
+	vBytes := marshalEC(curve, vX, vY)
 	w0Bytes := zeroPad(w0.Bytes(), 32)
 
 	h := sha256.New()
@@ -305,8 +305,8 @@ func writeWithLength(h interface{ Write([]byte) (int, error) }, data []byte) {
 	lenBuf[5] = byte(len(data) >> 40)
 	lenBuf[6] = byte(len(data) >> 48)
 	lenBuf[7] = byte(len(data) >> 56)
-	h.Write(lenBuf[:])
-	h.Write(data)
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write(data)
 }
 
 // ComputeL computes L = w1 * G (the verifier's precomputed public point).
@@ -314,5 +314,32 @@ func writeWithLength(h interface{ Write([]byte) (int, error) }, data []byte) {
 func ComputeL(w1 []byte) []byte {
 	curve := P256()
 	lx, ly := curve.ScalarBaseMult(w1)
-	return elliptic.Marshal(curve, lx, ly)
+	return marshalEC(curve, lx, ly)
+}
+
+// marshalEC encodes (x, y) as an uncompressed SEC1 point (0x04 || x || y).
+// This replaces the deprecated elliptic.Marshal.
+func marshalEC(curve elliptic.Curve, x, y *big.Int) []byte {
+	byteLen := (curve.Params().BitSize + 7) / 8
+	ret := make([]byte, 1+2*byteLen)
+	ret[0] = 4
+	x.FillBytes(ret[1 : 1+byteLen])
+	y.FillBytes(ret[1+byteLen:])
+	return ret
+}
+
+// unmarshalEC decodes an uncompressed SEC1 point (0x04 || x || y) and validates
+// that it lies on the curve. Returns nil, nil on failure.
+// This replaces the deprecated elliptic.Unmarshal.
+func unmarshalEC(curve elliptic.Curve, data []byte) (*big.Int, *big.Int) {
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if len(data) != 1+2*byteLen || data[0] != 4 {
+		return nil, nil
+	}
+	x := new(big.Int).SetBytes(data[1 : 1+byteLen])
+	y := new(big.Int).SetBytes(data[1+byteLen:])
+	if !curve.IsOnCurve(x, y) {
+		return nil, nil
+	}
+	return x, y
 }

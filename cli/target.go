@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -261,7 +262,7 @@ func resolveTarget() {
 // during PersistentPreRunE.
 func requireTarget(_ *cobra.Command) (uint64, uint16, error) {
 	if resolvedTarget == nil || resolvedTarget.NodeID == 0 {
-		return 0, 0, fmt.Errorf(noTargetError)
+		return 0, 0, errors.New(noTargetError)
 	}
 	return resolvedTarget.NodeID, resolvedTarget.Endpoint, nil
 }

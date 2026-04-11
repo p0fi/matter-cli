@@ -32,16 +32,25 @@ func GenerateKeyPair() (*ecdsa.PrivateKey, error) {
 
 // PublicKeyToUncompressed returns the uncompressed SEC1 encoding of a P-256 public key (65 bytes: 0x04 || X || Y).
 func PublicKeyToUncompressed(pub *ecdsa.PublicKey) []byte {
-	return elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+	ret := make([]byte, 65)
+	ret[0] = 4
+	pub.X.FillBytes(ret[1:33])
+	pub.Y.FillBytes(ret[33:])
+	return ret
 }
 
 // PublicKeyFromUncompressed parses an uncompressed SEC1-encoded P-256 public key.
 func PublicKeyFromUncompressed(data []byte) (*ecdsa.PublicKey, error) {
-	x, y := elliptic.Unmarshal(P256(), data)
-	if x == nil {
+	if len(data) != 65 || data[0] != 4 {
 		return nil, fmt.Errorf("crypto: invalid uncompressed P-256 point")
 	}
-	return &ecdsa.PublicKey{Curve: P256(), X: x, Y: y}, nil
+	curve := P256()
+	x := new(big.Int).SetBytes(data[1:33])
+	y := new(big.Int).SetBytes(data[33:])
+	if !curve.IsOnCurve(x, y) {
+		return nil, fmt.Errorf("crypto: invalid uncompressed P-256 point")
+	}
+	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
 // CompressPublicKey returns the compressed SEC1 encoding of a P-256 public key (33 bytes).
