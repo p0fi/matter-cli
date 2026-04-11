@@ -176,12 +176,8 @@ func entryToDevice(entry *zeroconf.ServiceEntry, svcType ServiceType) *Device {
 
 	// Collect all IP addresses (both v4 and v6).
 	dev.IPs = make([]net.IP, 0, len(entry.AddrIPv4)+len(entry.AddrIPv6))
-	for _, ip := range entry.AddrIPv4 {
-		dev.IPs = append(dev.IPs, ip)
-	}
-	for _, ip := range entry.AddrIPv6 {
-		dev.IPs = append(dev.IPs, ip)
-	}
+	dev.IPs = append(dev.IPs, entry.AddrIPv4...)
+	dev.IPs = append(dev.IPs, entry.AddrIPv6...)
 
 	dev.parseTXTRecords(entry.Text)
 	return dev

@@ -81,11 +81,11 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	slog.Debug("ble: discovering Matter service")
 	services, err := device.DiscoverServices([]BLEUUID{MatterServiceUUID})
 	if err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: discovering Matter service: %w", err)
 	}
 	if len(services) == 0 {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: Matter service (UUID %s) not found on device", MatterServiceUUID)
 	}
 	svc := services[0]
@@ -94,7 +94,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	slog.Debug("ble: discovering characteristics")
 	chars, err := svc.DiscoverCharacteristics([]BLEUUID{MatterC1UUID, MatterC2UUID})
 	if err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: discovering characteristics: %w", err)
 	}
 	var c1, c2 bleCharacteristic
@@ -107,7 +107,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 		}
 	}
 	if c1 == nil || c2 == nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: missing required characteristic (C1=%v, C2=%v)", c1 != nil, c2 != nil)
 	}
 	slog.Debug("ble: characteristic discovery complete", "c1", c1.UUID(), "c2", c2.UUID())
@@ -162,7 +162,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 
 	n, err := c1.WriteWithResponse(hsReq)
 	if err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: writing BTP capabilities request to C1: %w", err)
 	}
 	slog.Debug("ble: BTP capabilities request written to C1", "bytesWritten", n)
@@ -203,7 +203,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 			}
 		}
 	}); err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: subscribing to C2: %w", err)
 	}
 	slog.Debug("ble: registered C2 notification callback via EnableNotifications")
@@ -212,7 +212,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	notifyCtx, notifyCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer notifyCancel()
 	if err := c2.WaitForNotifying(notifyCtx); err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: waiting for C2 subscription: %w", err)
 	}
 	slog.Debug("ble: C2 subscription confirmed, waiting for handshake response")
@@ -278,7 +278,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 		case <-retryTicker.C:
 			attempt++
 			if attempt > btpHandshakeMaxAttempts {
-				device.Disconnect()
+				_ = device.Disconnect()
 				if ctx.Err() != nil {
 					return nil, fmt.Errorf("ble: BTP handshake cancelled: %w", ctx.Err())
 				}
@@ -286,12 +286,12 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 			}
 			slog.Debug("ble: BTP handshake no response, retrying", "attempt", attempt)
 			if err := sendCapsRequest(); err != nil {
-				device.Disconnect()
+				_ = device.Disconnect()
 				return nil, err
 			}
 
 		case <-hsTimeout.Done():
-			device.Disconnect()
+			_ = device.Disconnect()
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("ble: BTP handshake cancelled: %w", ctx.Err())
 			}
@@ -301,7 +301,7 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 
 	version, fragmentSize, windowSize, err := parseBTPHandshakeResponse(hsData)
 	if err != nil {
-		device.Disconnect()
+		_ = device.Disconnect()
 		return nil, fmt.Errorf("ble: %w", err)
 	}
 

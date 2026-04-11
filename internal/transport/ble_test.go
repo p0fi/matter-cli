@@ -131,7 +131,7 @@ func TestDialBLE_MissingCharacteristics(t *testing.T) {
 }
 
 func TestDialBLE_SuccessViaNotificationPath(t *testing.T) {
-	adapter, _, c2 := buildMockDeviceForDial()
+	_, _, c2 := buildMockDeviceForDial()
 
 	// This test verifies that the notification callback path (Path A) also
 	// works. We deliver the response only via the notification callback and
@@ -143,7 +143,7 @@ func TestDialBLE_SuccessViaNotificationPath(t *testing.T) {
 		characteristics: []bleCharacteristic{&mockBLECharacteristic{uuid: MatterC1UUID}, drainedC2},
 	}
 	dev := &mockBLEDevice{services: []bleService{svc}}
-	adapter = &mockBLEAdapter{
+	adapter := &mockBLEAdapter{
 		connectFn: func(ctx context.Context, addr BLEAddress) (bleDevice, error) {
 			return dev, nil
 		},
@@ -271,7 +271,7 @@ func TestBLEConn_ReceiveBlocksUntilMessage(t *testing.T) {
 		for _, seg := range segments {
 			// Simulate the peer acking our segments.
 			conn.btp.processAck(seg[2]) // ack the sequence number
-			conn.btp.handleSegment(seg)
+			_ = conn.btp.handleSegment(seg)
 		}
 	}()
 

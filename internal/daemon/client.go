@@ -219,7 +219,7 @@ func (c *Client) send(req Request) (*Response, error) {
 
 	// Set an overall deadline for the exchange. Most operations complete
 	// quickly, but CASE establishment on a constrained device can be slow.
-	conn.SetDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 
 	data, err := json.Marshal(req)
 	if err != nil {

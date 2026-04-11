@@ -263,14 +263,15 @@ func treeReadAttrRaw(ctx context.Context, dc *daemonNodeConn, client *interactio
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range dresp.Reports {
-			if r.StatusCode != 0 {
-				return nil, fmt.Errorf("status 0x%02X", r.StatusCode)
-			}
-			raw, _ := daemon.DecodeFields(r.Data)
-			return raw, nil
+		if len(dresp.Reports) == 0 {
+			return nil, nil
 		}
-		return nil, nil
+		r := dresp.Reports[0]
+		if r.StatusCode != 0 {
+			return nil, fmt.Errorf("status 0x%02X", r.StatusCode)
+		}
+		raw, _ := daemon.DecodeFields(r.Data)
+		return raw, nil
 	}
 
 	// Direct CASE session.

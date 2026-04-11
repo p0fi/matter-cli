@@ -534,7 +534,7 @@ func extractCBCharacteristicPtr(dc ble.DeviceCharacteristic) unsafe.Pointer {
 	numFields := inner.NumField()
 
 	// Log the full struct layout for diagnostics (only on first call).
-	if slog.Default().Enabled(nil, slog.LevelDebug) {
+	if slog.Default().Enabled(context.TODO(), slog.LevelDebug) {
 		fields := make([]string, numFields)
 		for i := 0; i < numFields; i++ {
 			f := innerType.Field(i)
