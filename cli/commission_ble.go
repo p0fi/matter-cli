@@ -104,6 +104,9 @@ func runCommissionBLE(cmd *cobra.Command, args []string) error {
 	defer ctrl.Close()
 
 	adapter := transport.NewDefaultBLEAdapter()
+	if err := adapter.Enable(); err != nil {
+		return fmt.Errorf("enabling BLE adapter: %w", err)
+	}
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
@@ -212,6 +215,9 @@ func runCommissionBLEAddress(cmd *cobra.Command, args []string) error {
 	defer ctrl.Close()
 
 	adapter := transport.NewDefaultBLEAdapter()
+	if err := adapter.Enable(); err != nil {
+		return fmt.Errorf("enabling BLE adapter: %w", err)
+	}
 	bleAddr := transport.BLEAddress(args[0])
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
