@@ -6,7 +6,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/p0fi/matter-cli/cli/completion"
@@ -135,7 +134,7 @@ func newFabricResetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fid := fabricID()
 
-			nodes, err := listNodesForCompletion(fid)
+			nodes, err := listNodes(fid)
 			if err != nil {
 				return fmt.Errorf("listing nodes: %w", err)
 			}
@@ -160,8 +159,11 @@ func newFabricResetCmd() *cobra.Command {
 			yes, _ := cmd.Flags().GetBool("yes")
 			if !yes {
 				fmt.Fprintf(w, "? Remove all %d devices from the fabric? [y/N] ", len(nodes))
-				scanner := bufio.NewScanner(os.Stdin)
+				scanner := bufio.NewScanner(cmd.InOrStdin())
 				if !scanner.Scan() {
+					if err := scanner.Err(); err != nil {
+						return fmt.Errorf("reading confirmation: %w", err)
+					}
 					return nil
 				}
 				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))

@@ -44,6 +44,22 @@ func openStoreForCompletion() (store.Store, error) {
 	return s, nil
 }
 
+// listNodes returns all commissioned nodes. When a session daemon is running it
+// queries the daemon via its Unix socket; otherwise it opens the DB with the
+// default (blocking) timeout. Use this for normal command paths.
+func listNodes(fabricID uint64) ([]*store.Node, error) {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.ListNodes(fabricID)
+	}
+	s, err := openStore()
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	return s.ListNodes(fabricID)
+}
+
 // listNodesForCompletion returns all commissioned nodes for use in shell
 // completion and target-resolution code paths. When a session daemon is
 // running it queries the daemon via its Unix socket (avoiding the BoltDB
