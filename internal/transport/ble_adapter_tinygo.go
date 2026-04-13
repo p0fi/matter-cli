@@ -349,6 +349,20 @@ func (tc *tinygoCharacteristic) WaitForNotifying(ctx context.Context) error {
 		return nil
 	}
 
+	// Resolve the fresh CoreBluetooth pointer. The cbgo-cached pointer may
+	// be stale (a different object than what CoreBluetooth tracks), which
+	// means checking its .isNotifying property would never reflect updates
+	// made via the live object. This is the same fix applied in WaitForValue
+	// and ClearCachedValue.
+	freshPtr, wasStale := corebtGetFreshPtr(tc.rawPtr)
+	if wasStale {
+		slog.Debug("ble: WaitForNotifying: resolved stale cbgo pointer to fresh CoreBluetooth pointer",
+			"stalePtr", fmt.Sprintf("%p", tc.rawPtr),
+			"freshPtr", fmt.Sprintf("%p", freshPtr),
+		)
+		tc.rawPtr = freshPtr
+	}
+
 	// Fast path: tinygo's async CCCD write already landed.
 	if corebtIsNotifying(tc.rawPtr) {
 		return nil
@@ -364,21 +378,23 @@ func (tc *tinygoCharacteristic) WaitForNotifying(ctx context.Context) error {
 		return nil
 	}
 
-	// tinygo's call failed silently. This happens on macOS without a
-	// developer Bluetooth profile: tinygo calls setNotifyValue from a Go
-	// goroutine thread instead of on cbgo's bt_queue, so CoreBluetooth
-	// accepts the call but never sends the CCCD write to the peripheral.
+	// tinygo's call failed to confirm within 500 ms. This can happen on
+	// macOS without a developer Bluetooth profile: tinygo calls
+	// setNotifyValue from a Go goroutine thread instead of on cbgo's
+	// bt_queue. However, the write often DOES reach the peripheral even
+	// though CoreBluetooth's local isNotifying flag hasn't been updated yet.
 	//
-	// Reset any partial state by unsubscribing first (setNotifyValue:NO),
-	// then re-subscribe cleanly on bt_queue.
-	slog.Debug("ble: WaitForNotifying: tinygo CCCD write timed out — falling back to direct CoreBluetooth repair")
-
-	if corebtUnsubscribe(tc.rawPtr) {
-		slog.Debug("ble: WaitForNotifying: sent setNotifyValue:NO to reset partial subscription state")
-		// Give CoreBluetooth a moment to process the unsubscribe before
-		// we re-subscribe. 150 ms covers the bt_queue round-trip.
-		time.Sleep(150 * time.Millisecond)
-	}
+	// Important: do NOT send setNotifyValue:NO here. The CHIP BLE stack on
+	// the device treats any CCCD unsubscribe as a terminal event — it tears
+	// down the BTP endpoint and closes the connection. If tinygo's YES
+	// already reached the device (which is the common case — the device logs
+	// "BLE connection established" shortly after), sending NO would destroy
+	// the session before we even start PASE.
+	//
+	// Instead, just retry the subscribe directly on bt_queue. If tinygo's
+	// write was already processed by the device this is a harmless duplicate;
+	// if not, this is the recovery path.
+	slog.Debug("ble: WaitForNotifying: tinygo CCCD write timed out — retrying subscribe on bt_queue (no unsubscribe)")
 
 	if !corebtSubscribe(tc.rawPtr) {
 		slog.Debug("ble: WaitForNotifying: direct subscribe failed (nil peripheral chain or bt_queue)")
