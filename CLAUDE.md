@@ -40,6 +40,8 @@ matter commission ip 192.168.1.42 --setup-code 34970112332
 matter fabric ls
 matter @1 tree                  # show endpoints & clusters
 matter @1 tree -L 4             # full tree including attribute values
+matter fabric reset             # remove all devices (interactive prompt)
+matter fabric reset --yes       # skip confirmation (for scripts/CI)
 
 # Set a sticky default target (node/endpoint)
 matter use @1/1
