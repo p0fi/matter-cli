@@ -10,7 +10,6 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -68,22 +67,9 @@ func isMatterBLEProfileInstalled() (bool, error) {
 		return false, fmt.Errorf("running system_profiler: %w", err)
 	}
 
-	// The profile's display name or identifier typically contains "Matter"
-	// and "Bluetooth". Check for common substrings that would appear in the
-	// profile metadata. The canonical profile is named
-	// "EnableBluetoothCentralMatterClientDeveloperMode".
+	// Match against the canonical profile identifier. Using a broad
+	// multi-keyword check risks false positives when unrelated profiles
+	// mention "matter" or "bluetooth" independently.
 	lower := bytes.ToLower(out)
-	hasMatter := bytes.Contains(lower, []byte("matter"))
-	hasBluetooth := bytes.Contains(lower, []byte("bluetooth"))
-
-	if hasMatter && hasBluetooth {
-		return true, nil
-	}
-
-	// Also check for the canonical identifier substring.
-	if strings.Contains(string(lower), "enablebluetoothcentralmatterclientdevelopermode") {
-		return true, nil
-	}
-
-	return false, nil
+	return bytes.Contains(lower, []byte("enablebluetoothcentralmatterclientdevelopermode")), nil
 }
