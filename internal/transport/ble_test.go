@@ -300,7 +300,7 @@ func TestBLEConn_Close_DisconnectsDevice(t *testing.T) {
 
 	err := conn.Close()
 	require.NoError(t, err)
-	assert.True(t, dev.disconnectCalled, "device.Disconnect should be called on Close")
+	assert.True(t, dev.disconnectCalled.Load(), "device.Disconnect should be called on Close")
 }
 
 func TestBLEConn_Close_Idempotent(t *testing.T) {
@@ -343,7 +343,7 @@ func TestBLEConn_DisconnectWatcherDetectsDisconnection(t *testing.T) {
 	conn.startDisconnectWatcher()
 
 	// Simulate peripheral disconnection.
-	c2.disconnected = true
+	c2.disconnected.Store(true)
 
 	// The watcher checks connectivity every 1 s. Give it up to 3 seconds
 	// to detect the disconnection and close the connection.
@@ -357,7 +357,7 @@ func TestBLEConn_DisconnectWatcherDetectsDisconnection(t *testing.T) {
 		"error should indicate the connection was closed")
 
 	// The device should have been disconnected.
-	assert.True(t, dev.disconnectCalled,
+	assert.True(t, dev.disconnectCalled.Load(),
 		"device.Disconnect should be called when the watcher detects disconnection")
 }
 

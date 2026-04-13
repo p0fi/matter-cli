@@ -39,7 +39,7 @@ type CommissioningParams struct {
 	// discovery or static address). When true, network provisioning steps are
 	// skipped regardless of the device's reported NetworkCommissioning capabilities.
 	OnNetwork bool
-	// FailsafeSeconds is the failsafe timer duration. Defaults to 60 if zero.
+	// FailsafeSeconds is the failsafe timer duration. Defaults to 180 if zero.
 	FailsafeSeconds uint16
 }
 

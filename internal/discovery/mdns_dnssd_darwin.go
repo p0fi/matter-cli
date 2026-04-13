@@ -49,6 +49,10 @@ func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entr
 	// a goroutine; results are sent to the entries channel as they complete.
 	var wg sync.WaitGroup
 
+	// Limit concurrent resolve goroutines to avoid spawning unbounded
+	// dns-sd subprocesses on networks with many Matter instances.
+	sem := make(chan struct{}, 8)
+
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -77,6 +81,8 @@ func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entr
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			entry, err := d.resolveInstance(ctx, name, service, domain)
 			if err != nil {
 				slog.Debug("dns-sd: resolve failed, skipping", "name", name, "err", err)
@@ -89,11 +95,21 @@ func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entr
 		}(instanceName)
 	}
 
+	scanErr := scanner.Err()
+
 	// Wait for all in-flight resolutions before closing the entries channel.
 	wg.Wait()
 
 	// Kill the browse process (context cancellation does this via CommandContext).
-	_ = cmd.Wait()
+	// Suppress errors caused by context cancellation/deadline, but surface
+	// unexpected subprocess failures and scanner errors.
+	waitErr := cmd.Wait()
+	if scanErr != nil && ctx.Err() == nil {
+		return fmt.Errorf("reading dns-sd browse output: %w", scanErr)
+	}
+	if waitErr != nil && ctx.Err() == nil {
+		return fmt.Errorf("waiting for dns-sd browse: %w", waitErr)
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ package interaction
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -467,9 +468,12 @@ func TestClient_Subscribe_CancelDrainsChannels(t *testing.T) {
 func TestSendIMMessageWithACK_WithACK(t *testing.T) {
 	// Capture the message that goes out on the wire.
 	var captured *protocol.Message
+	var capturedMu sync.Mutex
 	em := protocol.NewExchangeManager()
 	em.DefaultSendFunc = func(_ context.Context, msg *protocol.Message) error {
+		capturedMu.Lock()
 		captured = msg
+		capturedMu.Unlock()
 		return nil
 	}
 
@@ -505,16 +509,19 @@ func TestSendIMMessageWithACK_WithACK(t *testing.T) {
 
 	// The second message sent (InvokeRequest) should have ExFlagACK set and
 	// AckMessageCounter == 0xDEAD.  captured is set by DefaultSendFunc.
-	if captured == nil {
+	capturedMu.Lock()
+	capturedMsg := captured
+	capturedMu.Unlock()
+	if capturedMsg == nil {
 		t.Fatal("no message was captured by DefaultSendFunc")
 	}
-	if captured.Protocol.ExchangeFlags&protocol.ExFlagACK == 0 {
+	if capturedMsg.Protocol.ExchangeFlags&protocol.ExFlagACK == 0 {
 		t.Errorf("expected ExFlagACK to be set on InvokeRequest, flags=0x%02X",
-			captured.Protocol.ExchangeFlags)
+			capturedMsg.Protocol.ExchangeFlags)
 	}
-	if captured.Protocol.AckMessageCounter != 0xDEAD {
+	if capturedMsg.Protocol.AckMessageCounter != 0xDEAD {
 		t.Errorf("AckMessageCounter = 0x%04X, want 0xDEAD",
-			captured.Protocol.AckMessageCounter)
+			capturedMsg.Protocol.AckMessageCounter)
 	}
 
 	// Now deliver an InvokeResponse so the goroutine can finish.

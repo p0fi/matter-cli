@@ -2,13 +2,13 @@
 
 Bugs found and fixed during end-to-end BLE commissioning with an ESP32-C6 device.
 
-## Bug #1: Missing BTP Continue flag on continuation segments
+## Bug #1: Missing BTP Continue flag on non-first segments
 
 **Symptom:** ESP32 logged `BLE_ERROR_REASSEMBLER_MISSING_DATA` when receiving multi-segment BTP messages (e.g. AddNOC, which exceeds a single BLE MTU).
 
-**Root cause:** `buildSegment()` in `internal/transport/btp.go` did not set the `Continue` flag (`0x02`) on continuation segments (segments that are neither the first nor the last). The Matter BTP spec requires `Begin`, `Continue`, or `End` flags on every segment.
+**Root cause:** `buildSegment()` in `internal/transport/btp.go` did not set the `Continue` flag (`0x02`) on all non-first segments. In particular, the last segment of a multi-segment message was sent with only `End`, but the Matter BTP behavior used by the implementation requires `Continue` on every segment after the first, including the last.
 
-**Fix:** Added `btpFlagContinue = 0x02` constant and set it on all non-Begin, non-End segments in `buildSegment()`.
+**Fix:** Added `btpFlagContinue = 0x02` constant and set it in `buildSegment()` on every non-first segment, including the final segment.
 
 ## Bug #2: CCCD unsubscribe in WaitForNotifying destroys BTP session
 
