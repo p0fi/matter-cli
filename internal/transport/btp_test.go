@@ -385,11 +385,22 @@ func TestSegment_MultiSegment(t *testing.T) {
 			assert.Equal(t, btpFlagBegin, segs[0][0]&btpFlagBegin, "first segment must have B=1")
 			assert.Equal(t, btpFlagEnd, segs[len(segs)-1][0]&btpFlagEnd, "last segment must have E=1")
 
-			// Middle segments must have neither B nor E.
+			// Middle segments must have neither B nor E, but must have C=1.
+			// The CHIP SDK's BtpEngine requires kContinueMessage (0x02) on all
+			// non-first segments; without it the device treats the segment as a
+			// standalone ACK and silently drops its payload.
 			for i := 1; i < len(segs)-1; i++ {
 				flags := segs[i][0]
 				assert.Zero(t, flags&btpFlagBegin, "middle segment %d must not have B=1", i)
 				assert.Zero(t, flags&btpFlagEnd, "middle segment %d must not have E=1", i)
+				assert.Equal(t, btpFlagContinue, flags&btpFlagContinue, "middle segment %d must have C=1", i)
+			}
+
+			// Non-first segments (including the last) must have C=1.
+			for i := 1; i < len(segs); i++ {
+				flags := segs[i][0]
+				assert.Equal(t, btpFlagContinue, flags&btpFlagContinue,
+					"segment %d (non-first) must have C=1 per CHIP SDK kContinueMessage requirement", i)
 			}
 
 			// MsgLen in first segment must equal total message length.
