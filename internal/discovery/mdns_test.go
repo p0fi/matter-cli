@@ -333,6 +333,106 @@ func TestWatchOperational_ContextCancelled(t *testing.T) {
 	}
 }
 
+func TestResolveOperational_Found(t *testing.T) {
+	// The compressed fabric ID 0xAABBCCDD11223344 and node ID 5 should match
+	// the instance name "AABBCCDD11223344-0000000000000005".
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "UNRELATED-0000000000000001"},
+				HostName:      "unrelated.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.1")},
+			},
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "AABBCCDD11223344-0000000000000005"},
+				HostName:      "target.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.5")},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+	fabricID := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44}
+	dev, err := browser.ResolveOperational(context.Background(), fabricID, 5, 5*time.Second)
+	if err != nil {
+		t.Fatalf("ResolveOperational: %v", err)
+	}
+	if dev.Name != "AABBCCDD11223344-0000000000000005" {
+		t.Errorf("Name = %q, want %q", dev.Name, "AABBCCDD11223344-0000000000000005")
+	}
+	if len(dev.IPs) == 0 || !dev.IPs[0].Equal(net.ParseIP("10.0.0.5")) {
+		t.Errorf("IPs = %v, want [10.0.0.5]", dev.IPs)
+	}
+}
+
+func TestResolveOperational_CaseInsensitive(t *testing.T) {
+	// Instance name is lowercase; should still match.
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "aabbccdd11223344-0000000000000005"},
+				HostName:      "target.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.5")},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+	fabricID := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44}
+	dev, err := browser.ResolveOperational(context.Background(), fabricID, 5, 5*time.Second)
+	if err != nil {
+		t.Fatalf("ResolveOperational should match case-insensitively: %v", err)
+	}
+	if dev == nil {
+		t.Fatal("expected device, got nil")
+	}
+}
+
+func TestResolveOperational_NotFound(t *testing.T) {
+	// No matching entry — should return a timeout error.
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "FFFFFFFFFFFFFFFF-0000000000000099"},
+				HostName:      "other.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.99")},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+	fabricID := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44}
+	_, err := browser.ResolveOperational(context.Background(), fabricID, 5, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error for unresolved node, got nil")
+	}
+}
+
+func TestResolveOperational_SkipsEntryWithNoIPs(t *testing.T) {
+	// Entry matches by name but has no IPs — should be skipped, resulting in timeout.
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "AABBCCDD11223344-0000000000000005"},
+				HostName:      "target.local.",
+				Port:          5540,
+				// No IPs.
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+	fabricID := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44}
+	_, err := browser.ResolveOperational(context.Background(), fabricID, 5, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error when matching entry has no IPs, got nil")
+	}
+}
+
 // blockingResolver is a mockResolver whose Browse blocks until the context is cancelled.
 type blockingResolver struct{}
 

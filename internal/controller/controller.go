@@ -450,7 +450,7 @@ func (c *Controller) CompressedFabricID() []byte {
 	if c.fabric == nil {
 		return nil
 	}
-	return c.fabric.compressedFabricID
+	return append([]byte(nil), c.fabric.compressedFabricID...)
 }
 
 // Close shuts down the controller, stopping the message pump and closing the

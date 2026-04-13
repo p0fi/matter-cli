@@ -402,6 +402,9 @@ func (s *Server) getOrCreateSession(ctx context.Context, nodeID, fabricID uint64
 			return nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
 		}
 		node.LastAddress = rediscAddr
+		if saveErr := s.store.SaveNode(fabricID, node); saveErr != nil {
+			slog.Warn("daemon: failed to persist rediscovered address", "node", nodeID, "err", saveErr)
+		}
 		session, err = ctrl.ConnectCASE(ctx, rediscAddr, nodeID)
 		if err != nil {
 			ctrl.Close()
@@ -652,23 +655,26 @@ func daemonRediscoverNode(ctx context.Context, ctrl *controller.Controller, node
 		return "", err
 	}
 	ip := daemonPickBestIP(dev.IPs)
-	return fmt.Sprintf("%s:%d", ip.String(), dev.Port), nil
+	return net.JoinHostPort(ip.String(), strconv.Itoa(dev.Port)), nil
 }
 
-// daemonPickBestIP selects the preferred IP from a list: IPv6 link-local first,
-// then any IPv6, then IPv4. Returns the first element if none match.
+// daemonPickBestIP selects the preferred IP from a list: global/ULA IPv6 first,
+// then IPv4, then link-local IPv6 (last resort — link-local requires a zone
+// ID to be routable, which mDNS responses don't always provide).
+// Returns the first element if none match the categories above.
 func daemonPickBestIP(ips []net.IP) net.IP {
 	if len(ips) == 0 {
 		return nil
 	}
-	var ipv6, ipv4 net.IP
+	var ipv6Global, ipv4, ipv6LinkLocal net.IP
 	for _, ip := range ips {
 		if ip.To4() == nil {
 			if ip.IsLinkLocalUnicast() {
-				return ip
-			}
-			if ipv6 == nil {
-				ipv6 = ip
+				if ipv6LinkLocal == nil {
+					ipv6LinkLocal = ip
+				}
+			} else if ipv6Global == nil {
+				ipv6Global = ip
 			}
 		} else {
 			if ipv4 == nil {
@@ -676,11 +682,14 @@ func daemonPickBestIP(ips []net.IP) net.IP {
 			}
 		}
 	}
-	if ipv6 != nil {
-		return ipv6
+	if ipv6Global != nil {
+		return ipv6Global
 	}
 	if ipv4 != nil {
 		return ipv4
+	}
+	if ipv6LinkLocal != nil {
+		return ipv6LinkLocal
 	}
 	return ips[0]
 }
