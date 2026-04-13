@@ -43,6 +43,14 @@ const (
 	// btpFlagBegin (B, bit 0) marks the first (or only) segment of a message.
 	btpFlagBegin = uint8(0x01)
 
+	// btpFlagContinue (C, bit 1) marks every segment after the first in a
+	// multi-segment message. The CHIP SDK's BtpEngine requires this flag on
+	// all non-first segments while reassembly is in progress: if it is absent,
+	// DidReceiveData() returns false and the segment is silently treated as a
+	// standalone ACK, causing payload bytes to be dropped. This is the
+	// kContinueMessage flag from BtpEngine.h.
+	btpFlagContinue = uint8(0x02)
+
 	// btpFlagEnd (E, bit 2) marks the last (or only) segment of a message.
 	btpFlagEnd = uint8(0x04)
 
@@ -347,6 +355,14 @@ func (s *btpSession) buildSegment(payload []byte, beginSeg, endSeg bool, msgLen 
 	flags := uint8(0)
 	if beginSeg {
 		flags |= btpFlagBegin
+	} else {
+		// Every non-first segment must carry kContinueMessage (0x02).
+		// The CHIP SDK's BtpEngine.HandleCharacteristicReceived() calls
+		// DidReceiveData() which returns false when neither B, C, nor E is
+		// set — causing the segment to be silently treated as a standalone
+		// ACK and its payload discarded. Setting C on all non-first segments
+		// matches the CHIP SDK transmitter (BtpEngine.cpp line 500).
+		flags |= btpFlagContinue
 	}
 	if endSeg {
 		flags |= btpFlagEnd

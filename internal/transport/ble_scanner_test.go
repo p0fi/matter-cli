@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,10 +119,10 @@ func (m *mockBLEAdapter) Connect(ctx context.Context, addr BLEAddress) (bleDevic
 // ─── Mock device / service / characteristic ───────────────────────────────────
 
 type mockBLEDevice struct {
-	services       []bleService
-	discoverErr    error
-	disconnectErr  error
-	disconnectCalled bool
+	services         []bleService
+	discoverErr      error
+	disconnectErr    error
+	disconnectCalled atomic.Bool
 }
 
 func (d *mockBLEDevice) DiscoverServices(uuids []BLEUUID) ([]bleService, error) {
@@ -145,7 +146,7 @@ func (d *mockBLEDevice) DiscoverServices(uuids []BLEUUID) ([]bleService, error) 
 }
 
 func (d *mockBLEDevice) Disconnect() error {
-	d.disconnectCalled = true
+	d.disconnectCalled.Store(true)
 	return d.disconnectErr
 }
 
@@ -185,7 +186,7 @@ type mockBLECharacteristic struct {
 	notifMu           sync.RWMutex
 	enableNotifErr    error
 	waitCh            chan []byte // delivers data for WaitForValue
-	disconnected      bool       // when true, IsConnected() returns false
+	disconnected      atomic.Bool // when true, IsConnected() returns false
 }
 
 func (c *mockBLECharacteristic) UUID() BLEUUID { return c.uuid }
@@ -272,7 +273,7 @@ func (c *mockBLECharacteristic) ReadAndClearCachedValue() []byte {
 // Defaults to true (disconnected zero value is false). Set disconnected=true
 // to simulate a peripheral disconnection in tests.
 func (c *mockBLECharacteristic) IsConnected() bool {
-	return !c.disconnected
+	return !c.disconnected.Load()
 }
 
 // writtenData returns a copy of all byte slices written to this characteristic.

@@ -62,6 +62,10 @@ func (m *mockSession) Close() error {
 	return nil
 }
 
+func (m *mockSession) RemoteAddress() string {
+	return "192.168.1.1:5540"
+}
+
 // mockSessionEstablisher implements SessionEstablisher for testing.
 type mockSessionEstablisher struct {
 	paseSession *mockSession

@@ -39,7 +39,7 @@ type CommissioningParams struct {
 	// discovery or static address). When true, network provisioning steps are
 	// skipped regardless of the device's reported NetworkCommissioning capabilities.
 	OnNetwork bool
-	// FailsafeSeconds is the failsafe timer duration. Defaults to 60 if zero.
+	// FailsafeSeconds is the failsafe timer duration. Defaults to 180 if zero.
 	FailsafeSeconds uint16
 }
 
@@ -115,6 +115,9 @@ type SessionEstablisher interface {
 type Session interface {
 	// Close terminates the session.
 	Close() error
+
+	// RemoteAddress returns the address of the remote peer (e.g. "192.168.1.90:5540").
+	RemoteAddress() string
 }
 
 // InteractionClient abstracts IM Read/Write/Invoke operations.
@@ -193,7 +196,7 @@ type DeviceTypeInfo struct {
 // Commission performs the full commissioning flow for a device.
 func (c *Commissioner) Commission(ctx context.Context, params CommissioningParams) (*CommissioningResult, error) {
 	if params.FailsafeSeconds == 0 {
-		params.FailsafeSeconds = 60
+		params.FailsafeSeconds = 180
 	}
 
 	// Step 1: Determine passcode, discriminator, and discovery capabilities.
@@ -466,6 +469,24 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 		// Treat reconnect session as paseSession for network provisioning below.
 		paseSession = reconnectSession
 		bleDropped = false
+
+		// Re-arm the failsafe timer. The original timer may have nearly expired
+		// (or already expired) during the BLE reconnect, which can take 30-60 s
+		// on constrained devices. We use the spec-maximum (900 s) rather than
+		// params.FailsafeSeconds here because after reconnect we still need to:
+		//   1. Deliver network credentials (seconds)
+		//   2. Wait for the device to join its operational network (up to 60 s)
+		//   3. Discover the device via mDNS (WatchOperational, up to 3 min)
+		//   4. Complete CASE and send CommissioningComplete
+		// 180 s is too tight — the failsafe was expiring right as mDNS
+		// discovery reached its 3-minute limit.
+		const bleReconnectFailsafeSeconds = 900
+		slog.Debug("commissioning: re-arming failsafe after BLE reconnect",
+			"seconds", bleReconnectFailsafeSeconds)
+		if err := c.armFailsafe(ctx, paseSession, bleReconnectFailsafeSeconds); err != nil {
+			reconnectSession.Close()
+			return nil, fmt.Errorf("commissioning: re-arming failsafe after BLE reconnect: %w", err)
+		}
 	}
 
 	if needsNetwork && !bleDropped {
@@ -571,7 +592,13 @@ func (c *Commissioner) Commission(ctx context.Context, params CommissioningParam
 	}
 
 	// Read device info over the CASE session now that commissioning is complete.
-	result := &CommissioningResult{Address: addr}
+	// Use the CASE session's remote address (IP:port) rather than the original
+	// addr, which may be a BLE address from the discovery step.
+	resultAddr := addr
+	if ra := caseSession.RemoteAddress(); ra != "" {
+		resultAddr = ra
+	}
+	result := &CommissioningResult{Address: resultAddr}
 	c.readDeviceInfo(ctx, caseSession, result)
 
 	return result, nil
