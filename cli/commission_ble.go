@@ -103,9 +103,11 @@ func runCommissionBLE(cmd *cobra.Command, args []string) error {
 	}
 	defer ctrl.Close()
 
+	warnIfMissingBLEProfile(cmd.ErrOrStderr())
+
 	adapter := transport.NewDefaultBLEAdapter()
 	if err := adapter.Enable(); err != nil {
-		return fmt.Errorf("enabling BLE adapter: %w", err)
+		return fmt.Errorf("enabling BLE adapter: %w\n\nMake sure Bluetooth is enabled and the application has permission to use it.", err)
 	}
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -214,9 +216,11 @@ func runCommissionBLEAddress(cmd *cobra.Command, args []string) error {
 	}
 	defer ctrl.Close()
 
+	warnIfMissingBLEProfile(cmd.ErrOrStderr())
+
 	adapter := transport.NewDefaultBLEAdapter()
 	if err := adapter.Enable(); err != nil {
-		return fmt.Errorf("enabling BLE adapter: %w", err)
+		return fmt.Errorf("enabling BLE adapter: %w\n\nMake sure Bluetooth is enabled and the application has permission to use it.", err)
 	}
 	bleAddr := transport.BLEAddress(args[0])
 

@@ -69,6 +69,8 @@ Platform requirements:
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 			raw, _ := cmd.Flags().GetBool("raw")
 
+			warnIfMissingBLEProfile(cmd.ErrOrStderr())
+
 			adapter := transport.NewDefaultBLEAdapter()
 			if err := adapter.Enable(); err != nil {
 				return fmt.Errorf("enabling BLE adapter: %w\n\nMake sure Bluetooth is enabled and the application has permission to use it.", err)
