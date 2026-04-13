@@ -227,15 +227,18 @@ func resolveHostname(ctx context.Context, hostname string) (ipv4s []net.IP, ipv6
 	}
 
 	// If dns-sd didn't give us an address, try standard Go resolution as fallback.
-	if len(ipv4s) == 0 && len(ipv6s) == 0 {
-		if addrs, err := net.LookupHost(hostname); err == nil {
-			for _, a := range addrs {
-				if ip := net.ParseIP(a); ip != nil {
-					if ip.To4() != nil {
-						ipv4s = append(ipv4s, ip)
-					} else {
-						ipv6s = append(ipv6s, ip)
-					}
+	// Skip the fallback when ctx is already done to avoid blocking after cancellation.
+	if len(ipv4s) == 0 && len(ipv6s) == 0 && ctx.Err() == nil {
+		if addrs, err := net.DefaultResolver.LookupIPAddr(ctx, hostname); err == nil {
+			for _, addr := range addrs {
+				ip := addr.IP
+				if ip == nil {
+					continue
+				}
+				if ip.To4() != nil {
+					ipv4s = append(ipv4s, ip)
+				} else {
+					ipv6s = append(ipv6s, ip)
 				}
 			}
 		}
