@@ -97,7 +97,7 @@ func (s *bleSessionEstablisher) EstablishPASE(ctx context.Context, addr string, 
 	}
 
 	s.bleConn = bleConn
-	return &controllerSession{session: session}, nil
+	return &controllerSession{session: session, addr: addr}, nil
 }
 
 func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, nodeID uint64) (commissioning.Session, error) {
@@ -219,7 +219,7 @@ func (s *bleSessionEstablisher) EstablishCASE(ctx context.Context, addr string, 
 	if err != nil {
 		return nil, err
 	}
-	return &controllerSession{session: session}, nil
+	return &controllerSession{session: session, addr: ipAddr}, nil
 }
 
 // ─── Auto-detection discoverer ────────────────────────────────────────────────

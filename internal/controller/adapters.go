@@ -84,7 +84,7 @@ func (s *controllerSessionEstablisher) EstablishPASE(ctx context.Context, addr s
 	if err != nil {
 		return nil, err
 	}
-	return &controllerSession{session: session}, nil
+	return &controllerSession{session: session, addr: addr}, nil
 }
 
 func (s *controllerSessionEstablisher) EstablishCASE(ctx context.Context, addr string, nodeID uint64) (commissioning.Session, error) {
@@ -92,17 +92,23 @@ func (s *controllerSessionEstablisher) EstablishCASE(ctx context.Context, addr s
 	if err != nil {
 		return nil, err
 	}
-	return &controllerSession{session: session}, nil
+	return &controllerSession{session: session, addr: addr}, nil
 }
 
 // controllerSession wraps a protocol.Session to implement commissioning.Session.
 type controllerSession struct {
 	session *protocol.Session
+	addr    string // remote address (host:port) used to establish this session
 }
 
 func (s *controllerSession) Close() error {
 	// Session cleanup is handled by the controller's session table.
 	return nil
+}
+
+// RemoteAddress returns the address of the remote peer.
+func (s *controllerSession) RemoteAddress() string {
+	return s.addr
 }
 
 // protocolSession extracts the underlying protocol.Session from a commissioning.Session.
