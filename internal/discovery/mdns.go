@@ -29,27 +29,9 @@ type resolver interface {
 	Browse(ctx context.Context, service, domain string, entries chan<- *zeroconf.ServiceEntry) error
 }
 
-// zeroconfResolver is the production implementation using grandcat/zeroconf.
-type zeroconfResolver struct{}
-
-func (z *zeroconfResolver) Browse(ctx context.Context, service, domain string, entries chan<- *zeroconf.ServiceEntry) error {
-	r, err := zeroconf.NewResolver(nil)
-	if err != nil {
-		return fmt.Errorf("creating mDNS resolver: %w", err)
-	}
-	return r.Browse(ctx, service, domain, entries)
-}
-
 // MDNSBrowser discovers Matter devices using mDNS (multicast DNS).
 type MDNSBrowser struct {
 	resolver resolver
-}
-
-// NewMDNSBrowser returns a new MDNSBrowser that uses the system's mDNS capabilities.
-func NewMDNSBrowser() *MDNSBrowser {
-	return &MDNSBrowser{
-		resolver: &zeroconfResolver{},
-	}
 }
 
 // newMDNSBrowserWithResolver creates a browser with a custom resolver (for testing).
