@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/p0fi/matter-cli/internal/controller"
+	"github.com/p0fi/matter-cli/internal/discovery"
 	"github.com/p0fi/matter-cli/internal/interaction"
 	"github.com/p0fi/matter-cli/internal/protocol"
 	"github.com/p0fi/matter-cli/internal/store"
@@ -390,8 +391,22 @@ func (s *Server) getOrCreateSession(ctx context.Context, nodeID, fabricID uint64
 
 	session, err := ctrl.ConnectCASE(ctx, node.LastAddress, nodeID)
 	if err != nil {
-		ctrl.Close()
-		return nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
+		// Stored address is unreachable — attempt operational rediscovery via
+		// mDNS so we can find the device's new IP (e.g. after DHCP renewal).
+		slog.Info("daemon: CASE failed with stored address, attempting mDNS rediscovery",
+			"node", nodeID, "addr", node.LastAddress, "err", err)
+		rediscAddr, rediscErr := daemonRediscoverNode(ctx, ctrl, nodeID)
+		if rediscErr != nil {
+			slog.Debug("daemon: mDNS rediscovery failed", "node", nodeID, "err", rediscErr)
+			ctrl.Close()
+			return nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
+		}
+		node.LastAddress = rediscAddr
+		session, err = ctrl.ConnectCASE(ctx, rediscAddr, nodeID)
+		if err != nil {
+			ctrl.Close()
+			return nil, nil, fmt.Errorf("establishing CASE session to node %d after rediscovery: %w", nodeID, err)
+		}
 	}
 
 	node.LastSeen = time.Now()
@@ -621,4 +636,51 @@ func writeResponse(conn net.Conn, resp Response) {
 func writePIDFile() error {
 	pidPath := PidPath()
 	return os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o600)
+}
+
+// daemonRediscoverNode attempts to find a commissioned node's current address
+// via mDNS operational discovery. It waits up to 5 seconds and returns the new
+// "host:port" address on success.
+func daemonRediscoverNode(ctx context.Context, ctrl *controller.Controller, nodeID uint64) (string, error) {
+	compressedFabricID := ctrl.CompressedFabricID()
+	if len(compressedFabricID) == 0 {
+		return "", fmt.Errorf("controller has no fabric identity")
+	}
+	browser := discovery.NewMDNSBrowser()
+	dev, err := browser.ResolveOperational(ctx, compressedFabricID, nodeID, 5*time.Second)
+	if err != nil {
+		return "", err
+	}
+	ip := daemonPickBestIP(dev.IPs)
+	return fmt.Sprintf("%s:%d", ip.String(), dev.Port), nil
+}
+
+// daemonPickBestIP selects the preferred IP from a list: IPv6 link-local first,
+// then any IPv6, then IPv4. Returns the first element if none match.
+func daemonPickBestIP(ips []net.IP) net.IP {
+	if len(ips) == 0 {
+		return nil
+	}
+	var ipv6, ipv4 net.IP
+	for _, ip := range ips {
+		if ip.To4() == nil {
+			if ip.IsLinkLocalUnicast() {
+				return ip
+			}
+			if ipv6 == nil {
+				ipv6 = ip
+			}
+		} else {
+			if ipv4 == nil {
+				ipv4 = ip
+			}
+		}
+	}
+	if ipv6 != nil {
+		return ipv6
+	}
+	if ipv4 != nil {
+		return ipv4
+	}
+	return ips[0]
 }

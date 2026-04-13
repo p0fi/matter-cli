@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/grandcat/zeroconf"
@@ -49,6 +50,35 @@ func (b *MDNSBrowser) DiscoverCommissionable(ctx context.Context, timeout time.D
 // the _matter._tcp service and returns all devices found within the given timeout.
 func (b *MDNSBrowser) DiscoverOperational(ctx context.Context, timeout time.Duration) ([]*Device, error) {
 	return b.browse(ctx, timeout, ServiceOperational)
+}
+
+// ResolveOperational locates a specific operational Matter device by its
+// compressed fabric ID and node ID. It uses WatchOperational to browse for
+// _matter._tcp announcements and returns as soon as it finds an entry whose
+// instance name matches "<compressedFabricID-hex>-<nodeID-hex>" (case-insensitive).
+//
+// Returns the discovered Device, or nil and an error if the timeout elapses
+// without finding the target.
+func (b *MDNSBrowser) ResolveOperational(ctx context.Context, compressedFabricID []byte, nodeID uint64, timeout time.Duration) (*Device, error) {
+	nodeIDHex := fmt.Sprintf("%016X", nodeID)
+	fabricHex := strings.ToUpper(fmt.Sprintf("%X", compressedFabricID))
+	expectedName := fabricHex + "-" + nodeIDHex
+
+	var found *Device
+	err := b.WatchOperational(ctx, timeout, func(dev *Device) bool {
+		if strings.ToUpper(dev.Name) == expectedName && len(dev.IPs) > 0 {
+			found = dev
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, fmt.Errorf("operational discovery timed out: node %016X not found on fabric %s", nodeID, fabricHex)
+	}
+	return found, nil
 }
 
 // WatchOperational performs a continuous streaming mDNS browse for operational
