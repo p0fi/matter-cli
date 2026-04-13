@@ -4,7 +4,9 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"strings"
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
@@ -35,6 +37,7 @@ func newFabricCmd() *cobra.Command {
 	cmd.AddCommand(newFabricLsCmd())
 	cmd.AddCommand(newFabricInfoCmd())
 	cmd.AddCommand(newFabricRemoveCmd())
+	cmd.AddCommand(newFabricResetCmd())
 	return cmd
 }
 
@@ -116,6 +119,72 @@ func newFabricInfoCmd() *cobra.Command {
 			return f.Format(cmd.OutOrStdout(), fabric)
 		},
 	}
+}
+
+// newFabricResetCmd creates `matter fabric reset` which removes all
+// commissioned devices from the local fabric store. The fabric identity
+// (root certificate and keys) is preserved so new devices can still be
+// commissioned afterwards. No network commands are sent to the devices.
+func newFabricResetCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reset",
+		Short: "Remove all commissioned devices from the fabric",
+		Example: `  matter fabric reset
+  matter fabric reset --yes`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fid := fabricID()
+
+			nodes, err := listNodes(fid)
+			if err != nil {
+				return fmt.Errorf("listing nodes: %w", err)
+			}
+			if len(nodes) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), output.Muted("No commissioned devices found."))
+				return nil
+			}
+
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "%s This will permanently remove %d device(s) from the fabric:\n\n",
+				output.WarningIcon(), len(nodes))
+			for _, n := range nodes {
+				if n.Name != "" {
+					fmt.Fprintf(w, "  • %s %s\n",
+						n.Name, output.Muted(fmt.Sprintf("(node %d)", n.ID)))
+				} else {
+					fmt.Fprintf(w, "  • node %d\n", n.ID)
+				}
+			}
+			fmt.Fprintln(w)
+
+			yes, _ := cmd.Flags().GetBool("yes")
+			if !yes {
+				fmt.Fprintf(w, "? Remove all %d devices from the fabric? [y/N] ", len(nodes))
+				scanner := bufio.NewScanner(cmd.InOrStdin())
+				if !scanner.Scan() {
+					if err := scanner.Err(); err != nil {
+						return fmt.Errorf("reading confirmation: %w", err)
+					}
+					return nil
+				}
+				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+				if answer != "y" && answer != "yes" {
+					return nil
+				}
+			}
+
+			for _, n := range nodes {
+				if err := deleteNode(fid, n.ID); err != nil {
+					return fmt.Errorf("removing node %d: %w", n.ID, err)
+				}
+			}
+
+			fmt.Fprintf(w, "%s Removed %d device(s) from fabric.\n",
+				output.SuccessIcon(), len(nodes))
+			return nil
+		},
+	}
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	return cmd
 }
 
 // newFabricRemoveCmd creates `matter fabric remove` which removes a
