@@ -64,7 +64,11 @@ homebrew_casks:
     homepage: "https://github.com/p0fi/matter-cli"
     description: "Matter protocol CLI controller — commission and control Matter devices from your terminal"
     license: "Apache-2.0"
-    install: |
-      bin.install "matter"
-    test: |
-      system "#{bin}/matter", "version"
+    binaries:
+      - matter
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/matter"]
+          end
