@@ -37,6 +37,7 @@ var (
 	colorCyan    = lipgloss.ANSIColor(14) 	// Bright Cyan   → labels / commands
 	colorMagenta = lipgloss.ANSIColor(13) 	// Bright Magenta→ accents / IDs
 	colorWhite   = lipgloss.ANSIColor(7)  	// White         → values
+	colorGray    = lipgloss.ANSIColor(8)  	// Bright Black (Dark Gray) → muted/secondary
 
 	// StyleSuccess renders text in green.
 	StyleSuccess = lipgloss.NewStyle().Foreground(colorGreen)
@@ -60,8 +61,12 @@ var (
 	StyleAccent = lipgloss.NewStyle().Foreground(colorMagenta)
 	// StyleHeader renders table/section headers in blue bold.
 	StyleHeader = lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
-	// StyleMuted renders secondary text using the terminal's faint attribute.
-	StyleMuted = StyleDim
+	// StyleMuted renders secondary/less-important text in ANSI color 8
+	// (Bright Black / Dark Gray). This is the canonical "comment" color across
+	// terminal themes (Solarized, Nord, Dracula, Catppuccin, …) and gives a
+	// reliably subdued appearance in both dark and light palettes, unlike the
+	// faint attribute (SGR 2) which many terminals render inconsistently.
+	StyleMuted = lipgloss.NewStyle().Foreground(colorGray)
 
 	// StyleCommand renders command names in cyan.
 	StyleCommand = lipgloss.NewStyle().Foreground(colorCyan)
