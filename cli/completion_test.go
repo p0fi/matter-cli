@@ -671,6 +671,38 @@ func TestFilterShorthandCommands_NodeOnly(t *testing.T) {
 	}
 }
 
+// TestRootHelp_ShorthandClusterFiltering verifies that the styled root help
+// template: (1) hides shorthand cluster commands, (2) shows the cluster
+// command, and (3) includes discoverability hint lines.
+func TestRootHelp_ShorthandClusterFiltering(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	rootCmd.SetArgs([]string{"--help"})
+	err := rootCmd.Execute()
+	require.NoError(t, err)
+
+	help := buf.String()
+
+	// The cluster command should appear in help.
+	assert.Contains(t, help, "cluster", "cluster command should appear in root help")
+
+	// At least one known shorthand cluster command should be absent.
+	require.NotEmpty(t, shorthandCmds, "at least one shorthand cluster command must be registered")
+	assert.NotContains(t, help, shorthandCmds[0].Name(),
+		"shorthand cluster commands should be hidden from root help")
+
+	// Discoverability hint lines should be visible.
+	assert.Contains(t, help, "matter cluster list",
+		"cluster list hint should appear in root help")
+	assert.Contains(t, help, "matter <ClusterName> --help",
+		"shorthand hint should appear in root help")
+}
+
 // TestFilterShorthandCommands_ExplicitEndpoint verifies that when an
 // endpoint-explicit target is set (ExplicitEndpoint=true), the device command
 // is hidden and cluster commands are not globally hidden.

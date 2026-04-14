@@ -1189,8 +1189,9 @@ func registerShorthandClusters() {
 	for _, cl := range clusters.Global.AllClusters() {
 		clCopy := cl
 		cmd := &cobra.Command{
-			Use:   clCopy.Name,
-			Short: fmt.Sprintf("Shorthand commands for %s cluster", clCopy.DisplayName),
+			Use:         clCopy.Name,
+			Short:       fmt.Sprintf("Shorthand commands for %s cluster", clCopy.DisplayName),
+			Annotations: map[string]string{"shorthand-cluster": "true"},
 		}
 
 		// Add a subcommand for each command in the cluster.

@@ -41,6 +41,10 @@ var rootCmd = &cobra.Command{
 	Use:   "matter",
 	Short: "A pure Go Matter controller CLI",
 	Long:  "matter is a command-line tool for interacting with Matter smart home devices.",
+	Example: "  $ matter commission code MT:Y3.13OTB00KA0648G00\n" +
+		"  $ matter @kitchen/1 OnOff Toggle\n" +
+		"  $ matter @1/1 OnOff read OnOff\n" +
+		"  $ matter @1/1 LevelControl write CurrentLevel 128",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := setupLogging(cmd); err != nil {
 			return err
@@ -62,12 +66,15 @@ func init() {
 
 	// Register template functions for styled help output.
 	cobra.AddTemplateFuncs(template.FuncMap{
-		"styleHeader":  output.Header,
-		"styleBold":    output.Bold,
-		"styleDim":     output.Dim,
-		"styleCmd":     output.Command,
-		"styleCmdPad":  styleCmdPad,
-		"styleFlags":   styleFlagUsages,
+		"styleHeader":         output.Header,
+		"styleBold":           output.Bold,
+		"styleDim":            output.Dim,
+		"styleCmd":            output.Command,
+		"styleCmdPad":         styleCmdPad,
+		"styleFlags":          styleFlagUsages,
+		"isShorthandCluster":  isShorthandCluster,
+		"visibleCmdPadding":   visibleCmdPadding,
+		"splitLines":          func(s string) []string { return strings.Split(s, "\n") },
 	})
 
 	// Register command groups.
@@ -220,6 +227,27 @@ func styleFlagUsages(s string) string {
 	})
 }
 
+// isShorthandCluster reports whether cmd is a generated shorthand cluster
+// command. These are hidden from the root help output but remain active for
+// direct invocation and shell completion.
+func isShorthandCluster(cmd *cobra.Command) bool {
+	return cmd.Annotations["shorthand-cluster"] == "true"
+}
+
+// visibleCmdPadding returns the column width needed to align descriptions for
+// the visible (non-shorthand-cluster) commands in cmds. It replaces cobra's
+// built-in .NamePadding, which counts all registered commands including hidden
+// shorthand cluster names that dominate the width.
+func visibleCmdPadding(cmds []*cobra.Command) int {
+	max := 0
+	for _, cmd := range cmds {
+		if !isShorthandCluster(cmd) && len(cmd.Name()) > max {
+			max = len(cmd.Name())
+		}
+	}
+	return max + 2
+}
+
 // styleCmdPad styles a command name in cyan and right-pads it to the given
 // width based on the plain-text length (ignoring ANSI escape sequences).
 func styleCmdPad(padding int, name string) string {
@@ -234,7 +262,7 @@ func styleCmdPad(padding int, name string) string {
 // Template funcs styleHeader, styleBold, styleDim, styleCmd, and styleFlags
 // are registered in init() via cobra.AddTemplateFuncs.
 func styledUsageTemplate() string {
-	return `{{ "USAGE" | styleHeader }}
+	return fmt.Sprintf(`{{ "USAGE" | styleHeader }}
   {{ .UseLine | styleBold }}{{if .HasAvailableSubCommands}} [command]{{end}}
 {{- if gt (len .Aliases) 0}}
 
@@ -244,17 +272,22 @@ func styledUsageTemplate() string {
 {{- if .HasExample}}
 
 {{ "EXAMPLES" | styleHeader }}
-{{ .Example | styleDim }}
+{{- range (splitLines .Example)}}
+{{ . | styleDim }}
 {{- end}}
-{{- if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{range $group := .Groups}}
+{{- end}}
+{{- if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{$pad := visibleCmdPadding $cmds}}{{range $group := .Groups}}
 
 {{$group.Title | trimTrailingWhitespaces | styleHeader}}
-{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad .NamePadding}} {{.Short}}
-{{end}}{{end}}{{end}}
+{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")) (not (isShorthandCluster .)))}}  {{.Name | styleCmdPad $pad}} {{.Short}}
+{{end}}{{end}}{{if eq $group.ID "%s"}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (eq .Name "cluster") .IsAvailableCommand (not (isShorthandCluster .)))}}
+  {{ "Run " | styleDim }}{{ "matter cluster list" | styleBold }}{{ " for all available clusters." | styleDim }}
+  {{ "Use " | styleDim }}{{ "matter <ClusterName> --help" | styleBold }}{{ " for shorthand commands (e.g. " | styleDim }}{{ "matter OnOff --help" | styleBold }}{{ ")." | styleDim }}
+{{end}}{{end}}{{end}}{{end}}
 {{- if not .AllChildCommandsHaveGroup}}
 
 {{ "ADDITIONAL COMMANDS" | styleHeader }}
-{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad .NamePadding}} {{.Short}}
+{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  {{.Name | styleCmdPad $pad}} {{.Short}}
 {{end}}{{end}}{{end}}{{end}}
 {{- if .HasAvailableLocalFlags}}
 
@@ -267,6 +300,6 @@ func styledUsageTemplate() string {
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces | styleFlags}}
 {{- end}}
 
-  {{ "Use \"" | styleDim }}{{ "matter [command] --help" | styleBold }}{{ "\" for more information about a command." | styleDim }}
-`
+  {{ "Use " | styleDim }}{{ "matter [command] --help" | styleBold }}{{ " for more information about a command." | styleDim }}
+`, groupClusters)
 }
