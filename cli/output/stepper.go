@@ -129,7 +129,7 @@ func (s *Stepper) Success(msg string) {
 	}
 
 	elapsed := time.Since(start)
-	dur := Muted(formatDuration(elapsed))
+	dur := Dim(formatDuration(elapsed))
 	if s.verbose {
 		slog.Info(msg, slog.Duration("elapsed", elapsed))
 	} else {
@@ -154,7 +154,7 @@ func (s *Stepper) Fail(msg string) {
 	}
 
 	elapsed := time.Since(start)
-	dur := Muted(formatDuration(elapsed))
+	dur := Dim(formatDuration(elapsed))
 	if s.verbose {
 		slog.Error(msg, slog.Duration("elapsed", elapsed))
 	} else {
@@ -196,7 +196,7 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 	} else if !s.silent {
 		line := fmt.Sprintf("%s %s", icon, s.msg)
 		if !isFirst {
-			line += "  " + Muted(formatDuration(elapsed))
+			line += "  " + Dim(formatDuration(elapsed))
 		}
 		if s.animate {
 			fmt.Fprintf(s.w, "\r\033[K%s\n", line)
