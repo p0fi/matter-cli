@@ -319,7 +319,7 @@ func (tc *tinygoCharacteristic) WriteWithResponse(data []byte) (int, error) {
 		}
 		slog.Debug("ble: C1 WriteWithResponse via bt_queue failed, falling back to tinygo Write")
 	}
-	return tc.c.Write(data)
+	return btCharWriteWithResponse(tc.c, data)
 }
 
 // EnableNotifications registers cb to be called on each indication or
