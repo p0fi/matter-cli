@@ -33,12 +33,14 @@ type Stepper struct {
 	verbose bool // true = delegate to slog
 	silent  bool // true = no permanent trace per completed step
 
-	mu        sync.Mutex
-	msg       string    // current step message
-	startedAt time.Time // when the current step was started
-	active    bool
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	mu               sync.Mutex
+	msg              string    // current step message
+	startedAt        time.Time // when the current step was started
+	processStartedAt time.Time // when the first Step was called; never reset
+	firstStep        bool      // true until the first step has been completed
+	active           bool
+	stopCh           chan struct{}
+	doneCh           chan struct{}
 }
 
 // formatDuration formats a duration for display: milliseconds below 1 s,
@@ -91,6 +93,10 @@ func (s *Stepper) Step(msg string) {
 
 	s.msg = msg
 	s.startedAt = time.Now()
+	if s.processStartedAt.IsZero() {
+		s.processStartedAt = s.startedAt
+		s.firstStep = true
+	}
 	s.active = true
 
 	if s.verbose {
@@ -107,13 +113,14 @@ func (s *Stepper) Step(msg string) {
 }
 
 // Success marks the current step as complete and prints a success message with
-// elapsed time since the last Step() call (or since this call if no prior step).
+// the total elapsed time since the first Step() call (or since this call if no
+// prior step was ever started).
 func (s *Stepper) Success(msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	start := s.startedAt
-	if !s.active || start.IsZero() {
+	start := s.processStartedAt
+	if start.IsZero() {
 		start = time.Now()
 	}
 
@@ -131,13 +138,14 @@ func (s *Stepper) Success(msg string) {
 }
 
 // Fail marks the current step as failed and prints an error message with
-// elapsed time since the last Step() call (or since this call if no prior step).
+// the total elapsed time since the first Step() call (or since this call if no
+// prior step was ever started).
 func (s *Stepper) Fail(msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	start := s.startedAt
-	if !s.active || start.IsZero() {
+	start := s.processStartedAt
+	if start.IsZero() {
 		start = time.Now()
 	}
 
@@ -174,7 +182,10 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 		icon = Error("●")
 	}
 
-	dur := Muted(formatDuration(elapsed))
+	// The first step is an announcement ("Commissioning device … as node N"); it
+	// completes almost immediately so its duration is meaningless noise.
+	isFirst := s.firstStep
+	s.firstStep = false
 
 	if s.verbose {
 		if ok {
@@ -182,13 +193,16 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 		} else {
 			slog.Error(s.msg, slog.Duration("elapsed", elapsed))
 		}
-	} else if s.animate && !s.silent {
-		// Overwrite the spinner line with a permanent status line.
-		fmt.Fprintf(s.w, "\r\033[K%s %s  %s\n", icon, s.msg, dur)
 	} else if !s.silent {
-		// Static (piped) mode: the in-progress line was already printed; append
-		// a completion line with timing so the reader can see the outcome.
-		fmt.Fprintf(s.w, "%s %s  %s\n", icon, s.msg, dur)
+		line := fmt.Sprintf("%s %s", icon, s.msg)
+		if !isFirst {
+			line += "  " + Muted(formatDuration(elapsed))
+		}
+		if s.animate {
+			fmt.Fprintf(s.w, "\r\033[K%s\n", line)
+		} else {
+			fmt.Fprintf(s.w, "%s\n", line)
+		}
 	}
 	// In silent mode, completed steps leave no permanent trace.
 

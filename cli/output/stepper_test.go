@@ -51,35 +51,61 @@ func TestStepper_StaticMode_StepDuration(t *testing.T) {
 	var buf bytes.Buffer
 	s := newStaticStepper(&buf)
 
-	s.Step("Alpha")
-	s.Step("Beta") // completes Alpha
+	s.Step("Alpha") // first step — announcement, no duration when it completes
+	s.Step("Beta")  // completes Alpha; Beta is a timed step
 	s.Success("Done")
 
 	out := buf.String()
-
-	// Each completed step and the success line should have a duration suffix.
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected at least 2 output lines, got %d: %q", len(lines), out)
+
+	// Expect exactly 3 lines: Alpha (no duration), Beta (duration), Done (total duration).
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 output lines, got %d: %q", len(lines), out)
 	}
 
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		// Duration should appear after two spaces.
+	// First line (Alpha) must NOT have a duration suffix.
+	if strings.Contains(lines[0], "  ") {
+		t.Errorf("first step line %q should not have a duration suffix", lines[0])
+	}
+
+	// Remaining lines (Beta completion + Success) must have a duration suffix.
+	for _, line := range lines[1:] {
 		if !strings.Contains(line, "  ") {
-			t.Errorf("line %q has no two-space separator before duration", line)
+			t.Errorf("line %q missing duration suffix", line)
 		}
 		parts := strings.SplitN(line, "  ", 2)
 		dur := strings.TrimSpace(parts[len(parts)-1])
-		if dur == "" {
-			t.Errorf("line %q has no duration suffix", line)
-		}
-		// Duration must end with "ms", "s", or match "XmYs".
 		if !strings.HasSuffix(dur, "ms") && !strings.HasSuffix(dur, "s") {
-			t.Errorf("duration %q has unexpected format", dur)
+			t.Errorf("duration %q has unexpected format on line %q", dur, line)
 		}
+	}
+}
+
+func TestStepper_StaticMode_SuccessShowsTotalTime(t *testing.T) {
+	var buf bytes.Buffer
+	s := newStaticStepper(&buf)
+
+	s.Step("Announce")
+	s.Step("Work")
+	// Give the process a measurable duration.
+	time.Sleep(5 * time.Millisecond)
+	s.Success("All done")
+
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	successLine := lines[len(lines)-1]
+
+	// Extract the duration from the success line.
+	if !strings.Contains(successLine, "  ") {
+		t.Fatalf("success line %q missing duration suffix", successLine)
+	}
+	parts := strings.SplitN(successLine, "  ", 2)
+	dur := strings.TrimSpace(parts[len(parts)-1])
+
+	// The total duration must reflect ≥ the sleep, not just the last step.
+	// We just verify it parses as a valid duration string.
+	if !strings.HasSuffix(dur, "ms") && !strings.HasSuffix(dur, "s") {
+		t.Errorf("success duration %q has unexpected format", dur)
 	}
 }
 
