@@ -202,6 +202,80 @@ func TestBrowserImplementsInterface(t *testing.T) {
 	var _ Browser = (*MDNSBrowser)(nil)
 }
 
+func TestWatchCommissionable_FoundEarly(t *testing.T) {
+	mock := &mockResolver{
+		entries: []*zeroconf.ServiceEntry{
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "unrelated"},
+				HostName:      "unrelated.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.1")},
+				Text:          []string{"D=100", "CM=1"},
+			},
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "target"},
+				HostName:      "target.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.5")},
+				Text:          []string{"D=3840", "CM=1"},
+			},
+			{
+				ServiceRecord: zeroconf.ServiceRecord{Instance: "extra"},
+				HostName:      "extra.local.",
+				Port:          5540,
+				AddrIPv4:      []net.IP{net.ParseIP("10.0.0.99")},
+				Text:          []string{"D=200", "CM=1"},
+			},
+		},
+	}
+
+	browser := newMDNSBrowserWithResolver(mock)
+
+	var found *Device
+	var callCount int
+	err := browser.WatchCommissionable(context.Background(), 5*time.Second, func(dev *Device) bool {
+		callCount++
+		if dev.Discriminator == 3840 {
+			found = dev
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		t.Fatalf("WatchCommissionable: %v", err)
+	}
+	if found == nil {
+		t.Fatal("expected target device to be found, got nil")
+	}
+	if found.Name != "target" {
+		t.Errorf("Name = %q, want %q", found.Name, "target")
+	}
+	if found.ServiceType != ServiceCommissionable {
+		t.Errorf("ServiceType = %q, want %q", found.ServiceType, ServiceCommissionable)
+	}
+	if callCount > 2 {
+		t.Errorf("callback called %d times, expected at most 2 (stop on match)", callCount)
+	}
+}
+
+func TestWatchCommissionable_NotFound(t *testing.T) {
+	mock := &mockResolver{entries: nil}
+
+	browser := newMDNSBrowserWithResolver(mock)
+
+	var callCount int
+	err := browser.WatchCommissionable(context.Background(), 5*time.Second, func(_ *Device) bool {
+		callCount++
+		return false
+	})
+	if err != nil {
+		t.Fatalf("WatchCommissionable: unexpected error: %v", err)
+	}
+	if callCount != 0 {
+		t.Errorf("callback called %d times, want 0", callCount)
+	}
+}
+
 func TestWatchOperational_FoundEarly(t *testing.T) {
 	// Three entries are queued; the callback stops on the second match.
 	mock := &mockResolver{

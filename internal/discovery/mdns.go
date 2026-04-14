@@ -22,6 +22,12 @@ type Browser interface {
 	// DiscoverOperational browses for devices advertising _matter._tcp
 	// and returns all devices found within the given timeout.
 	DiscoverOperational(ctx context.Context, timeout time.Duration) ([]*Device, error)
+
+	// WatchCommissionable performs a streaming mDNS browse for commissionable
+	// devices (_matterc._udp), calling onDevice for every entry as it arrives.
+	// If onDevice returns true the browse is cancelled and nil is returned once
+	// the browse goroutine exits — avoiding the full timeout wait.
+	WatchCommissionable(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error
 }
 
 // resolver abstracts the mDNS resolver for testability.
@@ -45,6 +51,18 @@ func (b *MDNSBrowser) DiscoverCommissionable(ctx context.Context, timeout time.D
 	return b.browse(ctx, timeout, ServiceCommissionable)
 }
 
+// WatchCommissionable performs a continuous streaming mDNS browse for
+// commissionable Matter devices (_matterc._udp) for up to the given timeout,
+// calling onDevice for every entry as it arrives.
+//
+// If onDevice returns true ("found what I needed"), WatchCommissionable cancels
+// the browse and returns nil once the browse goroutine has exited. If the
+// timeout expires without onDevice returning true, WatchCommissionable returns
+// nil. A non-nil error is only returned for transport-level failures.
+func (b *MDNSBrowser) WatchCommissionable(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error {
+	return b.watch(ctx, timeout, ServiceCommissionable, onDevice)
+}
+
 // DiscoverOperational browses for operational Matter devices advertising
 // the _matter._tcp service and returns all devices found within the given timeout.
 func (b *MDNSBrowser) DiscoverOperational(ctx context.Context, timeout time.Duration) ([]*Device, error) {
@@ -66,6 +84,11 @@ func (b *MDNSBrowser) DiscoverOperational(ctx context.Context, timeout time.Dura
 // empty result is not a failure; the caller should handle it). A non-nil
 // error is only returned for transport-level failures.
 func (b *MDNSBrowser) WatchOperational(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error {
+	return b.watch(ctx, timeout, ServiceOperational, onDevice)
+}
+
+// watch is the shared implementation for WatchCommissionable and WatchOperational.
+func (b *MDNSBrowser) watch(ctx context.Context, timeout time.Duration, svcType ServiceType, onDevice func(*Device) (done bool)) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -73,7 +96,7 @@ func (b *MDNSBrowser) WatchOperational(ctx context.Context, timeout time.Duratio
 
 	done := make(chan error, 1)
 	go func() {
-		done <- b.resolver.Browse(ctx, string(ServiceOperational), "local.", entries)
+		done <- b.resolver.Browse(ctx, string(svcType), "local.", entries)
 	}()
 
 	for {
@@ -82,11 +105,11 @@ func (b *MDNSBrowser) WatchOperational(ctx context.Context, timeout time.Duratio
 			if !ok {
 				// Channel closed — browse finished without finding the target.
 				if err := <-done; err != nil {
-					return fmt.Errorf("browsing %s: %w", ServiceOperational, err)
+					return fmt.Errorf("browsing %s: %w", svcType, err)
 				}
 				return nil
 			}
-			dev := entryToDevice(entry, ServiceOperational)
+			dev := entryToDevice(entry, svcType)
 			if onDevice(dev) {
 				// Caller found what it needed — cancel the browse and return.
 				cancel()
@@ -101,7 +124,7 @@ func (b *MDNSBrowser) WatchOperational(ctx context.Context, timeout time.Duratio
 			for range entries {
 			}
 			if err != nil {
-				return fmt.Errorf("browsing %s: %w", ServiceOperational, err)
+				return fmt.Errorf("browsing %s: %w", svcType, err)
 			}
 			return nil
 		}

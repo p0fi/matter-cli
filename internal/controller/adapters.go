@@ -8,6 +8,8 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/p0fi/matter-cli/internal/commissioning"
@@ -34,11 +36,6 @@ type controllerDiscoverer struct {
 }
 
 func (d *controllerDiscoverer) DiscoverCommissionable(ctx context.Context, discriminator uint16, _ commissioning.DiscoveryCapabilities) (string, error) {
-	devices, err := d.browser.DiscoverCommissionable(ctx, 15*time.Second)
-	if err != nil {
-		return "", fmt.Errorf("mDNS discovery: %w", err)
-	}
-
 	// Manual pairing codes only encode the upper 4 bits of the 12-bit
 	// discriminator (the "short discriminator"). ParseManualPairingCode
 	// stores it as shortDisc<<8, leaving the lower 8 bits zero. When we
@@ -46,21 +43,30 @@ func (d *controllerDiscoverer) DiscoverCommissionable(ctx context.Context, discr
 	shortMatch := discriminator&0xFF == 0
 	shortDisc := discriminator >> 8
 
-	for _, dev := range devices {
+	var addr string
+	err := d.browser.WatchCommissionable(ctx, 15*time.Second, func(dev *discovery.Device) bool {
 		if len(dev.IPs) == 0 {
-			continue
+			return false
 		}
 		if shortMatch {
-			if dev.Discriminator>>8 == shortDisc {
-				return fmt.Sprintf("%s:%d", dev.IPs[0], dev.Port), nil
+			if dev.Discriminator>>8 != shortDisc {
+				return false
 			}
 		} else {
-			if dev.Discriminator == discriminator {
-				return fmt.Sprintf("%s:%d", dev.IPs[0], dev.Port), nil
+			if dev.Discriminator != discriminator {
+				return false
 			}
 		}
+		addr = net.JoinHostPort(dev.IPs[0].String(), strconv.Itoa(dev.Port))
+		return true
+	})
+	if err != nil {
+		return "", fmt.Errorf("mDNS discovery: %w", err)
 	}
-	return "", fmt.Errorf("no commissionable device found with discriminator %d", discriminator)
+	if addr == "" {
+		return "", fmt.Errorf("no commissionable device found with discriminator %d", discriminator)
+	}
+	return addr, nil
 }
 
 // StaticDiscoverer bypasses mDNS and returns a fixed address.
