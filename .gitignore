@@ -47,3 +47,6 @@ daemon.pid
 .env.local
 *.pem
 *.key
+
+# Claude Code local settings
+.claude/settings.local.json
