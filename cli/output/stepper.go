@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Spinner characters (braille pattern).
@@ -129,7 +131,7 @@ func (s *Stepper) Success(msg string) {
 	}
 
 	elapsed := time.Since(start)
-	dur := Dim(formatDuration(elapsed))
+	dur := render(lipgloss.NewStyle().Foreground(colorLightGray), formatDuration(elapsed))
 	if s.verbose {
 		slog.Info(msg, slog.Duration("elapsed", elapsed))
 	} else {
@@ -154,7 +156,7 @@ func (s *Stepper) Fail(msg string) {
 	}
 
 	elapsed := time.Since(start)
-	dur := Dim(formatDuration(elapsed))
+	dur := render(lipgloss.NewStyle().Foreground(colorLightGray), formatDuration(elapsed))
 	if s.verbose {
 		slog.Error(msg, slog.Duration("elapsed", elapsed))
 	} else {
@@ -196,7 +198,7 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 	} else if !s.silent {
 		line := fmt.Sprintf("%s %s", icon, s.msg)
 		if !isFirst {
-			line += "  " + Dim(formatDuration(elapsed))
+			line += "  " + render(lipgloss.NewStyle().Foreground(colorLightGray), formatDuration(elapsed))
 		}
 		if s.animate {
 			fmt.Fprintf(s.w, "\r\033[K%s\n", line)
