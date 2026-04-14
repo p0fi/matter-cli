@@ -25,8 +25,8 @@ type Browser interface {
 
 	// WatchCommissionable performs a streaming mDNS browse for commissionable
 	// devices (_matterc._udp), calling onDevice for every entry as it arrives.
-	// If onDevice returns true the browse is cancelled and nil is returned
-	// immediately — avoiding the full timeout wait.
+	// If onDevice returns true the browse is cancelled and nil is returned once
+	// the browse goroutine exits — avoiding the full timeout wait.
 	WatchCommissionable(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error
 }
 
@@ -56,9 +56,9 @@ func (b *MDNSBrowser) DiscoverCommissionable(ctx context.Context, timeout time.D
 // calling onDevice for every entry as it arrives.
 //
 // If onDevice returns true ("found what I needed"), WatchCommissionable cancels
-// the browse and returns nil immediately. If the timeout expires without
-// onDevice returning true, WatchCommissionable returns nil. A non-nil error is
-// only returned for transport-level failures.
+// the browse and returns nil once the browse goroutine has exited. If the
+// timeout expires without onDevice returning true, WatchCommissionable returns
+// nil. A non-nil error is only returned for transport-level failures.
 func (b *MDNSBrowser) WatchCommissionable(ctx context.Context, timeout time.Duration, onDevice func(*Device) (done bool)) error {
 	return b.watch(ctx, timeout, ServiceCommissionable, onDevice)
 }

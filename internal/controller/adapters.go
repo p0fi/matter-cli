@@ -8,6 +8,8 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/p0fi/matter-cli/internal/commissioning"
@@ -55,7 +57,7 @@ func (d *controllerDiscoverer) DiscoverCommissionable(ctx context.Context, discr
 				return false
 			}
 		}
-		addr = fmt.Sprintf("%s:%d", dev.IPs[0], dev.Port)
+		addr = net.JoinHostPort(dev.IPs[0].String(), strconv.Itoa(dev.Port))
 		return true
 	})
 	if err != nil {
