@@ -33,8 +33,8 @@ func (h *LogHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *LogHandler) Handle(_ context.Context, r slog.Record) error {
-	// Timestamp at second resolution.
-	ts := Dim(r.Time.Format("15:04:05"))
+	// Timestamp at millisecond resolution.
+	ts := Dim(r.Time.Format("15:04:05.000"))
 
 	// Level name, padded to 5 chars, colored by level.
 	var level string
