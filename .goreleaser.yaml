@@ -55,7 +55,7 @@ changelog:
       - Merge pull request
       - Merge branch
 
-brews:
+homebrew_casks:
   - name: matter-cli
     repository:
       owner: p0fi

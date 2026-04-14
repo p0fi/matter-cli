@@ -9,77 +9,21 @@ permissions:
   contents: write
 
 jobs:
-  build-darwin:
+  release:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: build --id matter-darwin --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist-darwin
-          path: dist/matter-darwin_*/
-
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          args: build --id matter-linux --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist-linux
-          path: dist/matter-linux_*/
-
-  release:
-    needs: [build-darwin, build-linux]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: dist-*
-          path: dist/
-          merge-multiple: true
-
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          args: release --skip=build
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
