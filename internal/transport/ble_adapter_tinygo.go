@@ -302,8 +302,9 @@ func (tc *tinygoCharacteristic) Write(data []byte) (int, error) {
 // Request when Write Without Response consistently fails to elicit a reply.
 //
 // On macOS the write is dispatched to bt_queue via the fresh pointer, just
-// like Write(). On other platforms this falls back to tinygo's
-// Write() method (not WriteWithoutResponse).
+// like Write(). On other platforms this falls back to btCharWriteWithResponse,
+// which calls DeviceCharacteristic.Write() on Darwin and
+// WriteWithoutResponse() as a best-effort fallback on all other platforms.
 //
 // NOTE: This only succeeds if the characteristic also advertises the Write
 // (with response) GATT property. If not, CoreBluetooth delivers a
@@ -317,7 +318,7 @@ func (tc *tinygoCharacteristic) WriteWithResponse(data []byte) (int, error) {
 			slog.Debug("ble: C1 WriteWithResponse dispatched to bt_queue", "bytes", n)
 			return n, nil
 		}
-		slog.Debug("ble: C1 WriteWithResponse via bt_queue failed, falling back to tinygo Write")
+		slog.Debug("ble: C1 WriteWithResponse via bt_queue failed, falling back to btCharWriteWithResponse")
 	}
 	return btCharWriteWithResponse(tc.c, data)
 }
