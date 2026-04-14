@@ -262,7 +262,7 @@ func styleCmdPad(padding int, name string) string {
 // Template funcs styleHeader, styleBold, styleDim, styleCmd, and styleFlags
 // are registered in init() via cobra.AddTemplateFuncs.
 func styledUsageTemplate() string {
-	return `{{ "USAGE" | styleHeader }}
+	return fmt.Sprintf(`{{ "USAGE" | styleHeader }}
   {{ .UseLine | styleBold }}{{if .HasAvailableSubCommands}} [command]{{end}}
 {{- if gt (len .Aliases) 0}}
 
@@ -280,10 +280,10 @@ func styledUsageTemplate() string {
 
 {{$group.Title | trimTrailingWhitespaces | styleHeader}}
 {{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")) (not (isShorthandCluster .)))}}  {{.Name | styleCmdPad $pad}} {{.Short}}
-{{end}}{{end}}{{if eq $group.ID "clusters"}}
+{{end}}{{end}}{{if eq $group.ID "%s"}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (eq .Name "cluster") .IsAvailableCommand (not (isShorthandCluster .)))}}
   {{ "Run " | styleDim }}{{ "matter cluster list" | styleBold }}{{ " for all available clusters." | styleDim }}
   {{ "Use " | styleDim }}{{ "matter <ClusterName> --help" | styleBold }}{{ " for shorthand commands (e.g. " | styleDim }}{{ "matter OnOff --help" | styleBold }}{{ ")." | styleDim }}
-{{end}}{{end}}
+{{end}}{{end}}{{end}}{{end}}
 {{- if not .AllChildCommandsHaveGroup}}
 
 {{ "ADDITIONAL COMMANDS" | styleHeader }}
@@ -301,5 +301,5 @@ func styledUsageTemplate() string {
 {{- end}}
 
   {{ "Use " | styleDim }}{{ "matter [command] --help" | styleBold }}{{ " for more information about a command." | styleDim }}
-`
+`, groupClusters)
 }
