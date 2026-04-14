@@ -24,17 +24,36 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // When silent is true (NewProgressStepper), completed steps leave no permanent
 // trace: in animate mode the spinner line is overwritten in-place; in static
 // mode nothing is printed at all.
+//
+// Every completed step and terminal call (Success/Fail) appends its elapsed
+// duration as muted text, e.g. "● Establishing PASE session  1.2s".
 type Stepper struct {
 	w       io.Writer
 	animate bool // true = use spinner animation
 	verbose bool // true = delegate to slog
 	silent  bool // true = no permanent trace per completed step
 
-	mu     sync.Mutex
-	msg    string // current step message
-	active bool
-	stopCh chan struct{}
-	doneCh chan struct{}
+	mu        sync.Mutex
+	msg       string    // current step message
+	startedAt time.Time // when the current step was started
+	active    bool
+	stopCh    chan struct{}
+	doneCh    chan struct{}
+}
+
+// formatDuration formats a duration for display: milliseconds below 1 s,
+// one-decimal seconds below 60 s, and "XmYs" above that.
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
 }
 
 // NewStepper creates a Stepper that writes to w. When verbose is true, all
@@ -71,6 +90,7 @@ func (s *Stepper) Step(msg string) {
 	}
 
 	s.msg = msg
+	s.startedAt = time.Now()
 	s.active = true
 
 	if s.verbose {
@@ -81,38 +101,63 @@ func (s *Stepper) Step(msg string) {
 		s.stopCh = make(chan struct{})
 		s.doneCh = make(chan struct{})
 		go s.spin()
-	} else if !s.silent {
-		// Static mode: print with dim dot (in-progress).
-		fmt.Fprintf(s.w, "%s %s\n", Dim("●"), msg)
 	}
+	// Static (piped) mode: defer printing until the step completes so we can
+	// include the elapsed duration on the same line.
 }
 
-// Success marks the current step as complete and prints a success message.
+// Success marks the current step as complete and prints a success message with
+// elapsed time since the last Step() call (or since this call if no prior step).
 func (s *Stepper) Success(msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	start := s.startedAt
+	if !s.active || start.IsZero() {
+		start = time.Now()
+	}
 
 	if s.active {
 		s.completeCurrentLocked(true)
 	}
 
-	fmt.Fprintf(s.w, "%s %s\n", Success("✓"), msg)
+	elapsed := time.Since(start)
+	dur := Muted(formatDuration(elapsed))
+	if s.verbose {
+		slog.Info(msg, slog.Duration("elapsed", elapsed))
+	} else {
+		fmt.Fprintf(s.w, "%s %s  %s\n", Success("✓"), msg, dur)
+	}
 }
 
-// Fail marks the current step as failed and prints an error message.
+// Fail marks the current step as failed and prints an error message with
+// elapsed time since the last Step() call (or since this call if no prior step).
 func (s *Stepper) Fail(msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	start := s.startedAt
+	if !s.active || start.IsZero() {
+		start = time.Now()
+	}
 
 	if s.active {
 		s.completeCurrentLocked(false)
 	}
 
-	fmt.Fprintf(s.w, "%s %s\n", Error("✗"), msg)
+	elapsed := time.Since(start)
+	dur := Muted(formatDuration(elapsed))
+	if s.verbose {
+		slog.Error(msg, slog.Duration("elapsed", elapsed))
+	} else {
+		fmt.Fprintf(s.w, "%s %s  %s\n", Error("✗"), msg, dur)
+	}
 }
 
 // completeCurrentLocked finishes the current step. Must be called with mu held.
 func (s *Stepper) completeCurrentLocked(ok bool) {
+	elapsed := time.Since(s.startedAt)
+
 	if s.animate && s.stopCh != nil {
 		close(s.stopCh)
 		// Release lock while waiting for spinner goroutine to finish,
@@ -129,12 +174,23 @@ func (s *Stepper) completeCurrentLocked(ok bool) {
 		icon = Error("●")
 	}
 
-	if s.animate && !s.silent {
+	dur := Muted(formatDuration(elapsed))
+
+	if s.verbose {
+		if ok {
+			slog.Info(s.msg, slog.Duration("elapsed", elapsed))
+		} else {
+			slog.Error(s.msg, slog.Duration("elapsed", elapsed))
+		}
+	} else if s.animate && !s.silent {
 		// Overwrite the spinner line with a permanent status line.
-		fmt.Fprintf(s.w, "\r\033[K%s %s\n", icon, s.msg)
+		fmt.Fprintf(s.w, "\r\033[K%s %s  %s\n", icon, s.msg, dur)
+	} else if !s.silent {
+		// Static (piped) mode: the in-progress line was already printed; append
+		// a completion line with timing so the reader can see the outcome.
+		fmt.Fprintf(s.w, "%s %s  %s\n", icon, s.msg, dur)
 	}
-	// In verbose and static mode, the line was already printed; we don't overwrite.
-	// In silent+animate mode, the next Step's spin() \r will overwrite naturally.
+	// In silent mode, completed steps leave no permanent trace.
 
 	s.active = false
 	s.msg = ""
