@@ -19,14 +19,14 @@ import (
 //
 // Standard ANSI palette:
 //
-//	0  Black        8  Bright Black (Dark Gray)
-//	1  Red          9  Bright Red
-//	2  Green       10  Bright Green
-//	3  Yellow      11  Bright Yellow
-//	4  Blue        12  Bright Blue
-//	5  Magenta     13  Bright Magenta
-//	6  Cyan        14  Bright Cyan
-//	7  White       15  Bright White
+//	0  Black         8  Bright Black (Dark Gray)
+//	1  Red           9  Bright Red
+//	2  Green        10  Bright Green
+//	3  Yellow       11  Bright Yellow
+//	4  Blue         12  Bright Blue
+//	5  Magenta      13  Bright Magenta
+//	6  Cyan         14  Bright Cyan
+//	7  Light Gray   15  Bright White
 
 var (
 	// Core colors — ANSI numbers, resolved by the terminal's own palette.
@@ -36,7 +36,7 @@ var (
 	colorBlue    = lipgloss.ANSIColor(12) 	// Bright Blue   → info / headers
 	colorCyan    = lipgloss.ANSIColor(14) 	// Bright Cyan   → labels / commands
 	colorMagenta = lipgloss.ANSIColor(13) 	// Bright Magenta→ accents / IDs
-	colorWhite   = lipgloss.ANSIColor(7)  	// White         → values
+	colorLightGray = lipgloss.ANSIColor(7)  // Light Gray     → values
 	colorGray    = lipgloss.ANSIColor(8)  	// Bright Black (Dark Gray) → muted/secondary
 
 	// StyleSuccess renders text in green.
@@ -55,8 +55,8 @@ var (
 
 	// StyleLabel renders a key/label (e.g. "Vendor:") in cyan bold.
 	StyleLabel = lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	// StyleValue renders a value in the terminal's default foreground color.
-	StyleValue = lipgloss.NewStyle().Foreground(colorWhite)
+	// StyleValue renders a value in light gray (ANSI 7).
+	StyleValue = lipgloss.NewStyle().Foreground(colorLightGray)
 	// StyleAccent renders text in magenta (used for IDs, hex values).
 	StyleAccent = lipgloss.NewStyle().Foreground(colorMagenta)
 	// StyleHeader renders table/section headers in blue bold.
