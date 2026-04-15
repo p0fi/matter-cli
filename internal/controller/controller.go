@@ -444,6 +444,15 @@ func (c *Controller) Exchanges() *protocol.ExchangeManager {
 	return c.exchanges
 }
 
+// CompressedFabricID returns the 8-byte compressed fabric identifier for this
+// controller's fabric. Returns nil if the fabric has not been initialised yet.
+func (c *Controller) CompressedFabricID() []byte {
+	if c.fabric == nil {
+		return nil
+	}
+	return append([]byte(nil), c.fabric.compressedFabricID...)
+}
+
 // Close shuts down the controller, stopping the message pump and closing the
 // transport connection.
 func (c *Controller) Close() error {
