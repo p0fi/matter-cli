@@ -139,6 +139,29 @@ func configDir() string {
 	return filepath.Join(home, ".config", "matter-cli")
 }
 
+// configTemplate is written to ~/.config/matter-cli/config.yaml on first run.
+// All keys are commented out so the file is self-documenting without changing
+// any defaults.
+const configTemplate = `# matter-cli configuration
+# ~/.config/matter-cli/config.yaml
+
+# Default fabric ID used when --fabric-id is not specified.
+# default-fabric-id: 1
+
+# Output format: table | json | yaml (default: table for TTY, json for pipes).
+# format: table
+
+# WiFi credentials used during BLE commissioning.
+# Avoids passing --wifi-ssid and --wifi-password on every commission invocation.
+# wifi:
+#   ssid: MyNetwork
+#   password: s3cr3t
+
+# Thread operational dataset (hex-encoded) used during BLE commissioning.
+# thread:
+#   dataset: 0e080000000000010000000300001235...
+`
+
 func initConfig() {
 	dir := configDir()
 	viper.SetConfigName("config")
@@ -147,7 +170,15 @@ func initConfig() {
 	viper.SetEnvPrefix("MATTER")
 	viper.AutomaticEnv()
 
-	// Silently ignore missing config file — it is optional.
+	// Bootstrap config file on first run so users can discover available keys.
+	cfgFile := filepath.Join(dir, "config.yaml")
+	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
+		if mkErr := os.MkdirAll(dir, 0o700); mkErr == nil {
+			_ = os.WriteFile(cfgFile, []byte(configTemplate), 0o600)
+		}
+	}
+
+	// Silently ignore missing or malformed config file — it is optional.
 	_ = viper.ReadInConfig()
 }
 

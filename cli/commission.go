@@ -79,12 +79,24 @@ func stepDescription(step commissioning.CommissioningStep) string {
 	return step.String()
 }
 
-// buildNetworkCreds builds network credentials from CLI flags if provided.
+// buildNetworkCreds builds network credentials from CLI flags if provided,
+// falling back to config file values (wifi.ssid, wifi.password, thread.dataset)
+// and environment variables (MATTER_WIFI_SSID, MATTER_WIFI_PASSWORD,
+// MATTER_THREAD_DATASET) when flags are not explicitly set.
 // Returns the credentials and an error if validation fails.
 func buildNetworkCreds(cmd *cobra.Command) (*commissioning.NetworkCredentials, error) {
 	ssid, _ := cmd.Flags().GetString("wifi-ssid")
+	if ssid == "" {
+		ssid = viper.GetString("wifi.ssid")
+	}
 	password, _ := cmd.Flags().GetString("wifi-password")
+	if password == "" {
+		password = viper.GetString("wifi.password")
+	}
 	threadHex, _ := cmd.Flags().GetString("thread-dataset")
+	if threadHex == "" {
+		threadHex = viper.GetString("thread.dataset")
+	}
 
 	if ssid != "" {
 		creds := commissioning.NewWiFiCredentials(ssid, password)
