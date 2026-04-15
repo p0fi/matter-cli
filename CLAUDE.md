@@ -49,6 +49,17 @@ matter use --show
 matter use --clear
 ```
 
+### Code parsing & generation
+
+```bash
+# Parse a QR code or manual pairing code
+matter code parse "MT:Y3.13OTB00KA0648G00"
+matter code parse "34970112332"
+
+# Generate a QR code and manual pairing code from parameters
+matter code generate --vid 0xFFF1 --pid 0x8000 --passcode 12345678 --discriminator 3840
+```
+
 ### Cluster interaction
 
 ```bash
