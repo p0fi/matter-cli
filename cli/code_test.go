@@ -45,6 +45,7 @@ func TestFormatDiscoveryCapabilities(t *testing.T) {
 		{"on-network only", commissioning.DiscoveryOnNetwork, "OnNetwork (0x04)"},
 		{"ble and on-network", commissioning.DiscoveryBLE | commissioning.DiscoveryOnNetwork, "BLE, OnNetwork (0x06)"},
 		{"all flags", commissioning.DiscoverySoftAP | commissioning.DiscoveryBLE | commissioning.DiscoveryOnNetwork, "SoftAP, BLE, OnNetwork (0x07)"},
+		{"unknown bits", commissioning.DiscoveryCapabilities(0x80), "Unknown (0x80)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

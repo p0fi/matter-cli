@@ -63,7 +63,10 @@ func formatDiscoveryCapabilities(d commissioning.DiscoveryCapabilities) string {
 	}
 
 	if len(names) == 0 {
-		return fmt.Sprintf("None (0x%02X)", d)
+		if d == 0 {
+			return fmt.Sprintf("None (0x%02X)", d)
+		}
+		return fmt.Sprintf("Unknown (0x%02X)", d)
 	}
 	return fmt.Sprintf("%s (0x%02X)", strings.Join(names, ", "), d)
 }
