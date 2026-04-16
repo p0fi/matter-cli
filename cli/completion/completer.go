@@ -354,17 +354,25 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 
 			if !hasSlash {
 				// ── Stage 1: node-only completions ──
-				// Emit the alias form (e.g. @kitchen).
+				// Emit only the alias form (e.g. @kitchen). Offering an
+				// additional numeric @N form was dropped: all @N entries share
+				// an identical description which causes zsh to group them into
+				// an inline horizontal list, inconsistent with the vertical
+				// alias list.
+				//
+				// For named nodes the description leads with the node ID so it
+				// is visible right next to the alias without being buried at the
+				// end of the line.
 				target := fmt.Sprintf("@%s", alias)
-				desc := fmt.Sprintf("[%s] %s", nodeStr, nodeSummary(n))
-				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
-
-				// Also offer the numeric form when it differs from the alias,
-				// so users who know the node ID can complete it directly.
+				var desc string
 				if alias != nodeStr {
-					target2 := fmt.Sprintf("@%s", nodeStr)
-					completions = append(completions, fmt.Sprintf("%s\t%s", target2, nodeSummary(n)))
+					// Named node: prefix description with ID for quick reference.
+					desc = fmt.Sprintf("%s  %s", nodeStr, nodeSummary(n))
+				} else {
+					// Unnamed node: ID is already in the token (@7), no repeat.
+					desc = nodeSummary(n)
 				}
+				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
 			} else {
 				// ── Stage 2: endpoint completions for the matched node ──
 				for _, ep := range n.Endpoints {

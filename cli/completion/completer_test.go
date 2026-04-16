@@ -105,21 +105,21 @@ func runTargetCompletion(t *testing.T, toComplete string) ([]string, cobra.Shell
 }
 
 // TestTargetCompletionFunc_Stage1_NodeOnly verifies that completions for "@"
-// (or a partial node prefix) return node-level tokens without endpoint suffixes
-// and include the ShellCompDirectiveNoSpace flag.
+// (or a partial node prefix) return node-level tokens without endpoint suffixes,
+// include the ShellCompDirectiveNoSpace flag, and contain no bare-numeric @N
+// forms for nodes that have a name.
 func TestTargetCompletionFunc_Stage1_NodeOnly(t *testing.T) {
 	cleanup := setupTestStore(t, 1, testNodes())
 	defer cleanup()
 
 	cases := []struct {
 		toComplete  string
-		wantPrefix  string // all returned tokens must start with this
 		wantNoSpace bool
 	}{
-		{"@", "@", true},
-		{"@ki", "@ki", true},
-		{"@kitchen", "@kitchen", true},
-		{"@f", "@f", true},
+		{"@", true},
+		{"@ki", true},
+		{"@kitchen", true},
+		{"@f", true},
 	}
 
 	for _, tc := range cases {
@@ -130,9 +130,9 @@ func TestTargetCompletionFunc_Stage1_NodeOnly(t *testing.T) {
 				t.Fatalf("expected completions for %q, got none", tc.toComplete)
 			}
 
-			// All entries must be node-level (no "/" in the completion token).
 			for _, c := range completions {
 				token := strings.SplitN(c, "\t", 2)[0]
+				// All entries must be node-level (no "/" in the completion token).
 				if strings.Contains(token, "/") {
 					t.Errorf("stage-1 completion %q contains '/', want node-only", token)
 				}
@@ -146,6 +146,65 @@ func TestTargetCompletionFunc_Stage1_NodeOnly(t *testing.T) {
 				t.Errorf("ShellCompDirectiveNoSpace = %v, want %v (directive=%d)", hasNoSpace, tc.wantNoSpace, directive)
 			}
 		})
+	}
+}
+
+// TestTargetCompletionFunc_Stage1_NoNumericDuplicates verifies that stage-1
+// does not emit a bare @N numeric token for nodes that already have a named
+// alias. Emitting both was causing zsh to group the @N entries horizontally.
+func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	completions, _ := runTargetCompletion(t, "@")
+
+	tokens := make(map[string]int) // token → count
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		tokens[token]++
+	}
+
+	// @1 and @2 are the numeric forms of the named nodes; they must not appear.
+	for _, numeric := range []string{"@1", "@2"} {
+		if tokens[numeric] > 0 {
+			t.Errorf("stage-1 emitted numeric token %q for a named node; want named alias only", numeric)
+		}
+	}
+
+	// Named aliases must appear exactly once each.
+	for _, alias := range []string{"@kitchen-light", "@front-door-lock"} {
+		if tokens[alias] != 1 {
+			t.Errorf("expected exactly 1 completion for %q, got %d", alias, tokens[alias])
+		}
+	}
+}
+
+// TestTargetCompletionFunc_Stage1_DescriptionFormat verifies that named node
+// completions lead their description with the node ID for quick reference.
+func TestTargetCompletionFunc_Stage1_DescriptionFormat(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	completions, _ := runTargetCompletion(t, "@kitchen")
+
+	if len(completions) == 0 {
+		t.Fatal("expected completions for @kitchen, got none")
+	}
+
+	for _, c := range completions {
+		parts := strings.SplitN(c, "\t", 2)
+		if len(parts) != 2 {
+			t.Fatalf("completion entry missing tab separator: %q", c)
+		}
+		desc := parts[1]
+		// Description must start with the numeric node ID, not a bracket.
+		if strings.HasPrefix(desc, "[") {
+			t.Errorf("description %q still uses bracket format; want plain node-ID prefix", desc)
+		}
+		// Description must start with a digit (the node ID).
+		if len(desc) == 0 || desc[0] < '0' || desc[0] > '9' {
+			t.Errorf("description %q does not start with node ID digit", desc)
+		}
 	}
 }
 
