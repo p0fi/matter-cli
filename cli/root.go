@@ -17,6 +17,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
+	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -93,7 +94,7 @@ func init() {
 
 	// Enable @target completion on the root command so that typing "@" then
 	// Tab at any position offers device targets.
-	rootCmd.ValidArgsFunction = completion.TargetCompletionFunc()
+	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global)
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))

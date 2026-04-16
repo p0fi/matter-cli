@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -245,6 +246,100 @@ func TestTargetCompletionFunc_NoMatchingNodes(t *testing.T) {
 	// Should still return a valid (non-error) directive.
 	if directive&cobra.ShellCompDirectiveError != 0 {
 		t.Errorf("unexpected ShellCompDirectiveError for unmatched prefix")
+	}
+}
+
+// testRegistry returns a cluster registry populated with a small set of test
+// clusters for use in completion tests.
+func testRegistry() *clusters.Registry {
+	r := clusters.NewRegistry()
+	r.Register(clusters.ClusterInfo{ID: 0x0006, Name: "OnOff", DisplayName: "On/Off"})
+	r.Register(clusters.ClusterInfo{ID: 0x0008, Name: "LevelControl", DisplayName: "Level Control"})
+	r.Register(clusters.ClusterInfo{ID: 0x0300, Name: "ColorControl", DisplayName: "Color Control"})
+	return r
+}
+
+// TestRootCompletionFunc_ClusterShorthand verifies that non-@ input is matched
+// against the cluster registry in a case-insensitive way.
+func TestRootCompletionFunc_ClusterShorthand(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	reg := testRegistry()
+	fn := RootCompletionFunc(reg)
+	cmd := &cobra.Command{Use: "test"}
+
+	cases := []struct {
+		toComplete string
+		wantNames  []string // PascalCase names that must appear in results
+	}{
+		{"on", []string{"OnOff"}},
+		{"On", []string{"OnOff"}},
+		{"ON", []string{"OnOff"}},
+		{"level", []string{"LevelControl"}},
+		{"LEVEL", []string{"LevelControl"}},
+		{"control", []string{"LevelControl", "ColorControl"}},
+		{"color", []string{"ColorControl"}},
+		{"", []string{"OnOff", "LevelControl", "ColorControl"}}, // empty returns all
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.toComplete, func(t *testing.T) {
+			completions, directive := fn(cmd, nil, tc.toComplete)
+			if directive&cobra.ShellCompDirectiveError != 0 {
+				t.Fatalf("unexpected ShellCompDirectiveError for %q", tc.toComplete)
+			}
+			// Build a set of returned completion tokens (strip tab-separated description).
+			got := make(map[string]bool, len(completions))
+			for _, c := range completions {
+				token := strings.SplitN(c, "\t", 2)[0]
+				got[token] = true
+			}
+			for _, want := range tc.wantNames {
+				if !got[want] {
+					t.Errorf("toComplete=%q: want %q in completions, got %v", tc.toComplete, want, completions)
+				}
+			}
+		})
+	}
+}
+
+// TestRootCompletionFunc_ClusterShorthand_NoMatch verifies that an unmatched
+// query returns nil completions (not an error).
+func TestRootCompletionFunc_ClusterShorthand_NoMatch(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	reg := testRegistry()
+	fn := RootCompletionFunc(reg)
+	cmd := &cobra.Command{Use: "test"}
+
+	completions, directive := fn(cmd, nil, "zzznomatch")
+	if completions != nil {
+		t.Errorf("expected nil completions for unmatched query, got %v", completions)
+	}
+	if directive&cobra.ShellCompDirectiveError != 0 {
+		t.Errorf("unexpected ShellCompDirectiveError")
+	}
+}
+
+// TestRootCompletionFunc_AtTarget verifies that @-prefixed input is still
+// handled as target completion (not cluster completion).
+func TestRootCompletionFunc_AtTarget(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	reg := testRegistry()
+	fn := RootCompletionFunc(reg)
+	cmd := &cobra.Command{Use: "test"}
+
+	completions, _ := fn(cmd, nil, "@")
+	// Should return target completions, not cluster completions.
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		if !strings.HasPrefix(token, "@") {
+			t.Errorf("expected @-prefixed token, got %q", token)
+		}
 	}
 }
 

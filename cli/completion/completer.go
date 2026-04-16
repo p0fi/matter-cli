@@ -265,6 +265,34 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 	}
 }
 
+// RootCompletionFunc returns a cobra ValidArgsFunction for the root command
+// that handles two completion types:
+//
+//   - @target tokens (e.g. "@kitchen/1") — delegated to TargetCompletionFunc.
+//   - cluster shorthand commands — case-insensitive prefix/substring match of
+//     cluster names, so typing "on<TAB>" offers "OnOff" and "level<TAB>" offers
+//     "LevelControl".
+//
+// The cluster name completions are offered only when toComplete does not start
+// with "@", and use the same search infrastructure as ClusterNameCompletion.
+func RootCompletionFunc(registry *clusters.Registry) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	targetFn := TargetCompletionFunc()
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if strings.HasPrefix(toComplete, "@") {
+			return targetFn(cmd, args, toComplete)
+		}
+		results := registry.SearchClusters(toComplete)
+		if len(results) == 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		names := make([]string, len(results))
+		for i, c := range results {
+			names[i] = fmt.Sprintf("%s\t%s (0x%04X)", c.Name, c.DisplayName, c.ID)
+		}
+		return names, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 // TargetCompletionFunc returns a cobra ValidArgsFunction that completes
 // @target tokens in two stages:
 //
