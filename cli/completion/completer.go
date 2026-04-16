@@ -406,9 +406,6 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 				}
 
 				for _, ep := range n.Endpoints {
-					if ep.ID == 0 {
-						continue // skip root endpoint
-					}
 					epStr := fmt.Sprintf("%d", ep.ID)
 
 					// Filter by endpoint prefix the user has typed after "/".

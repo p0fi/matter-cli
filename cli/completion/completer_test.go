@@ -296,16 +296,16 @@ func TestTargetCompletionFunc_Stage2_Endpoints(t *testing.T) {
 	}{
 		{
 			toComplete: "@kitchen-light/",
-			wantTokens: []string{"@kitchen-light/1"},
+			wantTokens: []string{"@kitchen-light/0", "@kitchen-light/1"},
 		},
 		{
 			// Numeric prefix → completions must use @N/ep, not @alias/ep.
 			toComplete: "@1/",
-			wantTokens: []string{"@1/1"},
+			wantTokens: []string{"@1/0", "@1/1"},
 		},
 		{
 			toComplete: "@front-door-lock/",
-			wantTokens: []string{"/1", "/2"},
+			wantTokens: []string{"/0", "/1", "/2"},
 		},
 		{
 			toComplete: "@2/1",
