@@ -396,6 +396,15 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
 			} else {
 				// ── Stage 2: endpoint completions for the matched node ──
+				//
+				// Use the same token form (numeric vs. named) that the user
+				// already typed before the "/". If they typed "@4/", the
+				// completions must start with "@4/" or the shell discards them.
+				tokenBase := alias
+				if isAllDigits(namePart) {
+					tokenBase = idStr
+				}
+
 				for _, ep := range n.Endpoints {
 					if ep.ID == 0 {
 						continue // skip root endpoint
@@ -407,8 +416,8 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 						continue
 					}
 
-					target := fmt.Sprintf("@%s/%s", alias, epStr)
-					desc := fmt.Sprintf("[%s] %s", idStr, endpointDescription(ep))
+					target := fmt.Sprintf("@%s/%s", tokenBase, epStr)
+					desc := endpointDescription(ep)
 					completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
 				}
 			}
@@ -421,6 +430,19 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// isAllDigits reports whether s is non-empty and consists only of ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // nodeSummary returns a one-line human-readable description of a node,
