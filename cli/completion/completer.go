@@ -378,9 +378,12 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 				// leads the description so it is visible next to the name.
 				var target, desc string
 				if aliasCounts[alias] > 1 {
-					// Ambiguous alias → numeric token, alias in description.
+					// Ambiguous alias → numeric token; embed the ID in the
+					// description to make each entry unique so zsh shows them
+					// in a vertical list rather than grouping identical
+					// descriptions into a horizontal row.
 					target = fmt.Sprintf("@%s", idStr)
-					desc = fmt.Sprintf("%s  %s", alias, nodeSummary(n))
+					desc = fmt.Sprintf("%s (%s)  %s", alias, idStr, nodeSummary(n))
 				} else if alias != idStr {
 					// Unique named alias → alias token, ID leads description.
 					target = fmt.Sprintf("@%s", alias)

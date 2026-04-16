@@ -239,6 +239,19 @@ func TestTargetCompletionFunc_Stage1_DuplicateAlias(t *testing.T) {
 			t.Errorf("expected numeric token %q in completions, got %v", want, completions)
 		}
 	}
+
+	// Each description must be unique (so zsh shows a vertical list, not a
+	// horizontal grouped row).
+	descs := make(map[string]bool)
+	for _, c := range completions {
+		parts := strings.SplitN(c, "\t", 2)
+		if len(parts) == 2 {
+			if descs[parts[1]] {
+				t.Errorf("duplicate description %q; want all descriptions unique for vertical display", parts[1])
+			}
+			descs[parts[1]] = true
+		}
+	}
 }
 
 // TestTargetCompletionFunc_Stage1_DescriptionFormat verifies that named node
