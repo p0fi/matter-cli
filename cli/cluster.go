@@ -1267,6 +1267,16 @@ func registerShorthandClusters() {
 			Use:         clCopy.Name,
 			Short:       fmt.Sprintf("Shorthand commands for %s cluster", clCopy.DisplayName),
 			Annotations: map[string]string{"shorthand-cluster": "true"},
+			// ValidArgsFunction provides case-insensitive completion for the
+			// cluster's subcommands (e.g. "of<TAB>" → "Off" under OnOff).
+			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				results := clusters.Global.SearchCommands(clCopy.ID, toComplete)
+				names := make([]string, len(results))
+				for i, c := range results {
+					names[i] = fmt.Sprintf("%s\t%s", c.Name, c.DisplayName)
+				}
+				return names, cobra.ShellCompDirectiveNoFileComp
+			},
 		}
 
 		// Add a subcommand for each command in the cluster.
