@@ -330,16 +330,29 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 		// predictable order regardless of commissioning sequence.
 		sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 
+		// Precompute how many nodes share each alias across the whole fabric.
+		// When an alias is shared by more than one node it cannot serve as an
+		// unambiguous completion token, so we fall back to numeric @N tokens
+		// for those nodes (see stage-1 logic below).
+		aliasCounts := make(map[string]int, len(nodes))
+		for _, n := range nodes {
+			a := fmt.Sprintf("%d", n.ID)
+			if n.Name != "" {
+				a = strings.ReplaceAll(strings.ToLower(n.Name), " ", "-")
+			}
+			aliasCounts[a]++
+		}
+
 		// Strip "@" and split into name-part and optional endpoint-part.
 		partial := strings.ToLower(toComplete[1:])
 		namePart, epPart, hasSlash := strings.Cut(partial, "/")
 
 		var completions []string
 		for _, n := range nodes {
-			nodeStr := fmt.Sprintf("%d", n.ID)
+			idStr := fmt.Sprintf("%d", n.ID)
 
 			// Canonical alias: kebab-case name when available, numeric otherwise.
-			alias := nodeStr
+			alias := idStr
 			if n.Name != "" {
 				alias = strings.ReplaceAll(strings.ToLower(n.Name), " ", "-")
 			}
@@ -347,29 +360,34 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			// Filter by the name/ID part the user has typed so far.
 			nameMatches := namePart == "" ||
 				strings.HasPrefix(alias, namePart) ||
-				strings.HasPrefix(nodeStr, namePart)
+				strings.HasPrefix(idStr, namePart)
 			if !nameMatches {
 				continue
 			}
 
 			if !hasSlash {
 				// ── Stage 1: node-only completions ──
-				// Emit only the alias form (e.g. @kitchen). Offering an
-				// additional numeric @N form was dropped: all @N entries share
-				// an identical description which causes zsh to group them into
-				// an inline horizontal list, inconsistent with the vertical
-				// alias list.
 				//
-				// For named nodes the description leads with the node ID so it
-				// is visible right next to the alias without being buried at the
-				// end of the line.
-				target := fmt.Sprintf("@%s", alias)
-				var desc string
-				if alias != nodeStr {
-					// Named node: prefix description with ID for quick reference.
-					desc = fmt.Sprintf("%s  %s", nodeStr, nodeSummary(n))
+				// When the alias is shared by multiple nodes (e.g. seven devices
+				// all named "node-matter-onoff-light") using @alias as the token
+				// would produce identical entries that zsh deduplicates to one.
+				// Fall back to the unique numeric @N token and put the alias in
+				// the description instead.
+				//
+				// For uniquely-named nodes the alias is the token and the node ID
+				// leads the description so it is visible next to the name.
+				var target, desc string
+				if aliasCounts[alias] > 1 {
+					// Ambiguous alias → numeric token, alias in description.
+					target = fmt.Sprintf("@%s", idStr)
+					desc = fmt.Sprintf("%s  %s", alias, nodeSummary(n))
+				} else if alias != idStr {
+					// Unique named alias → alias token, ID leads description.
+					target = fmt.Sprintf("@%s", alias)
+					desc = fmt.Sprintf("%s  %s", idStr, nodeSummary(n))
 				} else {
-					// Unnamed node: ID is already in the token (@7), no repeat.
+					// Unnamed node → numeric token, no redundant ID in desc.
+					target = fmt.Sprintf("@%s", idStr)
 					desc = nodeSummary(n)
 				}
 				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
@@ -387,7 +405,7 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 					}
 
 					target := fmt.Sprintf("@%s/%s", alias, epStr)
-					desc := fmt.Sprintf("[%s] %s", nodeStr, endpointDescription(ep))
+					desc := fmt.Sprintf("[%s] %s", idStr, endpointDescription(ep))
 					completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
 				}
 			}

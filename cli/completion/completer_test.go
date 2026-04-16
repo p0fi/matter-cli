@@ -150,8 +150,8 @@ func TestTargetCompletionFunc_Stage1_NodeOnly(t *testing.T) {
 }
 
 // TestTargetCompletionFunc_Stage1_NoNumericDuplicates verifies that stage-1
-// does not emit a bare @N numeric token for nodes that already have a named
-// alias. Emitting both was causing zsh to group the @N entries horizontally.
+// does not emit a bare @N numeric token alongside a named alias for nodes
+// whose alias is unique in the fabric.
 func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
 	cleanup := setupTestStore(t, 1, testNodes())
 	defer cleanup()
@@ -164,10 +164,11 @@ func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
 		tokens[token]++
 	}
 
-	// @1 and @2 are the numeric forms of the named nodes; they must not appear.
+	// @1 and @2 are the numeric forms of uniquely-named nodes; they must not
+	// appear because @kitchen-light and @front-door-lock are unambiguous.
 	for _, numeric := range []string{"@1", "@2"} {
 		if tokens[numeric] > 0 {
-			t.Errorf("stage-1 emitted numeric token %q for a named node; want named alias only", numeric)
+			t.Errorf("stage-1 emitted numeric token %q for a uniquely-named node; want named alias only", numeric)
 		}
 	}
 
@@ -175,6 +176,67 @@ func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
 	for _, alias := range []string{"@kitchen-light", "@front-door-lock"} {
 		if tokens[alias] != 1 {
 			t.Errorf("expected exactly 1 completion for %q, got %d", alias, tokens[alias])
+		}
+	}
+}
+
+// TestTargetCompletionFunc_Stage1_DuplicateAlias verifies that when multiple
+// nodes share the same name, stage-1 emits unique @N numeric tokens (not
+// @alias which would be deduplicated by zsh).
+func TestTargetCompletionFunc_Stage1_DuplicateAlias(t *testing.T) {
+	// Three nodes sharing the same name.
+	nodes := []*store.Node{
+		{
+			ID:   10,
+			Name: "Smart Plug",
+			Endpoints: []store.Endpoint{
+				{ID: 0},
+				{ID: 1, DeviceTypes: []store.DeviceType{{ID: 0x010A}}},
+			},
+		},
+		{
+			ID:   11,
+			Name: "Smart Plug",
+			Endpoints: []store.Endpoint{
+				{ID: 0},
+				{ID: 1, DeviceTypes: []store.DeviceType{{ID: 0x010A}}},
+			},
+		},
+		{
+			ID:   12,
+			Name: "Smart Plug",
+			Endpoints: []store.Endpoint{
+				{ID: 0},
+				{ID: 1, DeviceTypes: []store.DeviceType{{ID: 0x010A}}},
+			},
+		},
+	}
+	cleanup := setupTestStore(t, 1, nodes)
+	defer cleanup()
+
+	completions, _ := runTargetCompletion(t, "@")
+
+	if len(completions) != 3 {
+		t.Fatalf("expected 3 completions for 3 duplicate-named nodes, got %d: %v", len(completions), completions)
+	}
+
+	tokens := make(map[string]bool)
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		if tokens[token] {
+			t.Errorf("duplicate completion token %q emitted twice", token)
+		}
+		tokens[token] = true
+		// Each token must be the numeric @N form, not the shared alias.
+		if token == "@smart-plug" {
+			t.Errorf("got shared alias token %q; want unique @N numeric tokens", token)
+		}
+	}
+
+	// All three numeric tokens must be present.
+	for _, want := range []string{"@10", "@11", "@12"} {
+		if !tokens[want] {
+			t.Errorf("expected numeric token %q in completions, got %v", want, completions)
 		}
 	}
 }
