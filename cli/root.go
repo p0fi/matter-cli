@@ -112,13 +112,64 @@ func init() {
 // resolveTarget().
 func Execute() error {
 	if len(os.Args) > 1 {
-		cleaned, target := ExtractTargetFromArgs(os.Args[1:])
+		args := os.Args[1:]
+		cleaned, target := ExtractTargetFromArgs(args)
 		if target != nil {
 			extractedTarget = target
-			rootCmd.SetArgs(cleaned)
+			args = cleaned
 		}
+		normalized := normalizeShorthandArgs(args, clusters.Global)
+		rootCmd.SetArgs(normalized)
 	}
 	return rootCmd.Execute()
+}
+
+// normalizeShorthandArgs rewrites cluster shorthand command and sub-command
+// tokens in args to their canonical PascalCase forms so that cobra's
+// case-sensitive dispatch works regardless of how the user typed them.
+// For example ["onoff", "on"] becomes ["OnOff", "On"].
+//
+// Only the first positional token (cluster name) and the immediately following
+// positional token (command name) are examined; flags and all other tokens are
+// left unchanged.
+func normalizeShorthandArgs(args []string, registry *clusters.Registry) []string {
+	result := make([]string, len(args))
+	copy(result, args)
+
+	// Find and normalize the first non-flag positional arg as a cluster name.
+	clusterIdx := -1
+	var cl *clusters.ClusterInfo
+	for i, arg := range result {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		c, ok := registry.ClusterByName(arg)
+		if !ok {
+			// First positional doesn't match any cluster — nothing to normalize.
+			break
+		}
+		result[i] = c.Name
+		clusterIdx = i
+		cl = c
+		break
+	}
+
+	if cl == nil {
+		return result
+	}
+
+	// Find and normalize the next non-flag positional arg as a command name.
+	for i := clusterIdx + 1; i < len(result); i++ {
+		if strings.HasPrefix(result[i], "-") {
+			continue
+		}
+		if cmd, ok := registry.CommandByName(cl.ID, result[i]); ok {
+			result[i] = cmd.Name
+		}
+		break
+	}
+
+	return result
 }
 
 // withGroup assigns a command to a group and returns it for chaining.

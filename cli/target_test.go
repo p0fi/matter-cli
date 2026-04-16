@@ -6,6 +6,7 @@ package cli
 import (
 	"testing"
 
+	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/store"
 )
 
@@ -310,6 +311,116 @@ func TestExtractTargetFromArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// testClusterRegistry returns a small registry for use in normalization tests.
+func testClusterRegistry() *clusters.Registry {
+	r := clusters.NewRegistry()
+	r.Register(clusters.ClusterInfo{
+		ID:          0x0006,
+		Name:        "OnOff",
+		DisplayName: "On/Off",
+		Commands: []clusters.CommandInfo{
+			{ID: 0, Name: "Off", DisplayName: "Off"},
+			{ID: 1, Name: "On", DisplayName: "On"},
+			{ID: 2, Name: "Toggle", DisplayName: "Toggle"},
+		},
+	})
+	r.Register(clusters.ClusterInfo{
+		ID:          0x0008,
+		Name:        "LevelControl",
+		DisplayName: "Level Control",
+		Commands: []clusters.CommandInfo{
+			{ID: 0, Name: "MoveToLevel", DisplayName: "Move To Level"},
+		},
+	})
+	return r
+}
+
+func TestNormalizeShorthandArgs(t *testing.T) {
+	reg := testClusterRegistry()
+
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "lowercase cluster and command",
+			in:   []string{"onoff", "on"},
+			want: []string{"OnOff", "On"},
+		},
+		{
+			name: "mixed case cluster and command",
+			in:   []string{"OnOff", "toggle"},
+			want: []string{"OnOff", "Toggle"},
+		},
+		{
+			name: "all uppercase cluster",
+			in:   []string{"ONOFF", "OFF"},
+			want: []string{"OnOff", "Off"},
+		},
+		{
+			name: "with leading flag",
+			in:   []string{"--verbose", "onoff", "on"},
+			want: []string{"--verbose", "OnOff", "On"},
+		},
+		{
+			name: "unrecognised cluster unchanged",
+			in:   []string{"cluster", "invoke", "--cluster", "on-off"},
+			want: []string{"cluster", "invoke", "--cluster", "on-off"},
+		},
+		{
+			name: "cluster only, no command",
+			in:   []string{"onoff"},
+			want: []string{"OnOff"},
+		},
+		{
+			name: "unrecognised command token left unchanged",
+			in:   []string{"onoff", "read", "OnOff"},
+			want: []string{"OnOff", "read", "OnOff"},
+		},
+		{
+			name: "multi-word cluster",
+			in:   []string{"levelcontrol", "movetolevel"},
+			want: []string{"LevelControl", "MoveToLevel"},
+		},
+		{
+			name: "empty args",
+			in:   []string{},
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeShorthandArgs(tt.in, reg)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d, len(want)=%d: got=%v want=%v", len(got), len(tt.want), got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got[%d]=%q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeShorthandArgs_DoesNotMutateInput(t *testing.T) {
+	reg := testClusterRegistry()
+	original := []string{"onoff", "toggle"}
+	input := make([]string, len(original))
+	copy(input, original)
+
+	_ = normalizeShorthandArgs(input, reg)
+
+	for i := range original {
+		if input[i] != original[i] {
+			t.Errorf("normalizeShorthandArgs mutated input[%d]: got %q, want %q",
+				i, input[i], original[i])
+		}
 	}
 }
 
