@@ -188,6 +188,34 @@ func TestSearchClusters(t *testing.T) {
 	}
 }
 
+func TestSearchCommands(t *testing.T) {
+	r := NewRegistry()
+	r.Register(newTestCluster())
+
+	tests := []struct {
+		name      string
+		clusterID uint32
+		query     string
+		count     int
+	}{
+		{"exact", 0x0006, "Off", 1},
+		{"prefix-lower", 0x0006, "of", 1},
+		{"prefix-upper", 0x0006, "OF", 1},
+		{"empty-returns-all", 0x0006, "", 3},
+		{"no-match", 0x0006, "zzz", 0},
+		{"missing-cluster", 0x9999, "Off", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := r.SearchCommands(tt.clusterID, tt.query)
+			if len(results) != tt.count {
+				t.Fatalf("SearchCommands(%d, %q) returned %d, want %d", tt.clusterID, tt.query, len(results), tt.count)
+			}
+		})
+	}
+}
+
 func TestSearchAttributes(t *testing.T) {
 	r := NewRegistry()
 	r.Register(newTestCluster())

@@ -321,8 +321,8 @@ func (s *Server) handleGetFabric(req *Request) Response {
 }
 
 // handleSaveNode serves a "save-node" request, persisting the supplied node
-// record. This allows CLI commands (e.g. device alias) to update node data
-// while the daemon holds the exclusive BoltDB lock.
+// record. This allows CLI commands to update node data while the daemon
+// holds the exclusive BoltDB lock.
 func (s *Server) handleSaveNode(req *Request) Response {
 	if req.SaveNode == nil {
 		return Response{OK: false, Error: "save-node request missing save_node field"}

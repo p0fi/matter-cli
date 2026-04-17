@@ -27,7 +27,7 @@ func newInteractiveCmd() *cobra.Command {
 		Long: `Start an interactive REPL session for controlling Matter devices.
 
 Commands in interactive mode mirror the CLI commands:
-  use @node/endpoint   Set the default target (e.g. use @1/1, use @kitchen)
+  use @node/endpoint   Set the default target (e.g. use @1/1)
   on-off toggle        Invoke a cluster command
   cluster read ...     Read an attribute
   exit / quit          Exit the REPL`,
@@ -98,7 +98,7 @@ func runREPL(cmd *cobra.Command) error {
 func printREPLHelp(cmd *cobra.Command) {
 	w := cmd.OutOrStdout()
 	fmt.Fprintln(w, output.Header("Available commands:"))
-	fmt.Fprintf(w, "  %s              %s\n", output.Bold("use @node/endpoint"), output.Muted("Set default target (e.g. use @1/1, use @kitchen)"))
+	fmt.Fprintf(w, "  %s              %s\n", output.Bold("use @node/endpoint"), output.Muted("Set default target (e.g. use @1/1)"))
 	fmt.Fprintf(w, "  %s  %s\n", output.Bold("cluster read/write/invoke ..."), output.Muted("Interact with clusters"))
 	fmt.Fprintf(w, "  %s            %s\n", output.Bold("<cluster> <command>"), output.Muted("Shorthand (e.g. 'on-off toggle')"))
 	fmt.Fprintf(w, "  %s       %s\n", output.Bold("fabric ls / device inspect"), output.Muted("Fabric & device management"))
@@ -119,7 +119,7 @@ func handleUse(cmd *cobra.Command, state *replState, line string) {
 		return
 	}
 
-	// Try @target syntax first (e.g. "use @1/1", "use @kitchen").
+	// Try @target syntax first (e.g. "use @1/1").
 	arg := parts[1]
 	if IsTargetArg(arg) || (len(parts) == 2 && !strings.ContainsAny(arg, " ")) {
 		// Allow "use 1/1" without @ prefix for convenience in the REPL.

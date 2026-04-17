@@ -6,7 +6,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/p0fi/matter-cli/internal/store"
+	"github.com/p0fi/matter-cli/internal/clusters"
 )
 
 func TestParseTarget(t *testing.T) {
@@ -95,22 +95,28 @@ func TestParseTarget(t *testing.T) {
 			errContains: "invalid endpoint",
 		},
 		{
-			name:        "alias without store fails",
+			name:        "alias syntax rejected",
 			input:       "@kitchen",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "aliases are not supported",
 		},
 		{
-			name:        "alias with endpoint without store fails",
+			name:        "alias with endpoint rejected",
 			input:       "@kitchen/1",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "aliases are not supported",
+		},
+		{
+			name:        "kebab-case alias rejected",
+			input:       "@node-matter-onoff-light/1",
+			wantErr:     true,
+			errContains: "aliases are not supported",
 		},
 		{
 			name:        "empty node with slash",
 			input:       "@/1",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "invalid node ID",
 		},
 	}
 
@@ -247,12 +253,12 @@ func TestExtractTargetFromArgs(t *testing.T) {
 			wantEPSet:  true,
 		},
 		{
-			name:       "unparseable target left in args",
+			name:       "alias token left in args",
 			args:       []string{"@kitchen", "on-off", "toggle"},
 			wantArgs:   []string{"@kitchen", "on-off", "toggle"},
 			wantTarget: false,
-			// @kitchen requires store resolution which will fail in tests,
-			// so the token is left in args for cobra to handle.
+			// Alias syntax is rejected by ParseTarget; the token is left in
+			// args so cobra reports a standard "unknown command" error.
 		},
 		{
 			name:       "bare @ is not a target",
@@ -310,6 +316,116 @@ func TestExtractTargetFromArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// testClusterRegistry returns a small registry for use in normalization tests.
+func testClusterRegistry() *clusters.Registry {
+	r := clusters.NewRegistry()
+	r.Register(clusters.ClusterInfo{
+		ID:          0x0006,
+		Name:        "OnOff",
+		DisplayName: "On/Off",
+		Commands: []clusters.CommandInfo{
+			{ID: 0, Name: "Off", DisplayName: "Off"},
+			{ID: 1, Name: "On", DisplayName: "On"},
+			{ID: 2, Name: "Toggle", DisplayName: "Toggle"},
+		},
+	})
+	r.Register(clusters.ClusterInfo{
+		ID:          0x0008,
+		Name:        "LevelControl",
+		DisplayName: "Level Control",
+		Commands: []clusters.CommandInfo{
+			{ID: 0, Name: "MoveToLevel", DisplayName: "Move To Level"},
+		},
+	})
+	return r
+}
+
+func TestNormalizeShorthandArgs(t *testing.T) {
+	reg := testClusterRegistry()
+
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "lowercase cluster and command",
+			in:   []string{"onoff", "on"},
+			want: []string{"OnOff", "On"},
+		},
+		{
+			name: "mixed case cluster and command",
+			in:   []string{"OnOff", "toggle"},
+			want: []string{"OnOff", "Toggle"},
+		},
+		{
+			name: "all uppercase cluster",
+			in:   []string{"ONOFF", "OFF"},
+			want: []string{"OnOff", "Off"},
+		},
+		{
+			name: "with leading flag",
+			in:   []string{"--verbose", "onoff", "on"},
+			want: []string{"--verbose", "OnOff", "On"},
+		},
+		{
+			name: "unrecognised cluster unchanged",
+			in:   []string{"cluster", "invoke", "--cluster", "on-off"},
+			want: []string{"cluster", "invoke", "--cluster", "on-off"},
+		},
+		{
+			name: "cluster only, no command",
+			in:   []string{"onoff"},
+			want: []string{"OnOff"},
+		},
+		{
+			name: "unrecognised command token left unchanged",
+			in:   []string{"onoff", "read", "OnOff"},
+			want: []string{"OnOff", "read", "OnOff"},
+		},
+		{
+			name: "multi-word cluster",
+			in:   []string{"levelcontrol", "movetolevel"},
+			want: []string{"LevelControl", "MoveToLevel"},
+		},
+		{
+			name: "empty args",
+			in:   []string{},
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeShorthandArgs(tt.in, reg)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d, len(want)=%d: got=%v want=%v", len(got), len(tt.want), got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got[%d]=%q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeShorthandArgs_DoesNotMutateInput(t *testing.T) {
+	reg := testClusterRegistry()
+	original := []string{"onoff", "toggle"}
+	input := make([]string, len(original))
+	copy(input, original)
+
+	_ = normalizeShorthandArgs(input, reg)
+
+	for i := range original {
+		if input[i] != original[i] {
+			t.Errorf("normalizeShorthandArgs mutated input[%d]: got %q, want %q",
+				i, input[i], original[i])
+		}
 	}
 }
 
@@ -392,7 +508,6 @@ func TestRequireTarget_NoTarget(t *testing.T) {
 	wantPhrases := []string{
 		"no target specified",
 		"@1/1",
-		"@kitchen",
 		"matter use",
 		"MATTER_TARGET",
 	}
@@ -436,57 +551,6 @@ func TestTargetHint(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("targetHint(%d, %d) = %q, want %q", tt.nodeID, tt.endpoint, got, tt.want)
 		}
-	}
-}
-
-func TestInferDefaultEndpoint(t *testing.T) {
-	tests := []struct {
-		name      string
-		endpoints []store.Endpoint
-		wantEP    uint16
-		wantOK    bool
-	}{
-		{
-			name:      "no endpoints",
-			endpoints: nil,
-			wantOK:    false,
-		},
-		{
-			name:      "only root endpoint",
-			endpoints: []store.Endpoint{{ID: 0}},
-			wantOK:    false,
-		},
-		{
-			name:      "root and application endpoint",
-			endpoints: []store.Endpoint{{ID: 0}, {ID: 1}},
-			wantEP:    1,
-			wantOK:    true,
-		},
-		{
-			name:      "multiple non-root endpoints returns first",
-			endpoints: []store.Endpoint{{ID: 0}, {ID: 2}, {ID: 3}},
-			wantEP:    2,
-			wantOK:    true,
-		},
-		{
-			name:      "only non-root endpoint",
-			endpoints: []store.Endpoint{{ID: 5}},
-			wantEP:    5,
-			wantOK:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			node := &store.Node{Endpoints: tt.endpoints}
-			gotEP, gotOK := inferDefaultEndpoint(node)
-			if gotOK != tt.wantOK {
-				t.Errorf("inferDefaultEndpoint() ok = %v, want %v", gotOK, tt.wantOK)
-			}
-			if gotEP != tt.wantEP {
-				t.Errorf("inferDefaultEndpoint() endpoint = %d, want %d", gotEP, tt.wantEP)
-			}
-		})
 	}
 }
 

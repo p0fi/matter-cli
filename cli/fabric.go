@@ -193,14 +193,14 @@ func newFabricResetCmd() *cobra.Command {
 // or as an inline token before the subcommand:
 //
 //	matter fabric remove @1
-//	matter fabric remove @kitchen
+//	matter fabric remove @42
 //	matter @1 fabric remove
 func newFabricRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove @target",
 		Short: "Remove a commissioned device from the fabric",
 		Example: `  matter fabric remove @1
-  matter fabric remove @kitchen
+  matter fabric remove @42
   matter @1 fabric remove`,
 		Args: cobra.MaximumNArgs(1),
 		ValidArgsFunction: completion.TargetCompletionFunc(),

@@ -17,6 +17,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
+	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -42,7 +43,7 @@ var rootCmd = &cobra.Command{
 	Short: "A pure Go Matter controller CLI",
 	Long:  "matter is a command-line tool for interacting with Matter smart home devices.",
 	Example: "  $ matter commission code MT:Y3.13OTB00KA0648G00\n" +
-		"  $ matter @kitchen/1 OnOff Toggle\n" +
+		"  $ matter @1/1 OnOff Toggle\n" +
 		"  $ matter @1/1 OnOff read OnOff\n" +
 		"  $ matter @1/1 LevelControl write CurrentLevel 128",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -66,15 +67,15 @@ func init() {
 
 	// Register template functions for styled help output.
 	cobra.AddTemplateFuncs(template.FuncMap{
-		"styleHeader":         output.Header,
-		"styleBold":           output.Bold,
-		"styleDim":            output.Dim,
-		"styleCmd":            output.Command,
-		"styleCmdPad":         styleCmdPad,
-		"styleFlags":          styleFlagUsages,
-		"isShorthandCluster":  isShorthandCluster,
-		"visibleCmdPadding":   visibleCmdPadding,
-		"splitLines":          func(s string) []string { return strings.Split(s, "\n") },
+		"styleHeader":        output.Header,
+		"styleBold":          output.Bold,
+		"styleDim":           output.Dim,
+		"styleCmd":           output.Command,
+		"styleCmdPad":        styleCmdPad,
+		"styleFlags":         styleFlagUsages,
+		"isShorthandCluster": isShorthandCluster,
+		"visibleCmdPadding":  visibleCmdPadding,
+		"splitLines":         func(s string) []string { return strings.Split(s, "\n") },
 	})
 
 	// Register command groups.
@@ -92,8 +93,10 @@ func init() {
 	_ = viper.BindPFlag("format", pf.Lookup("format"))
 
 	// Enable @target completion on the root command so that typing "@" then
-	// Tab at any position offers device targets.
-	rootCmd.ValidArgsFunction = completion.TargetCompletionFunc()
+	// Tab at any position offers device targets. Cluster completions are
+	// filtered to those present on the current target endpoint via
+	// completionClusterFilter (populated in PersistentPreRunE).
+	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global, completionClusterFilter)
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))
@@ -106,18 +109,69 @@ func init() {
 // Execute runs the root command. It is the main entry point called from main.go.
 //
 // Before handing off to cobra, it scans os.Args for an @target token (e.g.
-// "@1/2", "@kitchen") and extracts it so that cobra never sees it. The parsed
+// "@1" or "@1/2") and extracts it so that cobra never sees it. The parsed
 // target is stored in extractedTarget and applied during PersistentPreRunE via
 // resolveTarget().
 func Execute() error {
 	if len(os.Args) > 1 {
-		cleaned, target := ExtractTargetFromArgs(os.Args[1:])
+		args := os.Args[1:]
+		cleaned, target := ExtractTargetFromArgs(args)
 		if target != nil {
 			extractedTarget = target
-			rootCmd.SetArgs(cleaned)
+			args = cleaned
 		}
+		normalized := normalizeShorthandArgs(args, clusters.Global)
+		rootCmd.SetArgs(normalized)
 	}
 	return rootCmd.Execute()
+}
+
+// normalizeShorthandArgs rewrites cluster shorthand command and sub-command
+// tokens in args to their canonical PascalCase forms so that cobra's
+// case-sensitive dispatch works regardless of how the user typed them.
+// For example ["onoff", "on"] becomes ["OnOff", "On"].
+//
+// Only the first positional token (cluster name) and the immediately following
+// positional token (command name) are examined; flags and all other tokens are
+// left unchanged.
+func normalizeShorthandArgs(args []string, registry *clusters.Registry) []string {
+	result := make([]string, len(args))
+	copy(result, args)
+
+	// Find and normalize the first non-flag positional arg as a cluster name.
+	clusterIdx := -1
+	var cl *clusters.ClusterInfo
+	for i, arg := range result {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		c, ok := registry.ClusterByName(arg)
+		if !ok {
+			// First positional doesn't match any cluster — nothing to normalize.
+			break
+		}
+		result[i] = c.Name
+		clusterIdx = i
+		cl = c
+		break
+	}
+
+	if cl == nil {
+		return result
+	}
+
+	// Find and normalize the next non-flag positional arg as a command name.
+	for i := clusterIdx + 1; i < len(result); i++ {
+		if strings.HasPrefix(result[i], "-") {
+			continue
+		}
+		if cmd, ok := registry.CommandByName(cl.ID, result[i]); ok {
+			result[i] = cmd.Name
+		}
+		break
+	}
+
+	return result
 }
 
 // withGroup assigns a command to a group and returns it for chaining.

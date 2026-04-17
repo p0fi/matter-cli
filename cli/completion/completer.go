@@ -94,8 +94,6 @@ func CommandNameCompletion(registry *clusters.Registry) func(cmd *cobra.Command,
 	}
 }
 
-
-
 // FieldFlagCompletions returns completions for command fields. When toComplete
 // contains "=" (e.g. "Direction="), it returns enum values for that field.
 // Otherwise it returns "FieldName=" completions for all unset fields.
@@ -265,22 +263,74 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 	}
 }
 
+// RootCompletionFunc returns a cobra ValidArgsFunction for the root command
+// that handles two completion types:
+//
+//   - @target tokens (e.g. "@1/2") — delegated to TargetCompletionFunc.
+//   - cluster shorthand commands — case-insensitive prefix/substring match of
+//     cluster names, so typing "on<TAB>" offers "OnOff" and "level<TAB>" offers
+//     "LevelControl".
+//
+// The cluster name completions are offered only when toComplete does not start
+// with "@", and use the same search infrastructure as ClusterNameCompletion.
+//
+// allowedClusters, if non-nil, is called at completion time to filter results
+// to the set of cluster IDs present on the current target endpoint. A nil map
+// means no filter (show all clusters); a non-nil but empty map means no
+// clusters are applicable (e.g. node-only target without an endpoint).
+func RootCompletionFunc(
+	registry *clusters.Registry,
+	allowedClusters func() map[uint32]bool,
+) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	targetFn := TargetCompletionFunc()
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if strings.HasPrefix(toComplete, "@") {
+			return targetFn(cmd, args, toComplete)
+		}
+		results := registry.SearchClusters(toComplete)
+
+		var allowed map[uint32]bool
+		if allowedClusters != nil {
+			allowed = allowedClusters()
+		}
+		if allowed != nil {
+			kept := results[:0]
+			for _, c := range results {
+				if allowed[c.ID] {
+					kept = append(kept, c)
+				}
+			}
+			results = kept
+		}
+
+		if len(results) == 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		names := make([]string, len(results))
+		for i, c := range results {
+			names[i] = fmt.Sprintf("%s\t%s (0x%04X)", c.Name, c.DisplayName, c.ID)
+		}
+		return names, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 // TargetCompletionFunc returns a cobra ValidArgsFunction that completes
-// @target tokens in two stages:
+// @target tokens in two stages. Emitted tokens are always numeric @N;
+// device names are shown only in the description as a visual hint.
 //
 // Stage 1 — node-only (no "/" typed yet):
-// When the user types "@" or "@ki", completions are node names only
-// (e.g. "@kitchen", "@1"). ShellCompDirectiveNoSpace is included so the
-// shell does not append a trailing space, allowing the user to either
-// type "/" to proceed to endpoint selection or " " (space) for device
+// When the user types "@" or "@ki", completions are numeric node tokens
+// (e.g. "@1", "@2"). Prefix matching considers both the numeric ID and
+// the device's kebab-case name, so "@ki" can narrow down to a node named
+// "Kitchen Light". ShellCompDirectiveNoSpace is included so the shell
+// does not append a trailing space, allowing the user to either type
+// "/" to proceed to endpoint selection or " " (space) for device
 // commands.
 //
 // Stage 2 — endpoint selection ("/" present):
-// When the user types "@kitchen/", completions are the non-root endpoints
-// on the matched node (e.g. "@kitchen/1", "@kitchen/2"). Normal trailing
-// space is applied so the user can proceed to a command after selection.
-//
-// Both numeric IDs and device aliases are offered in stage 1.
+// When the user types "@1/", completions are the non-root endpoints on
+// the matched node (e.g. "@1/1", "@1/2"). Normal trailing space is
+// applied so the user can proceed to a command after selection.
 func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Only complete if the user is typing a @target token.
@@ -308,10 +358,10 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 
 		var completions []string
 		for _, n := range nodes {
-			nodeStr := fmt.Sprintf("%d", n.ID)
+			idStr := fmt.Sprintf("%d", n.ID)
 
-			// Canonical alias: kebab-case name when available, numeric otherwise.
-			alias := nodeStr
+			// Human-readable alias: kebab-case name when available, numeric otherwise.
+			alias := idStr
 			if n.Name != "" {
 				alias = strings.ReplaceAll(strings.ToLower(n.Name), " ", "-")
 			}
@@ -319,30 +369,37 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			// Filter by the name/ID part the user has typed so far.
 			nameMatches := namePart == "" ||
 				strings.HasPrefix(alias, namePart) ||
-				strings.HasPrefix(nodeStr, namePart)
+				strings.HasPrefix(idStr, namePart)
 			if !nameMatches {
 				continue
 			}
 
 			if !hasSlash {
 				// ── Stage 1: node-only completions ──
-				// Emit the alias form (e.g. @kitchen).
-				target := fmt.Sprintf("@%s", alias)
-				desc := fmt.Sprintf("[%s] %s", nodeStr, nodeSummary(n))
-				completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
-
-				// Also offer the numeric form when it differs from the alias,
-				// so users who know the node ID can complete it directly.
-				if alias != nodeStr {
-					target2 := fmt.Sprintf("@%s", nodeStr)
-					completions = append(completions, fmt.Sprintf("%s\t%s", target2, nodeSummary(n)))
+				//
+				// Always emit the numeric @N token. The alias is shown in the
+				// description (with [nodeID] appended) so each entry is unique
+				// and zsh renders them as a vertical list rather than grouping
+				// identical descriptions into a single row.
+				var desc string
+				if alias != idStr {
+					desc = fmt.Sprintf("%s [%s]  %s", alias, idStr, nodeSummary(n))
+				} else {
+					desc = fmt.Sprintf("[%s]  %s", idStr, nodeSummary(n))
 				}
+				completions = append(completions, fmt.Sprintf("@%s\t%s", idStr, desc))
 			} else {
 				// ── Stage 2: endpoint completions for the matched node ──
+				//
+				// Only complete when the user typed a numeric node prefix (e.g.
+				// "@1/"). Name-based prefixes (e.g. "@kitchen-light/") are
+				// never emitted as tokens; the shell would discard
+				// completions that do not share the typed prefix anyway.
+				if !isAllDigits(namePart) {
+					continue
+				}
+
 				for _, ep := range n.Endpoints {
-					if ep.ID == 0 {
-						continue // skip root endpoint
-					}
 					epStr := fmt.Sprintf("%d", ep.ID)
 
 					// Filter by endpoint prefix the user has typed after "/".
@@ -350,9 +407,14 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 						continue
 					}
 
-					target := fmt.Sprintf("@%s/%s", alias, epStr)
-					desc := fmt.Sprintf("[%s] %s", nodeStr, endpointDescription(ep))
-					completions = append(completions, fmt.Sprintf("%s\t%s", target, desc))
+					epDesc := endpointDescription(ep)
+					var desc string
+					if alias != idStr {
+						desc = fmt.Sprintf("%s  [%s]", epDesc, alias)
+					} else {
+						desc = epDesc
+					}
+					completions = append(completions, fmt.Sprintf("@%s/%s\t%s", idStr, epStr, desc))
 				}
 			}
 		}
@@ -364,6 +426,19 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// isAllDigits reports whether s is non-empty and consists only of ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // nodeSummary returns a one-line human-readable description of a node,

@@ -49,7 +49,7 @@ func newTreeCmd() *cobra.Command {
 		Short: "Show device tree (endpoints, clusters, attributes)",
 		Example: `  matter @1 tree
   matter @1 tree -L 1
-  matter @kitchen tree -L 3
+  matter @2 tree -L 3
   matter @1 tree -L 4`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, _, err := requireTarget(cmd)

@@ -155,6 +155,27 @@ func (r *Registry) SearchClusters(query string) []ClusterInfo {
 	return results
 }
 
+// SearchCommands returns commands of the given cluster whose name or display
+// name contains the query string (case-insensitive). Useful for CLI auto-complete.
+func (r *Registry) SearchCommands(clusterID uint32, query string) []CommandInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	ci, ok := r.byID[clusterID]
+	if !ok {
+		return nil
+	}
+	lower := strings.ToLower(query)
+	var results []CommandInfo
+	for _, c := range ci.Commands {
+		if strings.Contains(strings.ToLower(c.Name), lower) ||
+			strings.Contains(strings.ToLower(c.DisplayName), lower) {
+			results = append(results, c)
+		}
+	}
+	return results
+}
+
 // SearchAttributes returns attributes of the given cluster whose name or
 // display name contains the query string (case-insensitive).
 func (r *Registry) SearchAttributes(clusterID uint32, query string) []AttributeInfo {

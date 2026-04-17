@@ -109,8 +109,8 @@ func (c *Client) GetFabric(fabricID uint64) (*store.Fabric, error) {
 	return resp.Fabric.Fabric, nil
 }
 
-// SaveNode persists a node record via the daemon. Used by CLI commands (e.g.
-// device alias) that need to write node data while the daemon holds the lock.
+// SaveNode persists a node record via the daemon. Used by CLI commands that
+// need to write node data while the daemon holds the lock.
 func (c *Client) SaveNode(fabricID uint64, node *store.Node) error {
 	resp, err := c.send(Request{
 		Type:     "save-node",

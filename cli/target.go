@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -25,9 +24,9 @@ type Target struct {
 	EndpointSet bool
 	// ExplicitEndpoint is true when the endpoint was specified with a "/"
 	// separator by the user (e.g. @node/1) or set explicitly via a sticky
-	// default. It is false when the endpoint was inferred from an alias or
-	// not specified at all. Only used for completion filtering — command
-	// execution behaviour is unaffected.
+	// default. It is false when the endpoint was not specified at all. Only
+	// used for completion filtering — command execution behaviour is
+	// unaffected.
 	ExplicitEndpoint bool
 }
 
@@ -48,20 +47,17 @@ const noTargetError = `no target specified
 
 Specify a device target using any of these methods:
   matter @1/1 on-off toggle          inline target (recommended)
-  matter @kitchen on-off toggle      using a device alias
   matter use @1/1                    set a sticky default
   export MATTER_TARGET=@1/1          environment variable`
 
 // ParseTarget parses a target string in the format "@node[/endpoint]".
-// The node part can be a numeric ID or a device alias (resolved via the
-// store). The endpoint part is optional and defaults to unset.
+// The node part must be a numeric node ID; device aliases are not accepted.
+// The endpoint part is optional and defaults to unset.
 //
 // Examples:
 //
-//	"@1"           → node 1, endpoint unset
-//	"@1/2"         → node 1, endpoint 2
-//	"@kitchen"     → alias "kitchen" resolved to a node ID
-//	"@kitchen/1"   → alias "kitchen", endpoint 1
+//	"@1"   → node 1, endpoint unset
+//	"@1/2" → node 1, endpoint 2
 func ParseTarget(s string) (*Target, error) {
 	if !strings.HasPrefix(s, "@") {
 		return nil, fmt.Errorf("target must start with @")
@@ -74,26 +70,14 @@ func ParseTarget(s string) (*Target, error) {
 	parts := strings.SplitN(raw, "/", 2)
 	t := &Target{}
 
-	// Parse the node part — try numeric first, then treat as alias.
-	if id, err := strconv.ParseUint(parts[0], 10, 64); err == nil {
-		if id == 0 {
-			return nil, fmt.Errorf("node ID 0 is reserved")
-		}
-		t.NodeID = id
-	} else {
-		// Alias resolution — look up the name in the store.
-		resolved, err := resolveAlias(parts[0])
-		if err != nil {
-			return nil, fmt.Errorf("resolving alias %q: %w", parts[0], err)
-		}
-		t.NodeID = resolved.NodeID
-		// If the alias resolved with a default endpoint and no explicit
-		// endpoint was given, inherit it.
-		if resolved.EndpointSet && len(parts) == 1 {
-			t.Endpoint = resolved.Endpoint
-			t.EndpointSet = true
-		}
+	id, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid node ID %q: target must be @<nodeID>[/endpoint] (e.g. @1/1); aliases are not supported", parts[0])
 	}
+	if id == 0 {
+		return nil, fmt.Errorf("node ID 0 is reserved")
+	}
+	t.NodeID = id
 
 	// Parse the optional endpoint part.
 	if len(parts) == 2 {
@@ -107,51 +91,6 @@ func ParseTarget(s string) (*Target, error) {
 	}
 
 	return t, nil
-}
-
-// resolveAlias looks up a device alias (friendly name) in the store and
-// returns the matching target. The alias is matched case-insensitively
-// against stored node names.
-func resolveAlias(alias string) (*Target, error) {
-	fabricID := viper.GetUint64("default-fabric-id")
-	if fabricID == 0 {
-		fabricID = 1
-	}
-
-	nodes, err := listNodesForCompletion(fabricID)
-	if err != nil {
-		return nil, fmt.Errorf("listing nodes: %w", err)
-	}
-
-	lower := strings.ToLower(alias)
-	for _, n := range nodes {
-		nodeLower := strings.ToLower(n.Name)
-		nodeKebab := strings.ReplaceAll(nodeLower, " ", "-")
-		if nodeLower == lower || nodeKebab == lower {
-			t := &Target{NodeID: n.ID}
-			// Use the first non-root endpoint as default if the device has one.
-			if defaultEp, ok := inferDefaultEndpoint(n); ok {
-				t.Endpoint = defaultEp
-				t.EndpointSet = true
-			}
-			return t, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no device named %q found (use 'matter fabric ls' to see devices)", alias)
-}
-
-// inferDefaultEndpoint picks the first non-root endpoint (ID > 0) from a
-// node's endpoint list. For most Matter devices this is endpoint 1, which
-// hosts the primary application cluster. Returns false if no suitable
-// endpoint is found.
-func inferDefaultEndpoint(node *store.Node) (uint16, bool) {
-	for _, ep := range node.Endpoints {
-		if ep.ID > 0 {
-			return ep.ID, true
-		}
-	}
-	return 0, false
 }
 
 // IsTargetArg reports whether the given argument looks like a @target token.
@@ -268,7 +207,7 @@ func requireTarget(_ *cobra.Command) (uint64, uint16, error) {
 }
 
 // targetHint returns a short string showing the resolved target for use in
-// log messages and stepper output, e.g. "@1/1" or "@kitchen/2".
+// log messages and stepper output, e.g. "@1/1" or "@42/2".
 func targetHint(nodeID uint64, endpoint uint16) string {
 	return fmt.Sprintf("@%d/%d", nodeID, endpoint)
 }
