@@ -23,9 +23,9 @@ func init() {
 //
 // Examples:
 //
+//	matter use @1
 //	matter use @1/1
-//	matter use @kitchen
-//	matter use @kitchen/2
+//	matter use @1/2
 //	matter use --clear
 //	matter use --show
 func newUseCmd() *cobra.Command {
@@ -41,9 +41,9 @@ commands unless overridden by:
   2. The MATTER_TARGET environment variable
 
 Use --clear to remove the sticky default, or --show to display it.`,
-		Example: `  matter use @1/1              Set node 1, endpoint 1 as default
-  matter use @kitchen          Set device "kitchen" as default
-  matter use @kitchen/2        Set device "kitchen", endpoint 2
+		Example: `  matter use @1                Set node 1 as default (endpoint unset)
+  matter use @1/1              Set node 1, endpoint 1 as default
+  matter use @42/2             Set node 42, endpoint 2 as default
   matter use --show            Show the current default target
   matter use --clear           Clear the sticky default`,
 		Args: cobra.MaximumNArgs(1),

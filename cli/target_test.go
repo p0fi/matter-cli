@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/clusters"
-	"github.com/p0fi/matter-cli/internal/store"
 )
 
 func TestParseTarget(t *testing.T) {
@@ -96,22 +95,28 @@ func TestParseTarget(t *testing.T) {
 			errContains: "invalid endpoint",
 		},
 		{
-			name:        "alias without store fails",
+			name:        "alias syntax rejected",
 			input:       "@kitchen",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "aliases are not supported",
 		},
 		{
-			name:        "alias with endpoint without store fails",
+			name:        "alias with endpoint rejected",
 			input:       "@kitchen/1",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "aliases are not supported",
+		},
+		{
+			name:        "kebab-case alias rejected",
+			input:       "@node-matter-onoff-light/1",
+			wantErr:     true,
+			errContains: "aliases are not supported",
 		},
 		{
 			name:        "empty node with slash",
 			input:       "@/1",
 			wantErr:     true,
-			errContains: "resolving alias",
+			errContains: "invalid node ID",
 		},
 	}
 
@@ -248,12 +253,12 @@ func TestExtractTargetFromArgs(t *testing.T) {
 			wantEPSet:  true,
 		},
 		{
-			name:       "unparseable target left in args",
+			name:       "alias token left in args",
 			args:       []string{"@kitchen", "on-off", "toggle"},
 			wantArgs:   []string{"@kitchen", "on-off", "toggle"},
 			wantTarget: false,
-			// @kitchen requires store resolution which will fail in tests,
-			// so the token is left in args for cobra to handle.
+			// Alias syntax is rejected by ParseTarget; the token is left in
+			// args so cobra reports a standard "unknown command" error.
 		},
 		{
 			name:       "bare @ is not a target",
@@ -503,7 +508,6 @@ func TestRequireTarget_NoTarget(t *testing.T) {
 	wantPhrases := []string{
 		"no target specified",
 		"@1/1",
-		"@kitchen",
 		"matter use",
 		"MATTER_TARGET",
 	}
@@ -547,57 +551,6 @@ func TestTargetHint(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("targetHint(%d, %d) = %q, want %q", tt.nodeID, tt.endpoint, got, tt.want)
 		}
-	}
-}
-
-func TestInferDefaultEndpoint(t *testing.T) {
-	tests := []struct {
-		name      string
-		endpoints []store.Endpoint
-		wantEP    uint16
-		wantOK    bool
-	}{
-		{
-			name:      "no endpoints",
-			endpoints: nil,
-			wantOK:    false,
-		},
-		{
-			name:      "only root endpoint",
-			endpoints: []store.Endpoint{{ID: 0}},
-			wantOK:    false,
-		},
-		{
-			name:      "root and application endpoint",
-			endpoints: []store.Endpoint{{ID: 0}, {ID: 1}},
-			wantEP:    1,
-			wantOK:    true,
-		},
-		{
-			name:      "multiple non-root endpoints returns first",
-			endpoints: []store.Endpoint{{ID: 0}, {ID: 2}, {ID: 3}},
-			wantEP:    2,
-			wantOK:    true,
-		},
-		{
-			name:      "only non-root endpoint",
-			endpoints: []store.Endpoint{{ID: 5}},
-			wantEP:    5,
-			wantOK:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			node := &store.Node{Endpoints: tt.endpoints}
-			gotEP, gotOK := inferDefaultEndpoint(node)
-			if gotOK != tt.wantOK {
-				t.Errorf("inferDefaultEndpoint() ok = %v, want %v", gotOK, tt.wantOK)
-			}
-			if gotEP != tt.wantEP {
-				t.Errorf("inferDefaultEndpoint() endpoint = %d, want %d", gotEP, tt.wantEP)
-			}
-		})
 	}
 }
 

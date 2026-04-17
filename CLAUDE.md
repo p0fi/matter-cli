@@ -23,7 +23,7 @@ You can find the official Matter specification source files in `../connectedhome
 
 > **Keep this section in sync.** If you add, rename, or remove a command or flag, update the examples below to match.
 
-The binary is called `matter`. Targets use `@node/endpoint` syntax (e.g. `@1/1`, `@kitchen/2`).
+The binary is called `matter`. Targets use `@node/endpoint` syntax with a numeric node ID (e.g. `@1`, `@1/1`, `@42/2`). Device aliases are not supported in the target syntax.
 
 ### Core commands
 
