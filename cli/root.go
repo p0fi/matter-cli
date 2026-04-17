@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -193,16 +194,60 @@ func configDir() string {
 	return filepath.Join(home, ".config", "matter-cli")
 }
 
+// configTemplateFor returns the config file template with the resolved path
+// embedded as a comment. All keys are commented out so the file is
+// self-documenting without changing any defaults.
+func configTemplateFor(cfgFile string) string {
+	return fmt.Sprintf(`# matter-cli configuration
+# %s
+
+# Default fabric ID used when --fabric-id is not specified.
+# default-fabric-id: 1
+
+# Output format: table | json | yaml (default: table for TTY, json for pipes).
+# format: table
+
+# Sticky default target set by "matter use @<node>/<endpoint>".
+# default-node: 0
+# default-endpoint: 0
+
+# WiFi credentials used during BLE commissioning.
+# Avoids passing --wifi-ssid and --wifi-password on every commission invocation.
+# wifi:
+#   ssid: MyNetwork
+#   password: s3cr3t
+
+# Thread operational dataset (hex-encoded) used during BLE commissioning.
+# thread:
+#   dataset: 0e080000000000010000000300001235...
+`, cfgFile)
+}
+
 func initConfig() {
 	dir := configDir()
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(dir)
 	viper.SetEnvPrefix("MATTER")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	viper.AutomaticEnv()
 
-	// Silently ignore missing config file — it is optional.
-	_ = viper.ReadInConfig()
+	// Bootstrap config file on first run so users can discover available keys.
+	cfgFile := filepath.Join(dir, "config.yaml")
+	if mkErr := os.MkdirAll(dir, 0o700); mkErr == nil {
+		if f, err := os.OpenFile(cfgFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err == nil {
+			_, _ = f.WriteString(configTemplateFor(cfgFile))
+			_ = f.Close()
+		}
+		// os.O_EXCL ensures we never overwrite an existing config.
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			fmt.Fprintf(os.Stderr, "warning: config file error: %v\n", err)
+		}
+	}
 }
 
 // maybeStartDaemon checks the --keep-alive / -K flag and, if set, ensures a
