@@ -149,10 +149,10 @@ func TestTargetCompletionFunc_Stage1_NodeOnly(t *testing.T) {
 	}
 }
 
-// TestTargetCompletionFunc_Stage1_NoNumericDuplicates verifies that stage-1
-// does not emit a bare @N numeric token alongside a named alias for nodes
-// whose alias is unique in the fabric.
-func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
+// TestTargetCompletionFunc_Stage1_AlwaysNumericTokens verifies that stage-1
+// always emits numeric @N tokens (never named aliases), and that named nodes
+// have their alias in the description.
+func TestTargetCompletionFunc_Stage1_AlwaysNumericTokens(t *testing.T) {
 	cleanup := setupTestStore(t, 1, testNodes())
 	defer cleanup()
 
@@ -164,18 +164,37 @@ func TestTargetCompletionFunc_Stage1_NoNumericDuplicates(t *testing.T) {
 		tokens[token]++
 	}
 
-	// @1 and @2 are the numeric forms of uniquely-named nodes; they must not
-	// appear because @kitchen-light and @front-door-lock are unambiguous.
-	for _, numeric := range []string{"@1", "@2"} {
-		if tokens[numeric] > 0 {
-			t.Errorf("stage-1 emitted numeric token %q for a uniquely-named node; want named alias only", numeric)
+	// Named aliases must NOT appear as tokens — always numeric.
+	for _, alias := range []string{"@kitchen-light", "@front-door-lock"} {
+		if tokens[alias] > 0 {
+			t.Errorf("stage-1 emitted named alias token %q; want numeric @N tokens only", alias)
 		}
 	}
 
-	// Named aliases must appear exactly once each.
-	for _, alias := range []string{"@kitchen-light", "@front-door-lock"} {
-		if tokens[alias] != 1 {
-			t.Errorf("expected exactly 1 completion for %q, got %d", alias, tokens[alias])
+	// Numeric tokens must appear exactly once each.
+	for _, numeric := range []string{"@1", "@2"} {
+		if tokens[numeric] != 1 {
+			t.Errorf("expected exactly 1 completion for %q, got %d", numeric, tokens[numeric])
+		}
+	}
+
+	// Named nodes must have their alias visible in the description.
+	for _, c := range completions {
+		parts := strings.SplitN(c, "\t", 2)
+		token := parts[0]
+		if len(parts) < 2 {
+			continue
+		}
+		desc := parts[1]
+		switch token {
+		case "@1":
+			if !strings.Contains(desc, "kitchen-light") {
+				t.Errorf("description for @1 %q does not contain alias 'kitchen-light'", desc)
+			}
+		case "@2":
+			if !strings.Contains(desc, "front-door-lock") {
+				t.Errorf("description for @2 %q does not contain alias 'front-door-lock'", desc)
+			}
 		}
 	}
 }
@@ -255,7 +274,8 @@ func TestTargetCompletionFunc_Stage1_DuplicateAlias(t *testing.T) {
 }
 
 // TestTargetCompletionFunc_Stage1_DescriptionFormat verifies that named node
-// completions lead their description with the node ID for quick reference.
+// completions include both the alias and the node ID (in brackets) in the
+// description, and that the token itself is numeric.
 func TestTargetCompletionFunc_Stage1_DescriptionFormat(t *testing.T) {
 	cleanup := setupTestStore(t, 1, testNodes())
 	defer cleanup()
@@ -271,14 +291,18 @@ func TestTargetCompletionFunc_Stage1_DescriptionFormat(t *testing.T) {
 		if len(parts) != 2 {
 			t.Fatalf("completion entry missing tab separator: %q", c)
 		}
-		desc := parts[1]
-		// Description must start with the numeric node ID, not a bracket.
-		if strings.HasPrefix(desc, "[") {
-			t.Errorf("description %q still uses bracket format; want plain node-ID prefix", desc)
+		token, desc := parts[0], parts[1]
+		// Token must be numeric @N, not a named alias.
+		if token != "@1" {
+			t.Errorf("expected numeric token @1, got %q", token)
 		}
-		// Description must start with a digit (the node ID).
-		if len(desc) == 0 || desc[0] < '0' || desc[0] > '9' {
-			t.Errorf("description %q does not start with node ID digit", desc)
+		// Description must contain the alias.
+		if !strings.Contains(desc, "kitchen-light") {
+			t.Errorf("description %q does not contain alias 'kitchen-light'", desc)
+		}
+		// Description must contain the node ID in brackets.
+		if !strings.Contains(desc, "[1]") {
+			t.Errorf("description %q does not contain '[1]' for node ID", desc)
 		}
 	}
 }
@@ -290,22 +314,24 @@ func TestTargetCompletionFunc_Stage2_Endpoints(t *testing.T) {
 	defer cleanup()
 
 	cases := []struct {
-		toComplete    string
-		wantTokens    []string // substrings that must appear in the tokens
-		wantNoEndpointTokens bool // true means no tokens without "/" are expected
+		toComplete string
+		wantTokens []string // substrings that must appear in the tokens
+		wantEmpty  bool     // true means no completions expected
 	}{
 		{
+			// Alias-based prefix → no completions (only numeric @N/ep supported).
 			toComplete: "@kitchen-light/",
-			wantTokens: []string{"@kitchen-light/0", "@kitchen-light/1"},
+			wantEmpty:  true,
 		},
 		{
-			// Numeric prefix → completions must use @N/ep, not @alias/ep.
+			// Numeric prefix → completions use @N/ep only.
 			toComplete: "@1/",
 			wantTokens: []string{"@1/0", "@1/1"},
 		},
 		{
+			// Alias-based prefix → no completions.
 			toComplete: "@front-door-lock/",
-			wantTokens: []string{"/0", "/1", "/2"},
+			wantEmpty:  true,
 		},
 		{
 			toComplete: "@2/1",
@@ -316,6 +342,13 @@ func TestTargetCompletionFunc_Stage2_Endpoints(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.toComplete, func(t *testing.T) {
 			completions, directive := runTargetCompletion(t, tc.toComplete)
+
+			if tc.wantEmpty {
+				if len(completions) != 0 {
+					t.Errorf("expected no completions for alias-based prefix %q, got %v", tc.toComplete, completions)
+				}
+				return
+			}
 
 			// All tokens must contain "/" — stage 2.
 			for _, c := range completions {
@@ -401,7 +434,7 @@ func TestRootCompletionFunc_ClusterShorthand(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg)
+	fn := RootCompletionFunc(reg, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	cases := []struct {
@@ -446,7 +479,7 @@ func TestRootCompletionFunc_ClusterShorthand_NoMatch(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg)
+	fn := RootCompletionFunc(reg, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	completions, directive := fn(cmd, nil, "zzznomatch")
@@ -465,7 +498,7 @@ func TestRootCompletionFunc_AtTarget(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg)
+	fn := RootCompletionFunc(reg, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	completions, _ := fn(cmd, nil, "@")
@@ -476,6 +509,55 @@ func TestRootCompletionFunc_AtTarget(t *testing.T) {
 			t.Errorf("expected @-prefixed token, got %q", token)
 		}
 	}
+}
+
+// TestRootCompletionFunc_ClusterFilter verifies that an allowedClusters filter
+// restricts cluster completions to the returned set of IDs. This is the
+// mechanism used to scope completions for `matter @N/EP <TAB>` to clusters
+// actually present on the target endpoint.
+func TestRootCompletionFunc_ClusterFilter(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	reg := testRegistry()
+	cmd := &cobra.Command{Use: "test"}
+
+	t.Run("nil map → all clusters", func(t *testing.T) {
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return nil })
+		completions, _ := fn(cmd, nil, "")
+		if len(completions) != 3 {
+			t.Errorf("expected 3 completions (all registry clusters), got %d: %v", len(completions), completions)
+		}
+	})
+
+	t.Run("empty map → no clusters", func(t *testing.T) {
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} })
+		completions, _ := fn(cmd, nil, "")
+		if len(completions) != 0 {
+			t.Errorf("expected no completions for empty allow set, got %v", completions)
+		}
+	})
+
+	t.Run("restricted set → only allowed clusters", func(t *testing.T) {
+		allowed := map[uint32]bool{0x0006: true} // OnOff only
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return allowed })
+		completions, _ := fn(cmd, nil, "")
+		if len(completions) != 1 {
+			t.Fatalf("expected exactly 1 completion, got %v", completions)
+		}
+		token := strings.SplitN(completions[0], "\t", 2)[0]
+		if token != "OnOff" {
+			t.Errorf("expected OnOff completion, got %q", token)
+		}
+	})
+
+	t.Run("filter does not affect @target completion", func(t *testing.T) {
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} })
+		completions, _ := fn(cmd, nil, "@")
+		if len(completions) == 0 {
+			t.Error("empty allow set should not suppress @target completions")
+		}
+	})
 }
 
 // TestNodeSummary ensures the helper returns a non-empty string for a node

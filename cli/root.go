@@ -43,7 +43,7 @@ var rootCmd = &cobra.Command{
 	Short: "A pure Go Matter controller CLI",
 	Long:  "matter is a command-line tool for interacting with Matter smart home devices.",
 	Example: "  $ matter commission code MT:Y3.13OTB00KA0648G00\n" +
-		"  $ matter @kitchen/1 OnOff Toggle\n" +
+		"  $ matter @1/1 OnOff Toggle\n" +
 		"  $ matter @1/1 OnOff read OnOff\n" +
 		"  $ matter @1/1 LevelControl write CurrentLevel 128",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -67,15 +67,15 @@ func init() {
 
 	// Register template functions for styled help output.
 	cobra.AddTemplateFuncs(template.FuncMap{
-		"styleHeader":         output.Header,
-		"styleBold":           output.Bold,
-		"styleDim":            output.Dim,
-		"styleCmd":            output.Command,
-		"styleCmdPad":         styleCmdPad,
-		"styleFlags":          styleFlagUsages,
-		"isShorthandCluster":  isShorthandCluster,
-		"visibleCmdPadding":   visibleCmdPadding,
-		"splitLines":          func(s string) []string { return strings.Split(s, "\n") },
+		"styleHeader":        output.Header,
+		"styleBold":          output.Bold,
+		"styleDim":           output.Dim,
+		"styleCmd":           output.Command,
+		"styleCmdPad":        styleCmdPad,
+		"styleFlags":         styleFlagUsages,
+		"isShorthandCluster": isShorthandCluster,
+		"visibleCmdPadding":  visibleCmdPadding,
+		"splitLines":         func(s string) []string { return strings.Split(s, "\n") },
 	})
 
 	// Register command groups.
@@ -93,8 +93,10 @@ func init() {
 	_ = viper.BindPFlag("format", pf.Lookup("format"))
 
 	// Enable @target completion on the root command so that typing "@" then
-	// Tab at any position offers device targets.
-	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global)
+	// Tab at any position offers device targets. Cluster completions are
+	// filtered to those present on the current target endpoint via
+	// completionClusterFilter (populated in PersistentPreRunE).
+	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global, completionClusterFilter)
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))
@@ -107,7 +109,7 @@ func init() {
 // Execute runs the root command. It is the main entry point called from main.go.
 //
 // Before handing off to cobra, it scans os.Args for an @target token (e.g.
-// "@1/2", "@kitchen") and extracts it so that cobra never sees it. The parsed
+// "@1" or "@1/2") and extracts it so that cobra never sees it. The parsed
 // target is stored in extractedTarget and applied during PersistentPreRunE via
 // resolveTarget().
 func Execute() error {

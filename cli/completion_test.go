@@ -608,6 +608,36 @@ func TestZshCompletion_ContainsDirectiveParsing(t *testing.T) {
 	assert.Contains(t, script, "-S ''", "zsh script should suppress trailing space for node-level targets")
 }
 
+// TestZshCompletion_ShorthandClusterGroups verifies the generated zsh script
+// renders shorthand-cluster subcommands in two labelled groups: invokable
+// commands (matched via the "Invoke *" description pattern) and attribute
+// interactions (matched via the "Read a * attribute" / "Write a * attribute"
+// patterns). These patterns must stay in sync with the Short descriptions
+// produced in registerShorthandClusters.
+func TestZshCompletion_ShorthandClusterGroups(t *testing.T) {
+	root := rootCmd // need the real root to include shorthand clusters
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&bytes.Buffer{})
+	t.Cleanup(func() {
+		root.SetOut(nil)
+		root.SetErr(nil)
+		root.SetArgs(nil)
+	})
+	root.SetArgs([]string{"completion", "zsh"})
+	require.NoError(t, root.Execute())
+
+	script := stdout.String()
+
+	assert.Contains(t, script, "invoke-commands", "zsh script should tag invoke commands")
+	assert.Contains(t, script, "attr-interactions", "zsh script should tag attribute interactions")
+	assert.Contains(t, script, "── Commands ──", "zsh script should include a Commands header")
+	assert.Contains(t, script, "── Attribute Interactions ──", "zsh script should include an Attribute Interactions header")
+	assert.Contains(t, script, `"Invoke "*`, "zsh script should route invoke descriptions by pattern")
+	assert.Contains(t, script, `"Read a "*" attribute"*`, "zsh script should route read attribute descriptions")
+	assert.Contains(t, script, `"Write a "*" attribute"*`, "zsh script should route write attribute descriptions")
+}
+
 // TestFilterShorthandCommands_NodeOnly verifies that when a node-only target is
 // set (ExplicitEndpoint=false), all cluster-group commands are hidden and the
 // device command remains visible.
@@ -719,10 +749,12 @@ func TestFilterShorthandCommands_ExplicitEndpoint(t *testing.T) {
 	for _, cmd := range shorthandCmds {
 		snapshot = append(snapshot, hiddenState{cmd, cmd.Hidden})
 	}
+	prevFilter := targetEndpointClusterIDs
 	t.Cleanup(func() {
 		for _, s := range snapshot {
 			s.cmd.Hidden = s.hidden
 		}
+		targetEndpointClusterIDs = prevFilter
 	})
 
 	// Apply endpoint-explicit target.
@@ -748,5 +780,39 @@ func TestFilterShorthandCommands_ExplicitEndpoint(t *testing.T) {
 			assert.True(t, cmd.Hidden,
 				"target-unaware command %q should be hidden for endpoint-explicit target", cmd.Name())
 		}
+	}
+}
+
+// TestCompletionClusterFilter_NodeOnly verifies that a node-only target sets
+// the completion cluster filter to an empty (non-nil) map so the
+// case-insensitive RootCompletionFunc emits no cluster suggestions.
+func TestCompletionClusterFilter_NodeOnly(t *testing.T) {
+	prev := targetEndpointClusterIDs
+	t.Cleanup(func() { targetEndpointClusterIDs = prev })
+
+	target := &Target{NodeID: 1, EndpointSet: false, ExplicitEndpoint: false}
+	filterShorthandCommands(target)
+
+	got := completionClusterFilter()
+	if got == nil {
+		t.Fatal("expected non-nil cluster filter for node-only target (to suppress all cluster completions)")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty cluster filter for node-only target, got %v", got)
+	}
+}
+
+// TestCompletionClusterFilter_NoTarget verifies that filterShorthandCommands
+// resets the filter to nil when no target is set, so cluster completions are
+// unrestricted.
+func TestCompletionClusterFilter_NoTarget(t *testing.T) {
+	prev := targetEndpointClusterIDs
+	targetEndpointClusterIDs = map[uint32]bool{0x0006: true} // stale state
+	t.Cleanup(func() { targetEndpointClusterIDs = prev })
+
+	filterShorthandCommands(nil)
+
+	if got := completionClusterFilter(); got != nil {
+		t.Errorf("expected nil cluster filter when no target is set, got %v", got)
 	}
 }

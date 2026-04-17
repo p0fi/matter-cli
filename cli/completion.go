@@ -459,10 +459,12 @@ compdef _matter matter
 # Group headers: requires group-name '' to be set (oh-my-zsh sets this
 # globally; we set it locally for matter so vanilla zsh also benefits).
 zstyle ':completion:*:matter:*' group-name ''
-zstyle ':completion:*:matter:*:targets'          format $'\e[35m── Targets ──\e[0m'
-zstyle ':completion:*:matter:*:device-commands'  format $'\e[36m── Device Commands ──\e[0m'
-zstyle ':completion:*:matter:*:cluster-commands' format $'\e[32m── Cluster Commands ──\e[0m'
-zstyle ':completion:*:matter:*:tools'            format $'\e[33m── Tools ──\e[0m'
+zstyle ':completion:*:matter:*:targets'            format $'\e[35m── Targets ──\e[0m'
+zstyle ':completion:*:matter:*:device-commands'    format $'\e[36m── Device Commands ──\e[0m'
+zstyle ':completion:*:matter:*:cluster-commands'   format $'\e[32m── Cluster Commands ──\e[0m'
+zstyle ':completion:*:matter:*:tools'              format $'\e[33m── Tools ──\e[0m'
+zstyle ':completion:*:matter:*:invoke-commands'    format $'\e[32m── Commands ──\e[0m'
+zstyle ':completion:*:matter:*:attr-interactions'  format $'\e[34m── Attribute Interactions ──\e[0m'
 
 # Static lookup: command name → group tag (device | cluster | tool).
 # Regenerate whenever new clusters or commands are added.
@@ -473,7 +475,7 @@ _matter_group_map=(
 
 _matter() {
   local -a request_cmd
-  local -a device_cmds cluster_cmds tool_cmds target_cmds other_cmds
+  local -a device_cmds cluster_cmds tool_cmds target_cmds other_cmds invoke_cmds attr_cmds
   local out word desc entry tag i directive _matter_line
 
   # Build the __complete call from the current word list.
@@ -505,21 +507,34 @@ _matter() {
         device)  device_cmds+=("$entry") ;;
         cluster) cluster_cmds+=("$entry") ;;
         tool)    tool_cmds+=("$entry") ;;
-        *)       other_cmds+=("$entry") ;;
+        *)
+          # Shorthand cluster subcommands are identified by their description:
+          # invoke commands use "Invoke <Cluster>.<Command>"; attribute
+          # interactions use "Read a <Cluster> attribute" / "Write a <Cluster>
+          # attribute". Anything else falls through to the ungrouped bucket.
+          case "$desc" in
+            "Invoke "*)                      invoke_cmds+=("$entry") ;;
+            "Read a "*" attribute"*)         attr_cmds+=("$entry") ;;
+            "Write a "*" attribute"*)        attr_cmds+=("$entry") ;;
+            *)                                other_cmds+=("$entry") ;;
+          esac
+          ;;
       esac
     fi
   done <<< "$out"
 
   # ShellCompDirectiveNoSpace (bit 1, value 2): suppress trailing space so the
-  # user can continue typing (e.g. after "Level=" or "@kitchen").
+  # user can continue typing (e.g. after "Level=" or "@1/").
   local -a nospace
   (( directive & 2 )) && nospace=(-S '')
 
-  (( ${#target_cmds}  )) && _describe -t targets          "Targets"          target_cmds  "${nospace[@]}"
-  (( ${#device_cmds}  )) && _describe -t device-commands  "Device Commands"  device_cmds  "${nospace[@]}"
-  (( ${#cluster_cmds} )) && _describe -t cluster-commands "Cluster Commands" cluster_cmds "${nospace[@]}"
-  (( ${#tool_cmds}    )) && _describe -t tools             "Tools"            tool_cmds   "${nospace[@]}"
-  (( ${#other_cmds}   )) && _describe -t arguments         ""                 other_cmds  "${nospace[@]}"
+  (( ${#target_cmds}  )) && _describe -t targets            "Targets"                target_cmds  "${nospace[@]}"
+  (( ${#device_cmds}  )) && _describe -t device-commands    "Device Commands"        device_cmds  "${nospace[@]}"
+  (( ${#cluster_cmds} )) && _describe -t cluster-commands   "Cluster Commands"       cluster_cmds "${nospace[@]}"
+  (( ${#tool_cmds}    )) && _describe -t tools              "Tools"                  tool_cmds    "${nospace[@]}"
+  (( ${#invoke_cmds}  )) && _describe -t invoke-commands    "Commands"               invoke_cmds  "${nospace[@]}"
+  (( ${#attr_cmds}    )) && _describe -t attr-interactions  "Attribute Interactions" attr_cmds    "${nospace[@]}"
+  (( ${#other_cmds}   )) && _describe -t arguments          ""                       other_cmds   "${nospace[@]}"
 
   return 0
 }

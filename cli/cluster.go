@@ -44,6 +44,23 @@ var shorthandCmds []*cobra.Command
 // filterShorthandCommands → rootCmd.
 var allRootCommands func() []*cobra.Command
 
+// targetEndpointClusterIDs holds the set of server cluster IDs present on the
+// current target endpoint. It is populated by filterShorthandCommands and read
+// by completionClusterFilter so that case-insensitive cluster completion
+// matches the set of clusters actually available on the target. Semantics:
+//   - nil: no filtering (no target, or endpoint clusters are unknown)
+//   - empty map: target is set but no clusters apply (e.g. node-only target)
+//   - non-empty map: only these cluster IDs are valid for completion
+var targetEndpointClusterIDs map[uint32]bool
+
+// completionClusterFilter exposes targetEndpointClusterIDs to the completion
+// package without leaking the package variable. The completion package calls
+// it from inside its ValidArgsFunction, after PersistentPreRunE has populated
+// the filter for the current invocation.
+func completionClusterFilter() map[uint32]bool {
+	return targetEndpointClusterIDs
+}
+
 func init() {
 	allRootCommands = func() []*cobra.Command { return rootCmd.Commands() }
 	rootCmd.AddCommand(withGroup(newClusterCmd(), groupClusters))
@@ -79,13 +96,17 @@ var deviceOnlyCommands = map[string]bool{
 //   - Target-unaware commands (commission, fabric, discover, …) are hidden
 //     whenever any target is set.
 //   - Node-only target (ExplicitEndpoint=false): all cluster commands are
-//     hidden; only device-level commands (device inspect, device alias) remain.
+//     hidden; only device-level commands (e.g. device inspect) remain.
 //   - Endpoint-explicit target (ExplicitEndpoint=true): device-only commands
 //     are hidden; cluster commands are shown (filtered to those present on the
 //     endpoint when the store is reachable).
 //
 // Nothing is hidden when the target lacks a node ID.
 func filterShorthandCommands(t *Target) {
+	// Reset the cluster filter at the start of every call. Later branches
+	// populate it when a target makes cluster completion meaningful.
+	targetEndpointClusterIDs = nil
+
 	if t == nil || t.NodeID == 0 {
 		return
 	}
@@ -104,7 +125,7 @@ func filterShorthandCommands(t *Target) {
 
 	if !t.ExplicitEndpoint {
 		// Node-only target: hide all cluster commands so only device-level
-		// commands (device inspect, device alias) remain visible.
+		// commands (e.g. device inspect) remain visible.
 		for _, cmd := range shorthandCmds {
 			cmd.Hidden = true
 		}
@@ -113,6 +134,9 @@ func filterShorthandCommands(t *Target) {
 				cmd.Hidden = true
 			}
 		}
+		// Empty (non-nil) set: the case-insensitive fallback completion
+		// must not offer any clusters either.
+		targetEndpointClusterIDs = map[uint32]bool{}
 		return
 	}
 
@@ -164,6 +188,8 @@ func filterShorthandCommands(t *Target) {
 			cmd.Hidden = true
 		}
 	}
+
+	targetEndpointClusterIDs = clusterIDs
 }
 
 // connectToNode opens the store, looks up the node's last address, creates a
@@ -493,7 +519,7 @@ func newClusterReadCmd() *cobra.Command {
 		Use:   "read",
 		Short: "Read a cluster attribute",
 		Example: `  matter @1/1 cluster read --cluster OnOff --attribute OnOff
-  matter @kitchen cluster read --cluster LevelControl --attribute CurrentLevel`,
+  matter @2/1 cluster read --cluster LevelControl --attribute CurrentLevel`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -870,7 +896,7 @@ func newClusterWriteCmd() *cobra.Command {
 		Use:   "write",
 		Short: "Write a cluster attribute",
 		Example: `  matter @1/1 cluster write --cluster OnOff --attribute OnTime --value 300
-  matter @kitchen cluster write --cluster FanControl --attribute FanMode --value 0`,
+  matter @2/1 cluster write --cluster FanControl --attribute FanMode --value 0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -1134,7 +1160,7 @@ func newClusterInvokeCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Invoke a cluster command",
 		Example: `  matter @1/1 cluster invoke --cluster OnOff --command Toggle
-  matter @kitchen cluster invoke --cluster Identify --command Identify -F IdentifyTime=10`,
+  matter @2/1 cluster invoke --cluster Identify --command Identify -F IdentifyTime=10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -1189,7 +1215,7 @@ func newClusterSubscribeCmd() *cobra.Command {
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
 		Example: `  matter @1/1 cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10
-  matter @kitchen cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10`,
+  matter @2/1 cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -1257,6 +1283,15 @@ func newClusterListCmd() *cobra.Command {
 	}
 }
 
+// Group IDs used by shorthand cluster commands to split subcommand completion
+// into "invoke" (cluster commands) and "attr" (read/write attribute
+// interactions) sections. These tags also drive the grouped rendering in the
+// custom zsh completion script (see genZshCompletion).
+const (
+	groupShorthandInvoke = "invoke"
+	groupShorthandAttr   = "attr"
+)
+
 // registerShorthandClusters adds top-level shorthand commands for each
 // registered cluster. For example, `matter-cli on-off toggle` is a shorthand
 // for `matter-cli cluster invoke --cluster on-off --command toggle`.
@@ -1267,17 +1302,27 @@ func registerShorthandClusters() {
 			Use:         clCopy.Name,
 			Short:       fmt.Sprintf("Shorthand commands for %s cluster", clCopy.DisplayName),
 			Annotations: map[string]string{"shorthand-cluster": "true"},
-			// ValidArgsFunction provides case-insensitive completion for the
-			// cluster's subcommands (e.g. "of<TAB>" → "Off" under OnOff).
+			// ValidArgsFunction supplements cobra's auto-listing with
+			// case-insensitive completion (e.g. "of<TAB>" → "Off" under OnOff).
+			// It emits only matches that auto-listing would miss — entries
+			// whose name already case-sensitively starts with toComplete would
+			// be duplicated, so we skip them here.
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				results := clusters.Global.SearchCommands(clCopy.ID, toComplete)
-				names := make([]string, len(results))
-				for i, c := range results {
-					names[i] = fmt.Sprintf("%s\t%s", c.Name, c.DisplayName)
+				var names []string
+				for _, c := range results {
+					if strings.HasPrefix(c.Name, toComplete) {
+						continue
+					}
+					names = append(names, fmt.Sprintf("%s\tInvoke %s.%s", c.Name, clCopy.DisplayName, c.DisplayName))
 				}
 				return names, cobra.ShellCompDirectiveNoFileComp
 			},
 		}
+		cmd.AddGroup(
+			&cobra.Group{ID: groupShorthandInvoke, Title: "Commands:"},
+			&cobra.Group{ID: groupShorthandAttr, Title: "Attribute Interactions:"},
+		)
 
 		// Add a subcommand for each command in the cluster.
 		for _, ci := range clCopy.Commands {
@@ -1287,9 +1332,10 @@ func registerShorthandClusters() {
 				use = fmt.Sprintf("%s %s", ciCopy.Name, commandFieldUsage(&ciCopy))
 			}
 			sub := &cobra.Command{
-				Use:   use,
-				Short: fmt.Sprintf("Invoke %s.%s", clCopy.DisplayName, ciCopy.DisplayName),
-				Args:  cobra.ArbitraryArgs,
+				Use:     use,
+				Short:   fmt.Sprintf("Invoke %s.%s", clCopy.DisplayName, ciCopy.DisplayName),
+				GroupID: groupShorthandInvoke,
+				Args:    cobra.ArbitraryArgs,
 				ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 					if len(ciCopy.RequestFields) == 0 {
 						return nil, cobra.ShellCompDirectiveNoFileComp
@@ -1316,9 +1362,10 @@ func registerShorthandClusters() {
 
 		// Add a "read" subcommand for reading attributes.
 		readCmd := &cobra.Command{
-			Use:   "read <attribute>",
-			Short: fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
-			Args:  cobra.ExactArgs(1),
+			Use:     "read <attribute>",
+			Short:   fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
+			GroupID: groupShorthandAttr,
+			Args:    cobra.ExactArgs(1),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				if len(args) >= 1 {
 					return nil, cobra.ShellCompDirectiveNoFileComp
@@ -1347,9 +1394,10 @@ func registerShorthandClusters() {
 
 		// Add a "write" subcommand for writing attributes.
 		writeCmd := &cobra.Command{
-			Use:   "write <attribute> <value>",
-			Short: fmt.Sprintf("Write a %s attribute", clCopy.DisplayName),
-			Args:  cobra.ExactArgs(2),
+			Use:     "write <attribute> <value>",
+			Short:   fmt.Sprintf("Write a %s attribute", clCopy.DisplayName),
+			GroupID: groupShorthandAttr,
+			Args:    cobra.ExactArgs(2),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				if len(args) == 0 {
 					// Complete attribute names (only writable ones).
