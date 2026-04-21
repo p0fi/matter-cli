@@ -49,6 +49,8 @@ func newCommissionCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newCommissionCodeCmd())
 	cmd.AddCommand(newCommissionIPCmd())
+	cmd.AddCommand(newCommissionOpenWindowCmd())
+	cmd.AddCommand(newCommissionCloseWindowCmd())
 	addBLECommissionCommands(cmd)
 	return cmd
 }

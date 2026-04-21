@@ -489,6 +489,7 @@ func (s *Server) handleInvoke(ctx context.Context, req *Request) Response {
 	invokeResp := &InvokeResp{}
 	if resp.Status != nil {
 		invokeResp.StatusCode = resp.Status.Status.Status
+		invokeResp.ClusterStatus = resp.Status.Status.ClusterStatus
 	}
 	if resp.Command != nil && len(resp.Command.Fields) > 0 {
 		invokeResp.HasData = true
