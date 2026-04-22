@@ -192,6 +192,10 @@ func runOpenWindow(cmd *cobra.Command, _ []string) error {
 
 	w := cmd.OutOrStdout()
 	fmt.Fprintln(w)
+	if output.IsTTY() {
+		output.RenderQRCode(w, qr)
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintf(w, "  %s        %s\n", output.Label("QR Code:"), output.Success(qr))
 	fmt.Fprintf(w, "  %s    %s\n", output.Label("Manual Code:"), output.Success(manual))
 	fmt.Fprintf(w, "  %s       %s\n", output.Label("Passcode:"), output.Accent(fmt.Sprintf("%d", passcode)))

@@ -117,6 +117,10 @@ func newCodeParseCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %s %s %s\n", output.Label("Discriminator:"), output.Bold(fmt.Sprintf("%d", payload.Discriminator)), output.Muted(fmt.Sprintf("(0x%03X)", payload.Discriminator)))
 				fmt.Fprintf(w, "  %s      %s\n", output.Label("Passcode:"), output.Bold(fmt.Sprintf("%d", payload.Passcode)))
 				fmt.Fprintln(w)
+				if qr != "" && output.IsTTY() {
+					output.RenderQRCode(w, qr)
+					fmt.Fprintln(w)
+				}
 				fmt.Fprintf(w, "  %s       %s\n", output.Label("QR Code:"), output.Success(qr))
 				fmt.Fprintf(w, "  %s   %s\n", output.Label("Manual Code:"), output.Success(manual))
 				return nil
@@ -176,6 +180,10 @@ func newCodeGenerateCmd() *cobra.Command {
 			}
 
 			w := cmd.OutOrStdout()
+			if output.IsTTY() {
+				output.RenderQRCode(w, qr)
+				fmt.Fprintln(w)
+			}
 			fmt.Fprintf(w, "  %s  %s\n", output.Label("QR Code:"), output.Success(qr))
 			fmt.Fprintf(w, "  %s  %s\n", output.Label("Manual Code:"), output.Success(manual))
 			return nil
