@@ -141,6 +141,9 @@ type FabricResp struct {
 type InvokeResp struct {
 	// StatusCode is the IM status code. 0 means success.
 	StatusCode uint8 `json:"status_code"`
+	// ClusterStatus is the cluster-specific status code when StatusCode is
+	// Failure (0x01). Nil when the response carried no cluster status.
+	ClusterStatus *uint8 `json:"cluster_status,omitempty"`
 	// Data is the base64-encoded raw TLV response fields, if any.
 	Data string `json:"data,omitempty"`
 	// HasData is true when the invoke returned response data (as opposed to

@@ -36,6 +36,15 @@ matter discover ble
 matter commission code MT:Y3.13OTB00KA0648G00
 matter commission ip 192.168.1.42 --setup-code 34970112332
 
+# Open a fresh commissioning window on an already-commissioned device so a
+# second ecosystem (Apple Home, Google Home, Alexa, ...) can commission it
+# without a factory reset. Prints a QR + manual pairing code.
+matter @1 commission open-window
+matter @1 commission open-window --timeout 5m
+matter @1 commission open-window --passcode 20202021 --discriminator 3840
+matter @1 commission open-window --basic         # Basic Commissioning Method
+matter @1 commission close-window                # revoke an open window
+
 # List commissioned devices and inspect them
 matter fabric ls
 matter @1 tree                  # show endpoints & clusters
@@ -138,3 +147,8 @@ Key rules inline: branch per feature, `mise run lint` + `mise run test` before c
 7. **Every public function and type must have a godoc comment.** No exceptions.
 8. **Daemon-aware store access** — See **[`docs/DAEMON_STORE.md`](docs/DAEMON_STORE.md)**. Never call `openStore()` or `store.NewBoltStore()` directly in CLI commands; use the helpers in `cli/device.go`.
 9. **BLE commissioning network credentials** — See **[`docs/BLE_COMMISSIONING_NETWORK.md`](docs/BLE_COMMISSIONING_NETWORK.md)**. When commissioning over BLE, use the WiFi credentials defined there (`tomkat-iot` / `soviets-ferry-dork`).
+
+
+## Review
+
+Codex will review all code changes once done with implementation!
