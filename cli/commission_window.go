@@ -94,13 +94,16 @@ func runOpenWindow(cmd *cobra.Command, _ []string) error {
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	timeoutSecs := uint16(timeout / time.Second)
-	if timeoutSecs < commissioning.MinCommissioningTimeoutSeconds ||
-		timeoutSecs > commissioning.MaxCommissioningTimeoutSeconds {
+	// Bounds-check in int64 seconds before narrowing to uint16 so that values
+	// larger than 65535 s cannot wrap into the valid [180,900] range.
+	timeoutSecsI64 := int64(timeout / time.Second)
+	if timeoutSecsI64 < int64(commissioning.MinCommissioningTimeoutSeconds) ||
+		timeoutSecsI64 > int64(commissioning.MaxCommissioningTimeoutSeconds) {
 		return fmt.Errorf("--timeout must be between %ds and %ds",
 			commissioning.MinCommissioningTimeoutSeconds,
 			commissioning.MaxCommissioningTimeoutSeconds)
 	}
+	timeoutSecs := uint16(timeoutSecsI64)
 
 	basic, _ := cmd.Flags().GetBool("basic")
 
@@ -229,14 +232,16 @@ func resolveWindowParams(cmd *cobra.Command, basic bool) (uint32, []byte, uint16
 	}
 
 	passcode, _ := cmd.Flags().GetUint32("passcode")
-	if passcode == 0 {
+	if cmd.Flags().Changed("passcode") {
+		if err := commissioning.ValidatePasscode(passcode); err != nil {
+			return 0, nil, 0, err
+		}
+	} else {
 		p, err := commissioning.GenerateRandomPasscode()
 		if err != nil {
 			return 0, nil, 0, fmt.Errorf("generating random passcode: %w", err)
 		}
 		passcode = p
-	} else if err := commissioning.ValidatePasscode(passcode); err != nil {
-		return 0, nil, 0, err
 	}
 
 	disc, _ := cmd.Flags().GetUint16("discriminator")
