@@ -26,11 +26,11 @@ func (a *mockAddr) String() string  { return a.address }
 
 // pipeConn is an in-memory transport.Conn that connects two ends via channels.
 type pipeConn struct {
-	send    chan pipeMsg
-	recv    chan pipeMsg
-	closed  chan struct{}
-	once    sync.Once
-	myAddr  net.Addr
+	send   chan pipeMsg
+	recv   chan pipeMsg
+	closed chan struct{}
+	once   sync.Once
+	myAddr net.Addr
 }
 
 type pipeMsg struct {

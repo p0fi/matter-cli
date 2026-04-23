@@ -30,14 +30,14 @@ import (
 
 var (
 	// Core colors — ANSI numbers, resolved by the terminal's own palette.
-	colorGreen   = lipgloss.ANSIColor(10) 	// Bright Green  → success
-	colorRed     = lipgloss.ANSIColor(9)  	// Bright Red    → errors
-	colorYellow  = lipgloss.ANSIColor(3) 	// Yellow → warnings
-	colorBlue    = lipgloss.ANSIColor(12) 	// Bright Blue   → info / headers
-	colorCyan    = lipgloss.ANSIColor(14) 	// Bright Cyan   → labels / commands
-	colorMagenta = lipgloss.ANSIColor(13) 	// Bright Magenta→ accents / IDs
+	colorGreen     = lipgloss.ANSIColor(10) // Bright Green  → success
+	colorRed       = lipgloss.ANSIColor(9)  // Bright Red    → errors
+	colorYellow    = lipgloss.ANSIColor(3)  // Yellow → warnings
+	colorBlue      = lipgloss.ANSIColor(12) // Bright Blue   → info / headers
+	colorCyan      = lipgloss.ANSIColor(14) // Bright Cyan   → labels / commands
+	colorMagenta   = lipgloss.ANSIColor(13) // Bright Magenta→ accents / IDs
 	colorLightGray = lipgloss.ANSIColor(7)  // Light Gray     → values
-	colorGray    = lipgloss.ANSIColor(8)  	// Bright Black (Dark Gray) → muted/secondary
+	colorGray      = lipgloss.ANSIColor(8)  // Bright Black (Dark Gray) → muted/secondary
 
 	// StyleSuccess renders text in green.
 	StyleSuccess = lipgloss.NewStyle().Foreground(colorGreen)

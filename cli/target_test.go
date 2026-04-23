@@ -11,14 +11,14 @@ import (
 
 func TestParseTarget(t *testing.T) {
 	tests := []struct {
-		name            string
-		input           string
-		wantNodeID      uint64
-		wantEP          uint16
-		wantEPSet       bool
-		wantExplicit    bool
-		wantErr         bool
-		errContains     string
+		name         string
+		input        string
+		wantNodeID   uint64
+		wantEP       uint16
+		wantEPSet    bool
+		wantExplicit bool
+		wantErr      bool
+		errContains  string
 	}{
 		{
 			name:         "numeric node only",

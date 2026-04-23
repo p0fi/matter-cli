@@ -148,8 +148,8 @@ func looksLikeQRPayload(s string) bool {
 
 func newCodeGenerateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "generate",
-		Short: "Generate a QR code and manual pairing code from parameters",
+		Use:     "generate",
+		Short:   "Generate a QR code and manual pairing code from parameters",
 		Example: `  matter code generate --vid 0xFFF1 --pid 0x8000 --passcode 12345678 --discriminator 3840`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			vid, _ := cmd.Flags().GetUint16("vid")
