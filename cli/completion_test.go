@@ -85,15 +85,95 @@ func TestCompletionInvalidShell(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestCompletionNoArgs(t *testing.T) {
-	root, _ := newTestRootWithCompletion()
+func TestCompletionNoArgs_UnsetShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows always falls back to powershell")
+	}
+	t.Setenv("SHELL", "")
 
+	root, _ := newTestRootWithCompletion()
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs([]string{"completion"})
 
 	err := root.Execute()
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not detect")
+}
+
+func TestCompletionNoArgs_AutoDetect(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows always falls back to powershell")
+	}
+	shells := []string{"bash", "zsh", "fish"}
+	for _, shell := range shells {
+		t.Run(shell, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", "")
+			t.Setenv("SHELL", "/bin/"+shell)
+
+			root, _ := newTestRootWithCompletion()
+			var stdout, stderr bytes.Buffer
+			root.SetOut(&stdout)
+			root.SetErr(&stderr)
+			root.SetArgs([]string{"completion"})
+
+			err := root.Execute()
+			require.NoError(t, err)
+			assert.Contains(t, stderr.String(), "✓")
+		})
+	}
+}
+
+func TestCompletionNoArgs_UnsupportedShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows always falls back to powershell")
+	}
+	t.Setenv("SHELL", "/bin/nushell")
+
+	root, _ := newTestRootWithCompletion()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"completion"})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nushell")
+}
+
+func TestDetectShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows detection is separate")
+	}
+	tests := []struct {
+		shellEnv    string
+		wantShell   string
+		wantErr     bool
+		errContains string
+	}{
+		{"/bin/bash", "bash", false, ""},
+		{"/usr/local/bin/zsh", "zsh", false, ""},
+		{"/usr/bin/fish", "fish", false, ""},
+		{"", "", true, "could not detect"},
+		{"/bin/nushell", "", true, "nushell"},
+		{"/bin/dash", "", true, "dash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.shellEnv, func(t *testing.T) {
+			t.Setenv("SHELL", tt.shellEnv)
+			got, err := detectShell()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantShell, got)
+			}
+		})
+	}
 }
 
 func TestCompletionInstallPath_Zsh(t *testing.T) {

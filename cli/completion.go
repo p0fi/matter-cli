@@ -17,6 +17,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// supportedShells is the single source of truth for shells that matter completion supports.
+// Used for both ValidArgs and error messages in detectShell.
+var supportedShells = []string{"bash", "zsh", "fish", "powershell"}
+
 // newCompletionCmd creates the `matter completion` subcommand that generates
 // and optionally installs shell completion scripts for bash, zsh, fish, and
 // powershell.
@@ -26,12 +30,19 @@ func newCompletionCmd() *cobra.Command {
 		Short: "Generate or install shell completion scripts",
 		Long: `Generate shell completion scripts for matter.
 
-By default, the completion script is printed to stdout so you can redirect it
-to a file or pipe it to your shell.
+With no arguments, matter completion auto-detects your shell from $SHELL and
+installs the completion script automatically. On Windows, no-argument
+invocation always installs PowerShell completions regardless of $SHELL.
 
-Use --install to automatically write the script to the correct location for
-your shell and configure it for use.`,
-		Example: `  # Print zsh completions to stdout
+Specify a shell explicitly to print its completion script to stdout. Add
+--install to install explicitly for a given shell.`,
+		Example: `  # Auto-detect shell and install completions (recommended)
+  matter completion
+
+  # On Windows: always installs PowerShell completions
+  matter completion
+
+  # Print zsh completions to stdout
   matter completion zsh
 
   # Install zsh completions (writes file + configures shell)
@@ -42,8 +53,8 @@ your shell and configure it for use.`,
 
   # Install fish completions
   matter completion fish --install`,
-		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
-		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		ValidArgs: supportedShells,
+		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
 		RunE:      runCompletion,
 	}
 
@@ -53,14 +64,41 @@ your shell and configure it for use.`,
 }
 
 func runCompletion(cmd *cobra.Command, args []string) error {
-	shell := args[0]
 	install, _ := cmd.Flags().GetBool("install")
 
+	if len(args) == 0 {
+		shell, err := detectShell()
+		if err != nil {
+			return err
+		}
+		return installCompletion(cmd, shell)
+	}
+
+	shell := args[0]
 	if !install {
 		return generateCompletion(cmd, shell)
 	}
-
 	return installCompletion(cmd, shell)
+}
+
+// detectShell returns the name of the current user's shell by inspecting $SHELL.
+// On Windows it defaults to "powershell". Returns an error when the shell
+// cannot be detected or is not among the supported set.
+func detectShell() (string, error) {
+	if runtime.GOOS == "windows" {
+		return "powershell", nil
+	}
+	shellEnv := os.Getenv("SHELL")
+	if shellEnv == "" {
+		return "", fmt.Errorf("could not detect your shell — please specify one: %s", strings.Join(supportedShells, ", "))
+	}
+	name := filepath.Base(shellEnv)
+	switch name {
+	case "bash", "zsh", "fish":
+		return name, nil
+	default:
+		return "", fmt.Errorf("unsupported shell %q — please specify one: %s", name, strings.Join(supportedShells, ", "))
+	}
 }
 
 // generateCompletion prints the completion script to stdout.
