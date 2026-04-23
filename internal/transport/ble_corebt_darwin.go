@@ -83,24 +83,6 @@ static void ble_chr_clear_value(void *chr) {
 	});
 }
 
-// ble_peripheral_can_send_without_response returns whether the peripheral
-// owning chr is ready to accept Write Without Response operations. On macOS
-// 10.13+ a Write Without Response is silently DROPPED (not queued) when this
-// returns false. The caller must wait for this to become true before writing.
-//
-// The check reads peripheral.canSendWriteWithoutResponse from the current
-// thread (outside bt_queue) as a best-effort hint; it is only used for
-// diagnostic logging and as a pre-write guard.
-static bool ble_peripheral_can_send_without_response(void *chr) {
-	if (chr == NULL) return true;
-	CBCharacteristic *c = (CBCharacteristic *)chr;
-	CBService *svc = c.service;
-	if (svc == nil) return true;
-	CBPeripheral *peripheral = svc.peripheral;
-	if (peripheral == nil) return true;
-	return peripheral.canSendWriteWithoutResponse;
-}
-
 // ble_peripheral_is_connected returns whether the peripheral owning chr is
 // currently in the CBPeripheralStateConnected state. Used to detect surprise
 // disconnects during the BTP handshake wait.
@@ -273,33 +255,8 @@ static void * ble_chr_get_fresh_ptr(void *chr, bool *was_stale) {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// CCCD subscribe / unsubscribe helpers
+// CCCD subscribe helpers
 // ──────────────────────────────────────────────────────────────────────
-
-// ble_chr_unsubscribe calls [peripheral setNotifyValue:NO forCharacteristic:]
-// on bt_queue to cancel any pending or broken subscription. This is used as
-// the first step of the repair path in WaitForNotifying: if tinygo's wrong-
-// thread setNotifyValue:YES left CoreBluetooth in a partially-processed state,
-// a subsequent setNotifyValue:YES from bt_queue may be deduplicated as a no-op.
-// Sending setNotifyValue:NO first forces CoreBluetooth to clear that state.
-//
-// The characteristic is looked up fresh from svc.characteristics to avoid
-// the stale-pointer issue (CBError code 8).
-static bool ble_chr_unsubscribe(void *chr) {
-	if (chr == NULL || bt_queue == NULL) return false;
-	CBCharacteristic *stale = (CBCharacteristic *)chr;
-	CBService *svc = stale.service;
-	if (svc == nil) return false;
-	CBPeripheral *peripheral = svc.peripheral;
-	if (peripheral == nil) return false;
-
-	CBCharacteristic *fresh = ble_find_fresh_characteristic(stale);
-
-	dispatch_sync(bt_queue, ^{
-		[peripheral setNotifyValue:NO forCharacteristic:fresh];
-	});
-	return true;
-}
 
 // ble_chr_subscribe calls [peripheral setNotifyValue:YES forCharacteristic:]
 // directly on the CBPeripheral that owns this characteristic, dispatched
@@ -370,14 +327,6 @@ func corebtIsBTQueueInitialized() bool {
 	return C.ble_is_bt_queue_initialized() != 0
 }
 
-// corebtCanSendWithoutResponse returns whether the peripheral owning chrPtr
-// is ready to accept Write Without Response operations. On macOS 10.13+,
-// writes are silently DROPPED when this is false. Reads canSendWriteWithoutResponse
-// as a best-effort check from the current thread.
-func corebtCanSendWithoutResponse(chrPtr unsafe.Pointer) bool {
-	return bool(C.ble_peripheral_can_send_without_response(chrPtr))
-}
-
 // corebtPeripheralIsConnected returns whether the peripheral that owns chrPtr
 // is in the CBPeripheralStateConnected state.
 func corebtPeripheralIsConnected(chrPtr unsafe.Pointer) bool {
@@ -440,13 +389,6 @@ func corebtReadAndClear(chrPtr unsafe.Pointer) []byte {
 // fails silently. Returns true if the call was dispatched.
 func corebtSubscribe(chrPtr unsafe.Pointer) bool {
 	return bool(C.ble_chr_subscribe(chrPtr))
-}
-
-// corebtUnsubscribe calls [peripheral setNotifyValue:NO forCharacteristic:]
-// on bt_queue to cancel any pending or broken subscription before
-// re-subscribing cleanly.
-func corebtUnsubscribe(chrPtr unsafe.Pointer) bool {
-	return bool(C.ble_chr_unsubscribe(chrPtr))
 }
 
 // corebtGetFreshPtr looks up the live CBCharacteristic from
