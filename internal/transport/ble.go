@@ -223,8 +223,8 @@ func DialBLE(ctx context.Context, adapter bleAdapter, addr BLEAddress) (*BLEConn
 	// subscribe is confirmed. We use both delivery paths (notification
 	// callback and cached-value polling) and accept whichever fires first.
 	const (
-		btpHandshakeMaxAttempts   = 5
-		btpHandshakeRetryInterval = 3 * time.Second
+		btpHandshakeMaxAttempts    = 5
+		btpHandshakeRetryInterval  = 3 * time.Second
 	)
 
 	// Total handshake budget: 15 s from the start of this step.

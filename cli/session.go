@@ -125,8 +125,8 @@ node will use the daemon's cached session instead of establishing a new one.`,
 // newSessionStopCmd creates `matter session stop`.
 func newSessionStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "stop",
-		Short:   "Stop the background session daemon",
+		Use:   "stop",
+		Short: "Stop the background session daemon",
 		Example: `  matter session stop`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()

@@ -30,9 +30,9 @@ func TestNewClientInMemory(t *testing.T) {
 
 func TestLookupCluster(t *testing.T) {
 	tests := []struct {
-		name   string
-		wantID uint32
-		wantOK bool
+		name    string
+		wantID  uint32
+		wantOK  bool
 	}{
 		{"OnOff", 0x0006, true},
 		{"LevelControl", 0x0008, true},

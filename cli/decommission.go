@@ -385,3 +385,4 @@ func confirmForceDelete(cmd *cobra.Command, stepper *output.Stepper, force bool,
 	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return answer == "y" || answer == "yes"
 }
+

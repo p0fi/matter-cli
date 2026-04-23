@@ -182,8 +182,8 @@ type CommissioningResult struct {
 
 // EndpointInfo describes a single endpoint discovered via the Descriptor cluster.
 type EndpointInfo struct {
-	ID             uint16
-	DeviceTypes    []DeviceTypeInfo
+	ID          uint16
+	DeviceTypes []DeviceTypeInfo
 	ServerClusters []uint32
 }
 

@@ -33,8 +33,8 @@ func TestBTPHandshakeRequest(t *testing.T) {
 				0x65,                   // magic byte 1
 				0x6C,                   // magic byte 2
 				0x04, 0x00, 0x00, 0x00, // versions: slot0=4
-				0xF7, 0x00, // ATT MTU: 247 (LE)
-				0x06, // window size: 6
+				0xF7, 0x00,             // ATT MTU: 247 (LE)
+				0x06,                   // window size: 6
 			},
 		},
 		{
@@ -99,7 +99,7 @@ func TestParseBTPHandshakeResponse_Valid(t *testing.T) {
 				0x6C,       // magic byte 2
 				0x04,       // selected version: 4
 				0x14, 0x00, // fragment size: 20 (LE)
-				0x06, // window size: 6
+				0x06,       // window size: 6
 			},
 			wantVersion:      4,
 			wantFragmentSize: 20,
@@ -873,7 +873,7 @@ func TestHandleSegment_MessageLengthMismatch(t *testing.T) {
 	// Build a B+E segment that declares MsgLen=10 but carries only 5 bytes.
 	var buf bytes.Buffer
 	buf.WriteByte(btpFlagBegin | btpFlagEnd) // flags
-	buf.WriteByte(0x00)                      // seqNum
+	buf.WriteByte(0x00)                       // seqNum
 	// MsgLen = 10 but payload is only 5 bytes.
 	buf.WriteByte(0x0A) // MsgLen lo = 10
 	buf.WriteByte(0x00) // MsgLen hi = 0
@@ -1071,7 +1071,7 @@ func TestFlowControl_ProcessAck_SeqNumWrap(t *testing.T) {
 func TestFlowControl_WaitCanSend_UnblocksOnAck(t *testing.T) {
 	s := newBTPSession()
 	s.windowSize = 2
-	s.txInflight = 2 // window full
+	s.txInflight = 2   // window full
 	s.localSeq = 2
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

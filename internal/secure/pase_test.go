@@ -232,7 +232,7 @@ func TestPASEMultiplePasscodes(t *testing.T) {
 	passcodes := []uint32{20202021, 12345678, 1, 99999998}
 
 	for _, passcode := range passcodes {
-		t.Run("passcode_"+itoa(passcode), func(t *testing.T) {
+		t.Run("passcode_" + itoa(passcode), func(t *testing.T) {
 			initiator := NewPASEInitiator(passcode, 10)
 			responder := NewPASEResponder(passcode, testPASESalt, testPASEIterations, 20)
 

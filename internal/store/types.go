@@ -54,8 +54,8 @@ type ClusterRef struct {
 
 // ResumptionInfo holds CASE session resumption data for a peer node.
 type ResumptionInfo struct {
-	PeerNodeID        uint64 `json:"peer_node_id"`
-	ResumptionID      []byte `json:"resumption_id"`
-	SharedSecret      []byte `json:"shared_secret"`
+	PeerNodeID      uint64 `json:"peer_node_id"`
+	ResumptionID    []byte `json:"resumption_id"`
+	SharedSecret    []byte `json:"shared_secret"`
 	CASESessionParams []byte `json:"case_session_params"`
 }

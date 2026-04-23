@@ -133,12 +133,12 @@ func TestProtocolHeaderRoundTrip(t *testing.T) {
 		{
 			name: "with ACK",
 			header: ProtocolHeader{
-				ExchangeFlags:     ExFlagACK | ExFlagReliable,
-				ProtocolOpcode:    0x01,
-				ExchangeID:        42,
-				ProtocolID:        0x0001,
+				ExchangeFlags:    ExFlagACK | ExFlagReliable,
+				ProtocolOpcode:   0x01,
+				ExchangeID:       42,
+				ProtocolID:       0x0001,
 				AckMessageCounter: 99,
-				HasAckCounter:     true,
+				HasAckCounter:    true,
 			},
 		},
 		{
@@ -155,14 +155,14 @@ func TestProtocolHeaderRoundTrip(t *testing.T) {
 		{
 			name: "with vendor ID and ACK",
 			header: ProtocolHeader{
-				ExchangeFlags:     ExFlagVendor | ExFlagACK | ExFlagInitiator,
-				ProtocolOpcode:    0x05,
-				ExchangeID:        200,
-				ProtocolID:        0x0002,
-				VendorID:          0x5678,
-				HasVendorID:       true,
+				ExchangeFlags:    ExFlagVendor | ExFlagACK | ExFlagInitiator,
+				ProtocolOpcode:   0x05,
+				ExchangeID:       200,
+				ProtocolID:       0x0002,
+				VendorID:         0x5678,
+				HasVendorID:      true,
 				AckMessageCounter: 12345,
-				HasAckCounter:     true,
+				HasAckCounter:    true,
 			},
 		},
 	}

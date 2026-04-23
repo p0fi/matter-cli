@@ -208,9 +208,9 @@ func storeTestSuite(t *testing.T, s Store) {
 
 	t.Run("ResumptionInfo_CRUD", func(t *testing.T) {
 		info := &ResumptionInfo{
-			PeerNodeID:        42,
-			ResumptionID:      []byte{1, 2, 3, 4},
-			SharedSecret:      []byte{5, 6, 7, 8},
+			PeerNodeID:      42,
+			ResumptionID:    []byte{1, 2, 3, 4},
+			SharedSecret:    []byte{5, 6, 7, 8},
 			CASESessionParams: []byte{9, 10},
 		}
 

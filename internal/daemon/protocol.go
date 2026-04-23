@@ -194,9 +194,9 @@ type StatusResp struct {
 
 // SessionInfo describes a single cached CASE session.
 type SessionInfo struct {
-	NodeID      uint64   `json:"node_id"`
-	SessionID   uint16   `json:"session_id"`
-	PeerAddress string   `json:"peer_address"`
+	NodeID      uint64 `json:"node_id"`
+	SessionID   uint16 `json:"session_id"`
+	PeerAddress string `json:"peer_address"`
 	Established Duration `json:"established"`
 }
 

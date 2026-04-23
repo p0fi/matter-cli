@@ -270,11 +270,11 @@ func (c *Controller) sendMRPAck(ctx context.Context, msg *protocol.Message) {
 			SessionID: msg.Header.SessionID,
 		},
 		Protocol: protocol.ProtocolHeader{
-			ExchangeFlags:     protocol.ExFlagACK,
-			ProtocolOpcode:    0x10,   // MRP Standalone Ack
-			ProtocolID:        0x0000, // Secure Channel protocol
-			ExchangeID:        msg.Protocol.ExchangeID,
-			HasAckCounter:     true,
+			ExchangeFlags:    protocol.ExFlagACK,
+			ProtocolOpcode:   0x10,   // MRP Standalone Ack
+			ProtocolID:       0x0000, // Secure Channel protocol
+			ExchangeID:       msg.Protocol.ExchangeID,
+			HasAckCounter:    true,
 			AckMessageCounter: msg.Header.MessageCounter,
 		},
 	}

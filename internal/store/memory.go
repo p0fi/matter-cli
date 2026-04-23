@@ -11,12 +11,12 @@ import (
 // MemoryStore is a concurrency-safe, in-memory implementation of Store. It
 // never touches the filesystem and is intended for use in tests.
 type MemoryStore struct {
-	mu      sync.RWMutex
-	fabrics map[uint64]*Fabric
-	nodes   map[uint64]map[uint64]*Node // fabricID -> nodeID -> Node
-	resume  map[uint64]*ResumptionInfo  // peerNodeID -> info
-	kv      map[string][]byte
-	closed  bool
+	mu       sync.RWMutex
+	fabrics  map[uint64]*Fabric
+	nodes    map[uint64]map[uint64]*Node // fabricID -> nodeID -> Node
+	resume   map[uint64]*ResumptionInfo  // peerNodeID -> info
+	kv       map[string][]byte
+	closed   bool
 }
 
 // NewMemoryStore returns a new empty MemoryStore.
