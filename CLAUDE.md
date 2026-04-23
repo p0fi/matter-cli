@@ -49,8 +49,13 @@ matter @1 commission close-window                # revoke an open window
 matter fabric ls
 matter @1 tree                  # show endpoints & clusters
 matter @1 tree -L 4             # full tree including attribute values
-matter fabric reset             # remove all devices (interactive prompt)
+matter fabric reset             # remove all devices locally (interactive prompt)
 matter fabric reset --yes       # skip confirmation (for scripts/CI)
+
+# Remove a commissioned device
+matter decommission @1          # proper: sends RemoveFabric over CASE, then deletes locally
+matter decommission @1 --force  # delete locally even if the device is unreachable
+matter fabric remove @1         # local-only: device is NOT notified (use when device is gone)
 
 # Set a sticky default target (node/endpoint)
 matter use @1/1
