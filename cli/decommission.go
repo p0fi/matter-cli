@@ -215,7 +215,6 @@ func readCurrentFabricIndex(ctx context.Context, nodeID uint64) (uint8, error) {
 	return 0, fmt.Errorf("no report data")
 }
 
-
 // decodeFabricIndex reads a single uint TLV element and narrows it to uint8.
 func decodeFabricIndex(data []byte) (uint8, error) {
 	v, ok := decodeTLVUint(data)
