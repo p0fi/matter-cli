@@ -52,6 +52,11 @@ matter @1 tree -L 4             # full tree including attribute values
 matter fabric reset             # remove all devices locally (interactive prompt)
 matter fabric reset --yes       # skip confirmation (for scripts/CI)
 
+# Rename a commissioned device (updates local store AND NodeLabel on the device)
+matter rename @1 "Kitchen Light"
+matter rename @1 "Kitchen Light" --local   # don't touch the device (offline)
+matter rename @1 --reset                   # restore name from ProductName
+
 # Remove a commissioned device
 matter decommission @1          # proper: sends RemoveFabric over CASE, then deletes locally
 matter decommission @1 --force  # delete locally even if the device is unreachable

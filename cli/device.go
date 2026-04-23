@@ -125,6 +125,21 @@ func deleteNode(fabricID, nodeID uint64) error {
 	return s.DeleteNode(fabricID, nodeID)
 }
 
+// saveNode persists an updated node record, routing through the daemon when it
+// is running so the BoltDB exclusive lock is respected.
+func saveNode(fabricID uint64, node *store.Node) error {
+	dc := daemon.NewClient("")
+	if dc.IsRunning() {
+		return dc.SaveNode(fabricID, node)
+	}
+	s, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.SaveNode(fabricID, node)
+}
+
 // resolveNodeLabel returns the node's name if it has one, otherwise "node X".
 // Used to build consistent Bold-ready labels throughout CLI output.
 func resolveNodeLabel(nodeID uint64) string {
