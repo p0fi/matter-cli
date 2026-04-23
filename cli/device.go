@@ -44,10 +44,10 @@ func openStoreForCompletion() (store.Store, error) {
 	return s, nil
 }
 
-// listNodes returns all commissioned nodes. When a session daemon is running it
+// loadNodes returns all commissioned nodes. When a session daemon is running it
 // queries the daemon via its Unix socket; otherwise it opens the DB with the
 // default (blocking) timeout. Use this for normal command paths.
-func listNodes(fabricID uint64) ([]*store.Node, error) {
+func loadNodes(fabricID uint64) ([]*store.Node, error) {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.ListNodes(fabricID)
@@ -60,11 +60,11 @@ func listNodes(fabricID uint64) ([]*store.Node, error) {
 	return s.ListNodes(fabricID)
 }
 
-// listNodesForCompletion returns all commissioned nodes for use in shell
+// loadNodesForCompletion returns all commissioned nodes for use in shell
 // completion and target-resolution code paths. When a session daemon is
 // running it queries the daemon via its Unix socket (avoiding the BoltDB
 // exclusive lock that the daemon holds). Otherwise it opens the DB directly.
-func listNodesForCompletion(fabricID uint64) ([]*store.Node, error) {
+func loadNodesForCompletion(fabricID uint64) ([]*store.Node, error) {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.ListNodes(fabricID)
@@ -77,10 +77,10 @@ func listNodesForCompletion(fabricID uint64) ([]*store.Node, error) {
 	return s.ListNodes(fabricID)
 }
 
-// getNodeForCompletion is like listNodesForCompletion but returns a single
+// loadNodeForCompletion is like loadNodesForCompletion but returns a single
 // node by ID, searching the full node list returned by the daemon or store.
-func getNodeForCompletion(fabricID, nodeID uint64) (*store.Node, error) {
-	nodes, err := listNodesForCompletion(fabricID)
+func loadNodeForCompletion(fabricID, nodeID uint64) (*store.Node, error) {
+	nodes, err := loadNodesForCompletion(fabricID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,10 +92,10 @@ func getNodeForCompletion(fabricID, nodeID uint64) (*store.Node, error) {
 	return nil, fmt.Errorf("node %d not found in fabric %d", nodeID, fabricID)
 }
 
-// getFabric returns the fabric record, querying the daemon if it is running
+// loadFabric returns the fabric record, querying the daemon if it is running
 // (to avoid contending on the BoltDB exclusive lock), otherwise opening the
 // store directly.
-func getFabric(fabricID uint64) (*store.Fabric, error) {
+func loadFabric(fabricID uint64) (*store.Fabric, error) {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.GetFabric(fabricID)
@@ -108,11 +108,10 @@ func getFabric(fabricID uint64) (*store.Fabric, error) {
 	return s.GetFabric(fabricID)
 }
 
-
-// deleteNode removes a node record from the store, routing through the daemon
+// removeNode removes a node record from the store, routing through the daemon
 // when it is running so that the BoltDB exclusive lock is respected. The daemon
 // also evicts any cached CASE session for the node.
-func deleteNode(fabricID, nodeID uint64) error {
+func removeNode(fabricID, nodeID uint64) error {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.DeleteNode(fabricID, nodeID)
@@ -125,9 +124,9 @@ func deleteNode(fabricID, nodeID uint64) error {
 	return s.DeleteNode(fabricID, nodeID)
 }
 
-// saveNode persists an updated node record, routing through the daemon when it
-// is running so the BoltDB exclusive lock is respected.
-func saveNode(fabricID uint64, node *store.Node) error {
+// persistNode persists an updated node record, routing through the daemon when
+// it is running so the BoltDB exclusive lock is respected.
+func persistNode(fabricID uint64, node *store.Node) error {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.SaveNode(fabricID, node)
@@ -147,7 +146,7 @@ func resolveNodeLabel(nodeID uint64) string {
 	if fid == 0 {
 		fid = 1
 	}
-	if node, err := getNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
+	if node, err := loadNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
 		return node.Name
 	}
 	return fmt.Sprintf("node %d", nodeID)

@@ -416,7 +416,7 @@ func loadNodeVIDPID(ctx context.Context, nodeID uint64, stepper *output.Stepper)
 	}
 
 	var node *store.Node
-	if n, err := getNodeForCompletion(fabricID, nodeID); err == nil {
+	if n, err := loadNodeForCompletion(fabricID, nodeID); err == nil {
 		node = n
 	}
 	if node != nil && (node.VendorID != 0 || node.ProductID != 0) {

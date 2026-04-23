@@ -142,7 +142,7 @@ func showCurrentTarget(cmd *cobra.Command) error {
 	if fid == 0 {
 		fid = 1
 	}
-	if node, err := getNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
+	if node, err := loadNodeForCompletion(fid, nodeID); err == nil && node.Name != "" {
 		fmt.Fprintf(w, "  %s %s %s\n",
 			output.Label("Device:"), output.Bold(node.Name),
 			output.Muted(fmt.Sprintf("(node %d)", nodeID)))

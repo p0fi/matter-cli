@@ -4,14 +4,18 @@
 
 | Need | Helper to use |
 |------|---------------|
-| List all nodes | `listNodesForCompletion(fabricID)` |
-| Get a single node | `getNodeForCompletion(fabricID, nodeID)` |
-| Get fabric info | `getFabric(fabricID)` |
-| Save / update a node | `saveNode(fabricID, node)` |
+| List all nodes (raw) | `loadNodes(fabricID)` |
+| List all nodes (for completion) | `loadNodesForCompletion(fabricID)` |
+| Get a single node | `loadNodeForCompletion(fabricID, nodeID)` |
+| Get fabric info | `loadFabric(fabricID)` |
+| Save / update a node | `persistNode(fabricID, node)` |
+| Delete a node | `removeNode(fabricID, nodeID)` |
+
+The helpers use distinct verbs (`load*`, `persist*`, `remove*`) rather than mirroring the `store.Store` interface method names (`ListNodes`, `GetNode`, `SaveNode`, `DeleteNode`) so that a reader can tell at a glance whether code is calling the daemon-aware wrapper or the underlying store directly.
 
 These helpers call `daemon.NewClient("").IsRunning()` first. When the daemon is running they proxy the request through its Unix socket. When no daemon is running they open the DB directly.
 
-**Shell completion functions** (in `cli/completion/completer.go`) have an equivalent `listNodes(fabricID)` helper — use it instead of opening the store directly.
+**Shell completion functions** (in `cli/completion/completer.go`) have an equivalent `loadNodes(fabricID)` helper — use it instead of opening the store directly.
 
 **Commands that need exclusive write access** (e.g. commissioning) cannot be proxied through the daemon and must refuse early when the daemon is running:
 

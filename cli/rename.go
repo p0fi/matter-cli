@@ -88,7 +88,7 @@ func runRename(cmd *cobra.Command, args []string) error {
 	}
 
 	fid := fabricID()
-	node, err := getNodeForCompletion(fid, nodeID)
+	node, err := loadNodeForCompletion(fid, nodeID)
 	if err != nil {
 		return fmt.Errorf("looking up node %d: %w", nodeID, err)
 	}
@@ -133,7 +133,7 @@ func runRename(cmd *cobra.Command, args []string) error {
 	warnOnNameConflict(cmd, fid, nodeID, newName)
 
 	node.Name = newName
-	if err := saveNode(fid, node); err != nil {
+	if err := persistNode(fid, node); err != nil {
 		return fmt.Errorf("saving node: %w", err)
 	}
 
@@ -188,7 +188,7 @@ func validateNodeLabel(name string) error {
 // warnOnNameConflict prints a warning (but does not block) when another node
 // in the same fabric already has the same name.
 func warnOnNameConflict(cmd *cobra.Command, fabricID, nodeID uint64, name string) {
-	nodes, err := listNodesForCompletion(fabricID)
+	nodes, err := loadNodesForCompletion(fabricID)
 	if err != nil {
 		return
 	}

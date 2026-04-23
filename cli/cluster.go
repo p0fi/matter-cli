@@ -157,7 +157,7 @@ func filterShorthandCommands(t *Target) {
 		fabricID = 1
 	}
 
-	node, err := getNodeForCompletion(fabricID, t.NodeID)
+	node, err := loadNodeForCompletion(fabricID, t.NodeID)
 	if err != nil {
 		return
 	}

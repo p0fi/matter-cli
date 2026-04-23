@@ -67,7 +67,7 @@ func newTreeCmd() *cobra.Command {
 				fabricID = 1
 			}
 
-			node, err := getNodeForCompletion(fabricID, nodeID)
+			node, err := loadNodeForCompletion(fabricID, nodeID)
 			if err != nil {
 				return fmt.Errorf("getting node %d: %w", nodeID, err)
 			}
