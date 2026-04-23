@@ -97,17 +97,19 @@ Keep fixes focused. Don't refactor surrounding code unless the reviewer explicit
 
 ## Step 6: Reply to Each Resolved Comment
 
-For each comment you addressed, post a reply on GitHub:
+For each comment you addressed, post a reply on GitHub. Append `--jq '.html_url'` to suppress the full JSON response — you only need the URL as confirmation:
 
 ```bash
 # Reply to an inline comment (reply thread)
 gh api repos/:owner/:repo/pulls/$PR/comments \
   -f body="Fixed in this commit - <brief description of what changed>." \
-  -F in_reply_to_id=<comment_id>
+  -F in_reply_to_id=<comment_id> \
+  --jq '.html_url'
 
 # Reply to a review-level comment (creates a new PR comment)
 gh api repos/:owner/:repo/issues/$PR/comments \
-  -f body="@<reviewer> addressed this - <brief description>."
+  -f body="@<reviewer> addressed this - <brief description>." \
+  --jq '.html_url'
 ```
 
 Keep replies short and factual: what changed, not why the reviewer was wrong.
@@ -116,7 +118,7 @@ For comments you're NOT addressing (user chose to skip), leave them alone — do
 
 ## Step 7: Resolve Threads (Inline Comments Only)
 
-GitHub allows resolving inline review threads via GraphQL. First get the thread IDs:
+GitHub allows resolving inline review threads via GraphQL. First get the thread IDs — use `--jq` to extract only what you need (ID, resolved state, path, first comment body) and avoid dumping the full nested response into context:
 
 ```bash
 gh api graphql -f query='
@@ -128,18 +130,20 @@ query($owner:String!, $repo:String!, $pr:Int!) {
       }
     }
   }
-}' -F owner=:owner -F repo=:repo -F pr=$PR
+}' -F owner=:owner -F repo=:repo -F pr=$PR \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes | map({id, isResolved, path: .comments.nodes[0].path, body: .comments.nodes[0].body})'
 ```
 
-Then resolve each addressed thread:
+Then resolve each addressed thread. Use `--jq` to suppress the full response:
 
 ```bash
 gh api graphql -f query='
 mutation($threadId:ID!) {
   resolveReviewThread(input:{threadId:$threadId}) {
-    thread { id, isResolved }
+    thread { isResolved }
   }
-}' -F threadId="<thread_node_id>"
+}' -F threadId="<thread_node_id>" \
+  --jq '.data.resolveReviewThread.thread.isResolved'
 ```
 
 Only resolve threads you've actually fixed. Leave open questions or skipped items unresolved.
