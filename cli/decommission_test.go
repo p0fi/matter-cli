@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/tlv"
@@ -108,10 +109,10 @@ func TestParseNOCResponse(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !contains(err.Error(), "InvalidFabricIndex") {
+		if !strings.Contains(err.Error(), "InvalidFabricIndex") {
 			t.Errorf("missing status name in error: %v", err)
 		}
-		if !contains(err.Error(), "no such fabric") {
+		if !strings.Contains(err.Error(), "no such fabric") {
 			t.Errorf("missing debug text in error: %v", err)
 		}
 	})
@@ -122,17 +123,8 @@ func TestParseNOCResponse(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !contains(err.Error(), "0x77") {
+		if !strings.Contains(err.Error(), "0x77") {
 			t.Errorf("error should mention hex status: %v", err)
 		}
 	})
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -255,7 +256,10 @@ func invokeRemoveFabric(ctx context.Context, nodeID uint64, payload []byte) erro
 				resp.StatusCode, interaction.StatusCode(resp.StatusCode))
 		}
 		if resp.HasData {
-			data, _ := daemon.DecodeFields(resp.Data)
+			data, err := daemon.DecodeFields(resp.Data)
+			if err != nil {
+				return fmt.Errorf("decoding RemoveFabric response: %w", err)
+			}
 			return parseNOCResponse(data)
 		}
 		return nil
@@ -314,9 +318,13 @@ func decodeNOCResponse(fields []byte) (uint8, string, error) {
 
 	var status uint8
 	var debug string
+	var hasStatus bool
 	for {
 		if err := r.Next(); err != nil {
-			break
+			if err == io.EOF {
+				break
+			}
+			return 0, "", fmt.Errorf("decoding NOCResponse TLV: %w", err)
 		}
 		if r.Type() == tlv.TypeEndOfContainer {
 			break
@@ -325,12 +333,16 @@ func decodeNOCResponse(fields []byte) (uint8, string, error) {
 		case 0:
 			if v, ok := r.Value().(uint64); ok {
 				status = uint8(v)
+				hasStatus = true
 			}
 		case 2:
 			if v, ok := r.Value().(string); ok {
 				debug = v
 			}
 		}
+	}
+	if !hasStatus {
+		return 0, "", fmt.Errorf("NOCResponse missing mandatory StatusCode (tag 0)")
 	}
 	return status, debug, nil
 }
@@ -353,7 +365,7 @@ func confirmForceDelete(cmd *cobra.Command, stepper *output.Stepper, force bool,
 	stepper.Fail(cause.Error())
 
 	if force {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s Device is unreachable; --force given, deleting local record anyway.\n",
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s RemoveFabric failed; --force given, deleting local record anyway.\n",
 			output.WarningIcon())
 		return true
 	}
@@ -364,6 +376,10 @@ func confirmForceDelete(cmd *cobra.Command, stepper *output.Stepper, force bool,
 
 	scanner := bufio.NewScanner(cmd.InOrStdin())
 	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s Failed to read confirmation input: %v\n",
+				output.WarningIcon(), err)
+		}
 		return false
 	}
 	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
