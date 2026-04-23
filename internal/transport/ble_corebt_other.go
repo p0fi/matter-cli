@@ -23,17 +23,11 @@ import (
 // On these platforms rawPtr is always nil, so this is never called.
 func corebtIsNotifying(_ unsafe.Pointer) bool { return false }
 
-// corebtCachedValue always returns nil on non-Darwin platforms.
-func corebtCachedValue(_ unsafe.Pointer) []byte { return nil }
-
 // corebtClearValue is a no-op on non-Darwin platforms.
 func corebtClearValue(_ unsafe.Pointer) {}
 
 // corebtSubscribe always returns false on non-Darwin platforms.
 func corebtSubscribe(_ unsafe.Pointer) bool { return false }
-
-// corebtUnsubscribe always returns false on non-Darwin platforms.
-func corebtUnsubscribe(_ unsafe.Pointer) bool { return false }
 
 // corebtGetFreshPtr returns the pointer unchanged on non-Darwin platforms.
 // wasStale is always false since there is no CoreBluetooth object graph to
@@ -75,10 +69,6 @@ func corebtWriteWithResponse(_ unsafe.Pointer, _ []byte) int { return -1 }
 
 // corebtIsBTQueueInitialized always returns false on non-Darwin platforms.
 func corebtIsBTQueueInitialized() bool { return false }
-
-// corebtCanSendWithoutResponse always returns true on non-Darwin platforms so
-// callers proceed without waiting. rawPtr is always nil on these platforms.
-func corebtCanSendWithoutResponse(_ unsafe.Pointer) bool { return true }
 
 // corebtPeripheralIsConnected always returns true on non-Darwin platforms so
 // the disconnect guard in corebtPollValue never fires. rawPtr is always nil.

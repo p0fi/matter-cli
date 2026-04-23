@@ -400,8 +400,8 @@ func TestAddTrustedRootCertEncoding(t *testing.T) {
 		Fields []byte      `tlv:"1,rawstruct"`
 	}
 	type InvokeRequest struct {
-		SuppressResponse bool           `tlv:"0,bool"`
-		TimedRequest     bool           `tlv:"1,bool"`
+		SuppressResponse bool            `tlv:"0,bool"`
+		TimedRequest     bool            `tlv:"1,bool"`
 		InvokeRequests   []CommandDataIB `tlv:"2,array"`
 	}
 

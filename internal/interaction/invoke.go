@@ -6,8 +6,8 @@ package interaction
 // InvokeRequest is the TLV structure for an Invoke Request message (opcode 0x08).
 // It carries one or more command invocations to execute on the peer.
 type InvokeRequest struct {
-	SuppressResponse bool          `tlv:"0,bool"`
-	TimedRequest     bool          `tlv:"1,bool"`
+	SuppressResponse bool            `tlv:"0,bool"`
+	TimedRequest     bool            `tlv:"1,bool"`
 	InvokeRequests   []CommandDataIB `tlv:"2,array"`
 }
 

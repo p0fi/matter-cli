@@ -23,17 +23,17 @@ import (
 
 // Matter TLV certificate field tags (from Matter spec section 6.6).
 const (
-	certTagSerialNumber  = 1
-	certTagSigAlgo       = 2
-	certTagIssuer        = 3
-	certTagNotBefore     = 4
-	certTagNotAfter      = 5
-	certTagSubject       = 6
-	certTagPubKeyAlgo    = 7
-	certTagECCurveID     = 8
-	certTagECPubKey      = 9
-	certTagExtensions    = 10
-	certTagSignature     = 11
+	certTagSerialNumber = 1
+	certTagSigAlgo      = 2
+	certTagIssuer       = 3
+	certTagNotBefore    = 4
+	certTagNotAfter     = 5
+	certTagSubject      = 6
+	certTagPubKeyAlgo   = 7
+	certTagECCurveID    = 8
+	certTagECPubKey     = 9
+	certTagExtensions   = 10
+	certTagSignature    = 11
 )
 
 // Matter DN attribute tags.
@@ -46,11 +46,11 @@ const (
 
 // Matter extension tags.
 const (
-	extTagBasicConstraints  = 1
-	extTagKeyUsage          = 2
-	extTagExtendedKeyUsage  = 3
-	extTagSubjectKeyID      = 4
-	extTagAuthorityKeyID    = 5
+	extTagBasicConstraints = 1
+	extTagKeyUsage         = 2
+	extTagExtendedKeyUsage = 3
+	extTagSubjectKeyID     = 4
+	extTagAuthorityKeyID   = 5
 )
 
 // Matter algorithm constants.

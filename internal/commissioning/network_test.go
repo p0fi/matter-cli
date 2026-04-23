@@ -140,16 +140,16 @@ func TestValidateThreadDataset(t *testing.T) {
 	t.Run("missing network key", func(t *testing.T) {
 		// Build a dataset that is long enough but missing the Network Key TLV.
 		var ds []byte
-		ds = append(ds, 0x00, 0x03, 0x00, 0x00, 0x0F) // Channel
-		ds = append(ds, 0x01, 0x02, 0xAB, 0xCD)         // PAN ID
+		ds = append(ds, 0x00, 0x03, 0x00, 0x00, 0x0F)                               // Channel
+		ds = append(ds, 0x01, 0x02, 0xAB, 0xCD)                                     // PAN ID
 		ds = append(ds, 0x02, 0x08, 0xDE, 0xAD, 0x00, 0xBE, 0xEF, 0x00, 0xCA, 0xFE) // ExtPAN
-		ds = append(ds, 0x03, 0x07, 'T', 'e', 's', 't', 'N', 'e', 't')               // Name
-		ds = append(ds, 0x04, 0x10)          // PSKc
-		ds = append(ds, make([]byte, 16)...) // PSKc value
+		ds = append(ds, 0x03, 0x07, 'T', 'e', 's', 't', 'N', 'e', 't')              // Name
+		ds = append(ds, 0x04, 0x10)                                                 // PSKc
+		ds = append(ds, make([]byte, 16)...)                                        // PSKc value
 		// Skip Network Key (type 0x05)
 		ds = append(ds, 0x07, 0x08, 0xFD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00) // Mesh-Local
-		ds = append(ds, 0x0C, 0x03, 0x00, 0xF8, 0x00)                                 // Security Policy
-		ds = append(ds, 0x0E, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00)  // Timestamp
+		ds = append(ds, 0x0C, 0x03, 0x00, 0xF8, 0x00)                               // Security Policy
+		ds = append(ds, 0x0E, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00) // Timestamp
 
 		err := ValidateThreadDataset(ds)
 		if err == nil {

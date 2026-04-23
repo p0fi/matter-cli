@@ -46,9 +46,9 @@ type MRP struct {
 	conn   Conn
 	config MRPConfig
 
-	mu       sync.Mutex
-	pending  map[uint32]*pendingMessage
-	closed   chan struct{}
+	mu        sync.Mutex
+	pending   map[uint32]*pendingMessage
+	closed    chan struct{}
 	closeOnce sync.Once
 }
 

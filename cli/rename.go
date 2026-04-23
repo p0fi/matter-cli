@@ -281,17 +281,18 @@ func readProductName(ctx context.Context, nodeID uint64) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		for _, r := range resp.Reports {
-			if r.StatusCode != 0 {
-				return "", fmt.Errorf("status 0x%02X", r.StatusCode)
-			}
-			data, derr := daemon.DecodeFields(r.Data)
-			if derr != nil {
-				return "", fmt.Errorf("decoding ProductName: %w", derr)
-			}
-			return decodeTLVString(data)
+		if len(resp.Reports) == 0 {
+			return "", errors.New("no report data")
 		}
-		return "", errors.New("no report data")
+		r := resp.Reports[0]
+		if r.StatusCode != 0 {
+			return "", fmt.Errorf("status 0x%02X", r.StatusCode)
+		}
+		data, derr := daemon.DecodeFields(r.Data)
+		if derr != nil {
+			return "", fmt.Errorf("decoding ProductName: %w", derr)
+		}
+		return decodeTLVString(data)
 	}
 
 	client, session, cleanup, err := connectToNode(ctx, nodeID)

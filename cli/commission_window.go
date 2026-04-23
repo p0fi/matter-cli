@@ -18,8 +18,8 @@ import (
 	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/interaction"
 	"github.com/p0fi/matter-cli/internal/protocol"
-	"github.com/p0fi/matter-cli/internal/tlv"
 	"github.com/p0fi/matter-cli/internal/store"
+	"github.com/p0fi/matter-cli/internal/tlv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -32,9 +32,9 @@ const timedInteractionTimeoutMs uint16 = 5_000
 
 // Administrator Commissioning cluster-specific status codes (Matter spec §11.19.6).
 const (
-	adminBusy              uint8 = 0x02
-	adminPAKEParamError    uint8 = 0x03
-	adminWindowNotOpen     uint8 = 0x04
+	adminBusy           uint8 = 0x02
+	adminPAKEParamError uint8 = 0x03
+	adminWindowNotOpen  uint8 = 0x04
 )
 
 // newCommissionOpenWindowCmd creates the `commission open-window` subcommand.

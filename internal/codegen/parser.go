@@ -17,14 +17,14 @@ import (
 
 // XMLCluster is the root <cluster> element.
 type XMLCluster struct {
-	XMLName    xml.Name        `xml:"cluster"`
-	ID         string          `xml:"id,attr"`
-	Name       string          `xml:"name,attr"`
-	ClusterIDs XMLClusterIDs   `xml:"clusterIds"`
-	Features   XMLFeatures     `xml:"features"`
-	DataTypes  XMLDataTypes    `xml:"dataTypes"`
-	Attributes []XMLAttribute  `xml:"attributes>attribute"`
-	Commands   []XMLCommand    `xml:"commands>command"`
+	XMLName    xml.Name       `xml:"cluster"`
+	ID         string         `xml:"id,attr"`
+	Name       string         `xml:"name,attr"`
+	ClusterIDs XMLClusterIDs  `xml:"clusterIds"`
+	Features   XMLFeatures    `xml:"features"`
+	DataTypes  XMLDataTypes   `xml:"dataTypes"`
+	Attributes []XMLAttribute `xml:"attributes>attribute"`
+	Commands   []XMLCommand   `xml:"commands>command"`
 }
 
 // XMLFeatures contains the <features> element.
@@ -72,8 +72,8 @@ type XMLEnumItem struct {
 
 // XMLBitmap is a <bitmap> data type.
 type XMLBitmap struct {
-	Name      string         `xml:"name,attr"`
-	Bitfields []XMLBitfield  `xml:"bitfield"`
+	Name      string        `xml:"name,attr"`
+	Bitfields []XMLBitfield `xml:"bitfield"`
 }
 
 // XMLBitfield is a single <bitfield> within a bitmap.
@@ -90,10 +90,10 @@ type XMLStruct struct {
 
 // XMLAttribute is an <attribute> element.
 type XMLAttribute struct {
-	ID      string    `xml:"id,attr"`
-	Name    string    `xml:"name,attr"`
-	Type    string    `xml:"type,attr"`
-	Access  XMLAccess `xml:"access"`
+	ID      string     `xml:"id,attr"`
+	Name    string     `xml:"name,attr"`
+	Type    string     `xml:"type,attr"`
+	Access  XMLAccess  `xml:"access"`
 	Quality XMLQuality `xml:"quality"`
 }
 
@@ -108,11 +108,11 @@ type XMLCommand struct {
 
 // XMLField is a <field> element inside a command or struct.
 type XMLField struct {
-	ID              string          `xml:"id,attr"`
-	Name            string          `xml:"name,attr"`
-	Type            string          `xml:"type,attr"`
-	Quality         XMLQuality      `xml:"quality"`
-	OptionalConform *XMLOptConform  `xml:"optionalConform"`
+	ID              string         `xml:"id,attr"`
+	Name            string         `xml:"name,attr"`
+	Type            string         `xml:"type,attr"`
+	Quality         XMLQuality     `xml:"quality"`
+	OptionalConform *XMLOptConform `xml:"optionalConform"`
 }
 
 // XMLOptConform exists when the field has <optionalConform/>.

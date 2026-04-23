@@ -178,15 +178,15 @@ func (s *mockBLEService) DiscoverCharacteristics(uuids []BLEUUID) ([]bleCharacte
 }
 
 type mockBLECharacteristic struct {
-	uuid              BLEUUID
-	writeData         [][]byte
-	writeMu           sync.Mutex
-	writeErr          error
-	notifCb           func([]byte)
-	notifMu           sync.RWMutex
-	enableNotifErr    error
-	waitCh            chan []byte // delivers data for WaitForValue
-	disconnected      atomic.Bool // when true, IsConnected() returns false
+	uuid           BLEUUID
+	writeData      [][]byte
+	writeMu        sync.Mutex
+	writeErr       error
+	notifCb        func([]byte)
+	notifMu        sync.RWMutex
+	enableNotifErr error
+	waitCh         chan []byte // delivers data for WaitForValue
+	disconnected   atomic.Bool // when true, IsConnected() returns false
 }
 
 func (c *mockBLECharacteristic) UUID() BLEUUID { return c.uuid }
@@ -521,9 +521,9 @@ func TestBLEScanner_Scan_SingleMatterDevice(t *testing.T) {
 
 func TestBLEScanner_Scan_IgnoresNonMatterDevices(t *testing.T) {
 	nonMatter := BLEScanAdvertisement{
-		Address:     "11:22:33:44:55:66",
-		RSSI:        -50,
-		LocalName:   "SomeFitnessBand",
+		Address:   "11:22:33:44:55:66",
+		RSSI:      -50,
+		LocalName: "SomeFitnessBand",
 		ServiceData: map[BLEUUID][]byte{
 			// Different service UUID, not Matter.
 			"00001800-0000-1000-8000-00805f9b34fb": {0x01, 0x02},
@@ -847,7 +847,7 @@ func TestMatterServiceUUIDs_AreCorrect(t *testing.T) {
 // ─── Mock adapter interface compliance ───────────────────────────────────────
 
 // Compile-time checks: ensure mock types satisfy the interfaces.
-var _ bleAdapter        = (*mockBLEAdapter)(nil)
-var _ bleDevice         = (*mockBLEDevice)(nil)
-var _ bleService        = (*mockBLEService)(nil)
+var _ bleAdapter = (*mockBLEAdapter)(nil)
+var _ bleDevice = (*mockBLEDevice)(nil)
+var _ bleService = (*mockBLEService)(nil)
 var _ bleCharacteristic = (*mockBLECharacteristic)(nil)
