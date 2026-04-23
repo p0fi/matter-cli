@@ -1,18 +1,20 @@
 module github.com/p0fi/matter-cli
 
-go 1.25.3
+go 1.26.2
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/term v0.2.1
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/mattn/go-isatty v0.0.20
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/crypto v0.48.0
 	oss.terrastruct.com/d2 v0.7.1
+	rsc.io/qr v0.2.0
 	tinygo.org/x/bluetooth v0.14.0
 )
 
@@ -40,7 +42,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mazznoer/csscolorparser v0.1.5 // indirect
-	github.com/mdp/qrterminal/v3 v3.2.1 // indirect
 	github.com/miekg/dns v1.1.27 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
@@ -72,5 +73,4 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	oss.terrastruct.com/util-go v0.0.0-20250213174338-243d8661088a // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
