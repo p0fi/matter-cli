@@ -79,7 +79,7 @@ func NewThreadCredentials(dataset []byte) NetworkCredentials {
 // Thread operational dataset TLV type IDs (from the Thread specification).
 // Each TLV is encoded as: 1-byte type | 1-byte length | value.
 const (
-	threadTLVActiveTimestamp  = 0x0E // 8 bytes
+	threadTLVActiveTimestamp = 0x0E // 8 bytes
 	threadTLVChannel         = 0x00 // 3 bytes
 	threadTLVChannelMask     = 0x35 // variable
 	threadTLVExtendedPANID   = 0x02 // 8 bytes

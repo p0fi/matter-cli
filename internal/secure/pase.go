@@ -96,9 +96,9 @@ type PASEInitiator struct {
 
 	// State accumulated during the handshake.
 	initiatorRandom []byte
-	spakeContext     []byte // pbkdfReqBytes || pbkdfRespBytes
-	prover           *crypto.SPAKE2PProver
-	sessionKeys      *SessionKeys
+	spakeContext    []byte // pbkdfReqBytes || pbkdfRespBytes
+	prover          *crypto.SPAKE2PProver
+	sessionKeys     *SessionKeys
 }
 
 // NewPASEInitiator creates a new PASE initiator (commissioner side) for the given
