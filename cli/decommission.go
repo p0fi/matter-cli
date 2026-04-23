@@ -177,17 +177,18 @@ func readCurrentFabricIndex(ctx context.Context, nodeID uint64) (uint8, error) {
 		if err != nil {
 			return 0, err
 		}
-		for _, r := range resp.Reports {
-			if r.StatusCode != 0 {
-				return 0, fmt.Errorf("status 0x%02X", r.StatusCode)
-			}
-			data, derr := daemon.DecodeFields(r.Data)
-			if derr != nil {
-				return 0, fmt.Errorf("decoding fields: %w", derr)
-			}
-			return decodeFabricIndex(data)
+		if len(resp.Reports) == 0 {
+			return 0, fmt.Errorf("no report data")
 		}
-		return 0, fmt.Errorf("no report data")
+		r := resp.Reports[0]
+		if r.StatusCode != 0 {
+			return 0, fmt.Errorf("status 0x%02X", r.StatusCode)
+		}
+		data, derr := daemon.DecodeFields(r.Data)
+		if derr != nil {
+			return 0, fmt.Errorf("decoding fields: %w", derr)
+		}
+		return decodeFabricIndex(data)
 	}
 
 	client, session, cleanup, err := connectToNode(ctx, nodeID)
@@ -201,16 +202,19 @@ func readCurrentFabricIndex(ctx context.Context, nodeID uint64) (uint8, error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, r := range reports {
-		if r.Status != nil {
-			return 0, fmt.Errorf("status 0x%02X", r.Status.Status.Status)
-		}
-		if r.Data != nil {
-			return decodeFabricIndex(r.Data.Data)
-		}
+	if len(reports) == 0 {
+		return 0, fmt.Errorf("no report data")
+	}
+	r := reports[0]
+	if r.Status != nil {
+		return 0, fmt.Errorf("status 0x%02X", r.Status.Status.Status)
+	}
+	if r.Data != nil {
+		return decodeFabricIndex(r.Data.Data)
 	}
 	return 0, fmt.Errorf("no report data")
 }
+
 
 // decodeFabricIndex reads a single uint TLV element and narrows it to uint8.
 func decodeFabricIndex(data []byte) (uint8, error) {
