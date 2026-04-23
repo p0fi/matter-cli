@@ -17,6 +17,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// supportedShells is the single source of truth for shells that matter completion supports.
+// Used for both ValidArgs and error messages in detectShell.
+var supportedShells = []string{"bash", "zsh", "fish", "powershell"}
+
 // newCompletionCmd creates the `matter completion` subcommand that generates
 // and optionally installs shell completion scripts for bash, zsh, fish, and
 // powershell.
@@ -27,11 +31,15 @@ func newCompletionCmd() *cobra.Command {
 		Long: `Generate shell completion scripts for matter.
 
 With no arguments, matter completion auto-detects your shell from $SHELL and
-installs the completion script automatically.
+installs the completion script automatically. On Windows, no-argument
+invocation always installs PowerShell completions regardless of $SHELL.
 
 Specify a shell explicitly to print its completion script to stdout. Add
 --install to install explicitly for a given shell.`,
 		Example: `  # Auto-detect shell and install completions (recommended)
+  matter completion
+
+  # On Windows: always installs PowerShell completions
   matter completion
 
   # Print zsh completions to stdout
@@ -45,7 +53,7 @@ Specify a shell explicitly to print its completion script to stdout. Add
 
   # Install fish completions
   matter completion fish --install`,
-		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+		ValidArgs: supportedShells,
 		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
 		RunE:      runCompletion,
 	}
@@ -82,14 +90,14 @@ func detectShell() (string, error) {
 	}
 	shellEnv := os.Getenv("SHELL")
 	if shellEnv == "" {
-		return "", fmt.Errorf("could not detect your shell — please specify one: bash, zsh, fish, powershell")
+		return "", fmt.Errorf("could not detect your shell — please specify one: %s", strings.Join(supportedShells, ", "))
 	}
 	name := filepath.Base(shellEnv)
 	switch name {
 	case "bash", "zsh", "fish":
 		return name, nil
 	default:
-		return "", fmt.Errorf("unsupported shell %q — please specify one: bash, zsh, fish, powershell", name)
+		return "", fmt.Errorf("unsupported shell %q — please specify one: %s", name, strings.Join(supportedShells, ", "))
 	}
 }
 
