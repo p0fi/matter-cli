@@ -54,7 +54,7 @@ name, also clearing NodeLabel on the device.`,
   matter @1 rename "Living Room"
   matter rename @1 --reset
   matter rename @1 "Porch Lamp" --local`,
-		Args:              cobra.MaximumNArgs(2),
+		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: completion.TargetCompletionFunc(),
 		RunE:              runRename,
 	}
@@ -164,7 +164,7 @@ func parseRenameArgs(args []string) (string, error) {
 		idx = 1
 	}
 	if idx < len(args) {
-		return args[idx], nil
+		return strings.Join(args[idx:], " "), nil
 	}
 	return "", nil
 }
