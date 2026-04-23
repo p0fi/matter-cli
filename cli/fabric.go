@@ -188,9 +188,12 @@ func newFabricResetCmd() *cobra.Command {
 }
 
 // newFabricRemoveCmd creates `matter fabric remove` which removes a
-// commissioned device from the local fabric database. The target device is
-// specified using the standard @target syntax, either as a positional argument
-// or as an inline token before the subcommand:
+// commissioned device from the local fabric database ONLY. The device itself
+// is not contacted and retains our fabric credentials — use `matter
+// decommission` for a proper over-the-air removal.
+//
+// The target device is specified using the standard @target syntax, either as
+// a positional argument or as an inline token before the subcommand:
 //
 //	matter fabric remove @1
 //	matter fabric remove @42
@@ -198,11 +201,18 @@ func newFabricResetCmd() *cobra.Command {
 func newFabricRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove @target",
-		Short: "Remove a commissioned device from the fabric",
+		Short: "Remove a commissioned device from the local store (device is NOT notified)",
+		Long: `Delete a commissioned device from the local fabric database only.
+
+The device is not contacted and will still hold our fabric credentials, which
+means it will refuse to be re-commissioned until it is factory reset.
+
+For a full over-the-air removal that sends RemoveFabric to the device first,
+use "matter decommission" instead.`,
 		Example: `  matter fabric remove @1
   matter fabric remove @42
   matter @1 fabric remove`,
-		Args: cobra.MaximumNArgs(1),
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completion.TargetCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Support both `matter fabric remove @1` (positional arg) and
@@ -239,8 +249,13 @@ func newFabricRemoveCmd() *cobra.Command {
 			} else {
 				label = output.Bold(fmt.Sprintf("%d", nodeID))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s Removed %s from fabric.\n",
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "%s Removed %s from fabric.\n",
 				output.SuccessIcon(), label)
+			fmt.Fprintf(w, "  %s Device was not notified and may still hold our fabric credentials.\n",
+				output.Muted("Note:"))
+			fmt.Fprintf(w, "  %s Use %s for a full over-the-air removal.\n",
+				output.Muted("     "), output.Bold("matter decommission"))
 			return nil
 		},
 	}
