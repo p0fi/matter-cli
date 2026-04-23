@@ -209,8 +209,8 @@ func TestBuildD2Script_UtilityClusterOpacity(t *testing.T) {
 			{
 				ID: 0,
 				Clusters: []TreeCluster{
-					{ID: 0x001D, Name: "Descriptor"},  // utility
-					{ID: 0x0006, Name: "OnOff"},        // application
+					{ID: 0x001D, Name: "Descriptor"}, // utility
+					{ID: 0x0006, Name: "OnOff"},      // application
 				},
 			},
 		},

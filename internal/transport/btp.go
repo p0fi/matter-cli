@@ -147,7 +147,7 @@ func btpHandshakeRequest(versions []uint8, attMTU uint16, windowSize uint8) []by
 	for i := 0; i < btpMaxVersionSlots && i < len(versions); i++ {
 		byteIdx := 2 + i/2
 		if i%2 == 0 {
-			out[byteIdx] |= versions[i] & 0x0F        // low nibble
+			out[byteIdx] |= versions[i] & 0x0F // low nibble
 		} else {
 			out[byteIdx] |= (versions[i] & 0x0F) << 4 // high nibble
 		}
