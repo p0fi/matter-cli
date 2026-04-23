@@ -16,7 +16,7 @@ import (
 )
 
 // setupTestStore creates a temporary BoltDB store with the given nodes and
-// configures the environment so that listNodes() will find it. Returns a
+// configures the environment so that loadNodes() will find it. Returns a
 // cleanup function that must be called when done.
 func setupTestStore(t *testing.T, fabricID uint64, nodes []*store.Node) func() {
 	t.Helper()

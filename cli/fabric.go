@@ -51,7 +51,7 @@ func newFabricLsCmd() *cobra.Command {
   matter fabric ls --format json
   matter fabric ls -f yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodes, err := listNodesForCompletion(fabricID())
+			nodes, err := loadNodesForCompletion(fabricID())
 			if err != nil {
 				return fmt.Errorf("listing nodes: %w", err)
 			}
@@ -94,7 +94,7 @@ func newFabricInfoCmd() *cobra.Command {
   matter fabric info --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fid := fabricID()
-			fabric, err := getFabric(fid)
+			fabric, err := loadFabric(fid)
 			if err != nil {
 				return fmt.Errorf("getting fabric %d: %w", fid, err)
 			}
@@ -111,7 +111,7 @@ func newFabricInfoCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %s      %s\n", output.Label("Index:"), output.Value(fmt.Sprintf("%d", fabric.FabricIndex)))
 				fmt.Fprintf(w, "  %s    %s\n", output.Label("Created:"), output.Muted(fabric.CreatedAt.Format("2006-01-02 15:04:05")))
 
-				if nodes, err := listNodesForCompletion(fid); err == nil {
+				if nodes, err := loadNodesForCompletion(fid); err == nil {
 					fmt.Fprintf(w, "  %s    %s\n", output.Label("Devices:"), output.Value(fmt.Sprintf("%d", len(nodes))))
 				}
 				return nil
@@ -134,7 +134,7 @@ func newFabricResetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fid := fabricID()
 
-			nodes, err := listNodes(fid)
+			nodes, err := loadNodes(fid)
 			if err != nil {
 				return fmt.Errorf("listing nodes: %w", err)
 			}
@@ -173,7 +173,7 @@ func newFabricResetCmd() *cobra.Command {
 			}
 
 			for _, n := range nodes {
-				if err := deleteNode(fid, n.ID); err != nil {
+				if err := removeNode(fid, n.ID); err != nil {
 					return fmt.Errorf("removing node %d: %w", n.ID, err)
 				}
 			}
@@ -237,9 +237,9 @@ use "matter decommission" instead.`,
 			fid := fabricID()
 
 			// Look up the node name before deleting for a friendlier confirmation.
-			node, lookupErr := getNodeForCompletion(fid, nodeID)
+			node, lookupErr := loadNodeForCompletion(fid, nodeID)
 
-			if err := deleteNode(fid, nodeID); err != nil {
+			if err := removeNode(fid, nodeID); err != nil {
 				return fmt.Errorf("removing node %d: %w", nodeID, err)
 			}
 

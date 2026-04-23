@@ -108,7 +108,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 			output.Muted(fmt.Sprintf("(fabric index %d)", fabricIndex))))
 	}
 
-	if err := deleteNode(fid, nodeID); err != nil {
+	if err := removeNode(fid, nodeID); err != nil {
 		return fmt.Errorf("removing node %d from local store: %w", nodeID, err)
 	}
 
@@ -126,7 +126,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 // nodeDisplayLabel returns "<name> (node N)" when a name exists, otherwise
 // just "node N". The result is pre-styled for direct use in stepper output.
 func nodeDisplayLabel(fabricID, nodeID uint64) string {
-	if node, err := getNodeForCompletion(fabricID, nodeID); err == nil && node.Name != "" {
+	if node, err := loadNodeForCompletion(fabricID, nodeID); err == nil && node.Name != "" {
 		return output.Bold(node.Name) + " " + output.Muted(fmt.Sprintf("(node %d)", nodeID))
 	}
 	return output.Bold(fmt.Sprintf("node %d", nodeID))

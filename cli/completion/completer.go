@@ -25,11 +25,11 @@ import (
 // fallback; when the daemon is running we query it via its Unix socket instead.
 const completionTimeout = 100 * time.Millisecond
 
-// listNodes returns all commissioned nodes for use in completion functions.
+// loadNodes returns all commissioned nodes for use in completion functions.
 // When the session daemon is running it queries the daemon via its Unix socket
 // so that the BoltDB file lock held by the daemon is not contended. When no
 // daemon is running, it opens the database directly with a short timeout.
-func listNodes(fabricID uint64) ([]*store.Node, error) {
+func loadNodes(fabricID uint64) ([]*store.Node, error) {
 	dc := daemon.NewClient("")
 	if dc.IsRunning() {
 		return dc.ListNodes(fabricID)
@@ -246,7 +246,7 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			fabricID = 1
 		}
 
-		nodes, err := listNodes(fabricID)
+		nodes, err := loadNodes(fabricID)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -343,7 +343,7 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			fabricID = 1
 		}
 
-		nodes, err := listNodes(fabricID)
+		nodes, err := loadNodes(fabricID)
 		if err != nil || len(nodes) == 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
