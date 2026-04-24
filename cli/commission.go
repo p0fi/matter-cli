@@ -351,11 +351,14 @@ func nextNodeID() (uint64, error) {
 // buildNodeFromResult creates a store.Node populated from the commissioning result.
 func buildNodeFromResult(nodeID uint64, result *commissioning.CommissioningResult) *store.Node {
 	node := &store.Node{
-		ID:          nodeID,
-		VendorID:    result.VendorID,
-		ProductID:   result.ProductID,
-		LastAddress: result.Address,
-		LastSeen:    time.Now(),
+		ID:                   nodeID,
+		VendorID:             result.VendorID,
+		ProductID:            result.ProductID,
+		SpecificationVersion: result.SpecificationVersion,
+		SoftwareVersion:      result.SoftwareVersion,
+		SerialNumber:         result.SerialNumber,
+		LastAddress:          result.Address,
+		LastSeen:             time.Now(),
 	}
 	if result.ProductName != "" {
 		node.Name = result.ProductName

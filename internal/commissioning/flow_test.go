@@ -1084,3 +1084,67 @@ func TestCommissioner_Commission_Cancelled(t *testing.T) {
 		t.Fatal("expected error for cancelled context")
 	}
 }
+
+// TestReadDeviceInfo_NewAttributes verifies that readDeviceInfo reads
+// SpecificationVersion, SoftwareVersion, and SerialNumber from the device
+// and populates the result correctly.
+func TestReadDeviceInfo_NewAttributes(t *testing.T) {
+	const basicInfo = uint32(0x0028)
+
+	swVerTLV := encodeTLVUint32(42)
+	specVerTLV := encodeTLVUint32(0x01030000)
+
+	serialW := tlv.NewWriter()
+	_ = serialW.PutUTF8String(tlv.AnonymousTag(), "SN-ABC123")
+	serialTLV := serialW.Bytes()
+
+	c := newTestCommissioner()
+	mc := c.Client.(*mockInteractionClient)
+	mc.readOverrides = map[attrKey]struct {
+		data []byte
+		err  error
+	}{
+		{endpoint: 0, cluster: basicInfo, attribute: 0x0009}: {data: swVerTLV},
+		{endpoint: 0, cluster: basicInfo, attribute: 0x000F}: {data: serialTLV},
+		{endpoint: 0, cluster: basicInfo, attribute: 0x0015}: {data: specVerTLV},
+	}
+
+	result := &CommissioningResult{}
+	session := &mockSession{}
+	c.readDeviceInfo(context.Background(), session, result)
+
+	if result.SoftwareVersion != 42 {
+		t.Errorf("SoftwareVersion: got %d, want 42", result.SoftwareVersion)
+	}
+	if result.SerialNumber != "SN-ABC123" {
+		t.Errorf("SerialNumber: got %q, want %q", result.SerialNumber, "SN-ABC123")
+	}
+	if result.SpecificationVersion != 0x01030000 {
+		t.Errorf("SpecificationVersion: got 0x%08X, want 0x01030000", result.SpecificationVersion)
+	}
+}
+
+// TestReadDeviceInfo_MissingAttributes verifies that readDeviceInfo does not
+// fail when SpecificationVersion, SoftwareVersion, or SerialNumber are absent
+// (pre-1.3 or serial-less devices).
+func TestReadDeviceInfo_MissingAttributes(t *testing.T) {
+	c := newTestCommissioner()
+	// Default mock returns an error for every attribute — simulates a device
+	// that exposes only the mandatory attributes but not the optional ones.
+	mc := c.Client.(*mockInteractionClient)
+	mc.readErr = fmt.Errorf("UNSUPPORTED_ATTRIBUTE")
+
+	result := &CommissioningResult{}
+	session := &mockSession{}
+	c.readDeviceInfo(context.Background(), session, result)
+
+	if result.SpecificationVersion != 0 {
+		t.Errorf("SpecificationVersion should be zero for pre-1.3 device, got %d", result.SpecificationVersion)
+	}
+	if result.SoftwareVersion != 0 {
+		t.Errorf("SoftwareVersion should be zero when absent, got %d", result.SoftwareVersion)
+	}
+	if result.SerialNumber != "" {
+		t.Errorf("SerialNumber should be empty when absent, got %q", result.SerialNumber)
+	}
+}
