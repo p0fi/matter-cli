@@ -58,7 +58,7 @@ For a local-only delete (e.g. when the device is permanently offline), use
   matter @1 decommission
   matter decommission @1 --force   # delete locally even if device is unreachable`,
 		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completion.TargetCompletionFunc(),
+		ValidArgsFunction: completion.TargetCompletionFunc(nil),
 		RunE:              runDecommission,
 	}
 	// Note: -f is reserved globally for --format, so --force has no short alias.

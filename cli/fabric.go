@@ -213,7 +213,7 @@ use "matter decommission" instead.`,
   matter fabric remove @42
   matter @1 fabric remove`,
 		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completion.TargetCompletionFunc(),
+		ValidArgsFunction: completion.TargetCompletionFunc(nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Support both `matter fabric remove @1` (positional arg) and
 			// `matter @1 fabric remove` (inline @target resolved via PersistentPreRunE).

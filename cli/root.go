@@ -96,8 +96,12 @@ func init() {
 	// Enable @target completion on the root command so that typing "@" then
 	// Tab at any position offers device targets. Cluster completions are
 	// filtered to those present on the current target endpoint via
-	// completionClusterFilter (populated in PersistentPreRunE).
-	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global, completionClusterFilter)
+	// completionClusterFilter (populated in PersistentPreRunE). The
+	// top-level command snapshot feeds the "@N+<cmd>" expansion when the
+	// user Tab-completes an exact numeric node match.
+	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(
+		clusters.Global, completionClusterFilter, topLevelCommandsForCompletion,
+	)
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))
@@ -113,18 +117,41 @@ func init() {
 // "@1" or "@1/2") and extracts it so that cobra never sees it. The parsed
 // target is stored in extractedTarget and applied during PersistentPreRunE via
 // resolveTarget().
+//
+// Cobra's built-in completion subcommands (__complete, __completeNoDesc) are
+// exempt: their toComplete argument may contain a bare @N token that our
+// completion handler needs to see in order to offer context-aware candidates
+// (endpoints, device commands, etc.). Extracting it here would leave cobra
+// with fewer args than __complete requires and completion would silently
+// return nothing.
 func Execute() error {
 	if len(os.Args) > 1 {
 		args := os.Args[1:]
-		cleaned, target := ExtractTargetFromArgs(args)
-		if target != nil {
-			extractedTarget = target
-			args = cleaned
+		if !isCompletionInvocation(args) {
+			cleaned, target := ExtractTargetFromArgs(args)
+			if target != nil {
+				extractedTarget = target
+				args = cleaned
+			}
 		}
 		normalized := normalizeShorthandArgs(args, clusters.Global)
 		rootCmd.SetArgs(normalized)
 	}
 	return rootCmd.Execute()
+}
+
+// isCompletionInvocation reports whether args start with one of cobra's
+// completion-script-facing subcommands. When true, @target extraction must be
+// skipped so that the completion handler sees the token as toComplete.
+func isCompletionInvocation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "__complete", "__completeNoDesc":
+		return true
+	}
+	return false
 }
 
 // normalizeShorthandArgs rewrites cluster shorthand command and sub-command

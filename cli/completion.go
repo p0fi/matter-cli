@@ -497,7 +497,8 @@ compdef _matter matter
 # Group headers: requires group-name '' to be set (oh-my-zsh sets this
 # globally; we set it locally for matter so vanilla zsh also benefits).
 zstyle ':completion:*:matter:*' group-name ''
-zstyle ':completion:*:matter:*:targets'            format $'\e[35m── Targets ──\e[0m'
+zstyle ':completion:*:matter:*:devices'            format $'\e[35m── Devices ──\e[0m'
+zstyle ':completion:*:matter:*:endpoints'          format $'\e[35m── Endpoints ──\e[0m'
 zstyle ':completion:*:matter:*:device-commands'    format $'\e[36m── Device Commands ──\e[0m'
 zstyle ':completion:*:matter:*:cluster-commands'   format $'\e[32m── Cluster Commands ──\e[0m'
 zstyle ':completion:*:matter:*:tools'              format $'\e[33m── Tools ──\e[0m'
@@ -513,8 +514,11 @@ _matter_group_map=(
 
 _matter() {
   local -a request_cmd
-  local -a device_cmds cluster_cmds tool_cmds target_cmds other_cmds invoke_cmds attr_cmds
+  local -a device_targets endpoint_targets
+  local -a device_cmds cluster_cmds tool_cmds other_cmds invoke_cmds attr_cmds
+  local -a exp_device_cmds exp_cluster_cmds exp_tool_cmds
   local out word desc entry tag i directive _matter_line
+  local exp_target=""
 
   # Build the __complete call from the current word list.
   request_cmd=("${words[1]}" "__complete")
@@ -537,8 +541,24 @@ _matter() {
     [[ -z "$word" || "$word" == :* || "$word" == _activeHelp_* ]] && continue
     # Escape colons in word and description (zsh _describe uses : as separator).
     entry="${word//:/\\:}:${desc//:/\\:}"
-    if [[ "$word" == @* ]]; then
-      target_cmds+=("$entry")
+    if [[ "$word" == @*+* ]]; then
+      # Expansion token "@N+<cmd>": splits into the @N target prefix and a
+      # bare subcommand name. The display is the subcommand alone; selection
+      # inserts "@N <cmd>" (as two shell words) via compadd -U -p below.
+      local _exp_prefix="${word%%+*}"
+      local _exp_cmd="${word#*+}"
+      exp_target="$_exp_prefix"
+      tag="${_matter_group_map[$_exp_cmd]}"
+      local _exp_entry="${_exp_cmd//:/\\:}:${desc//:/\\:}"
+      case "$tag" in
+        device)  exp_device_cmds+=("$_exp_entry") ;;
+        cluster) exp_cluster_cmds+=("$_exp_entry") ;;
+        tool)    exp_tool_cmds+=("$_exp_entry") ;;
+      esac
+    elif [[ "$word" == @*/* ]]; then
+      endpoint_targets+=("$entry")
+    elif [[ "$word" == @* ]]; then
+      device_targets+=("$entry")
     else
       tag="${_matter_group_map[$word]}"
       case "$tag" in
@@ -566,7 +586,20 @@ _matter() {
   local -a nospace
   (( directive & 2 )) && nospace=(-S '')
 
-  (( ${#target_cmds}  )) && _describe -t targets            "Targets"                target_cmds  "${nospace[@]}"
+  (( ${#device_targets}   )) && _describe -t devices            "Devices"                device_targets   "${nospace[@]}"
+  (( ${#endpoint_targets} )) && _describe -t endpoints          "Endpoints"              endpoint_targets "${nospace[@]}"
+
+  # Expansion entries share the same "@N " target prefix. -U disables prefix
+  # matching against the typed @N word so the bare subcommand names are kept
+  # as candidates; -p prepends "@N " to the inserted text so the subcommand
+  # becomes a separate shell word after the target.
+  if [[ -n "$exp_target" ]]; then
+    local -a exp_prefix_arg=(-U -p "${exp_target} ")
+    (( ${#exp_device_cmds}  )) && _describe -t device-commands    "Device Commands"   exp_device_cmds  "${exp_prefix_arg[@]}"
+    (( ${#exp_cluster_cmds} )) && _describe -t cluster-commands   "Cluster Commands"  exp_cluster_cmds "${exp_prefix_arg[@]}"
+    (( ${#exp_tool_cmds}    )) && _describe -t tools              "Tools"             exp_tool_cmds    "${exp_prefix_arg[@]}"
+  fi
+
   (( ${#device_cmds}  )) && _describe -t device-commands    "Device Commands"        device_cmds  "${nospace[@]}"
   (( ${#cluster_cmds} )) && _describe -t cluster-commands   "Cluster Commands"       cluster_cmds "${nospace[@]}"
   (( ${#tool_cmds}    )) && _describe -t tools              "Tools"                  tool_cmds    "${nospace[@]}"

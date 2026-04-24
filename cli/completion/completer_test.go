@@ -98,7 +98,17 @@ func testNodes() []*store.Node {
 
 func runTargetCompletion(t *testing.T, toComplete string) ([]string, cobra.ShellCompDirective) {
 	t.Helper()
-	fn := TargetCompletionFunc()
+	fn := TargetCompletionFunc(nil)
+	cmd := &cobra.Command{Use: "test"}
+	completions, directive := fn(cmd, nil, toComplete)
+	return completions, directive
+}
+
+func runTargetCompletionWithCommands(
+	t *testing.T, toComplete string, cmds []TopLevelCommand,
+) ([]string, cobra.ShellCompDirective) {
+	t.Helper()
+	fn := TargetCompletionFunc(func() []TopLevelCommand { return cmds })
 	cmd := &cobra.Command{Use: "test"}
 	completions, directive := fn(cmd, nil, toComplete)
 	return completions, directive
@@ -434,7 +444,7 @@ func TestRootCompletionFunc_ClusterShorthand(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg, nil)
+	fn := RootCompletionFunc(reg, nil, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	cases := []struct {
@@ -479,7 +489,7 @@ func TestRootCompletionFunc_ClusterShorthand_NoMatch(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg, nil)
+	fn := RootCompletionFunc(reg, nil, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	completions, directive := fn(cmd, nil, "zzznomatch")
@@ -498,7 +508,7 @@ func TestRootCompletionFunc_AtTarget(t *testing.T) {
 	defer cleanup()
 
 	reg := testRegistry()
-	fn := RootCompletionFunc(reg, nil)
+	fn := RootCompletionFunc(reg, nil, nil)
 	cmd := &cobra.Command{Use: "test"}
 
 	completions, _ := fn(cmd, nil, "@")
@@ -523,7 +533,7 @@ func TestRootCompletionFunc_ClusterFilter(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
 
 	t.Run("nil map → all clusters", func(t *testing.T) {
-		fn := RootCompletionFunc(reg, func() map[uint32]bool { return nil })
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return nil }, nil)
 		completions, _ := fn(cmd, nil, "")
 		if len(completions) != 3 {
 			t.Errorf("expected 3 completions (all registry clusters), got %d: %v", len(completions), completions)
@@ -531,7 +541,7 @@ func TestRootCompletionFunc_ClusterFilter(t *testing.T) {
 	})
 
 	t.Run("empty map → no clusters", func(t *testing.T) {
-		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} })
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} }, nil)
 		completions, _ := fn(cmd, nil, "")
 		if len(completions) != 0 {
 			t.Errorf("expected no completions for empty allow set, got %v", completions)
@@ -540,7 +550,7 @@ func TestRootCompletionFunc_ClusterFilter(t *testing.T) {
 
 	t.Run("restricted set → only allowed clusters", func(t *testing.T) {
 		allowed := map[uint32]bool{0x0006: true} // OnOff only
-		fn := RootCompletionFunc(reg, func() map[uint32]bool { return allowed })
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return allowed }, nil)
 		completions, _ := fn(cmd, nil, "")
 		if len(completions) != 1 {
 			t.Fatalf("expected exactly 1 completion, got %v", completions)
@@ -552,12 +562,146 @@ func TestRootCompletionFunc_ClusterFilter(t *testing.T) {
 	})
 
 	t.Run("filter does not affect @target completion", func(t *testing.T) {
-		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} })
+		fn := RootCompletionFunc(reg, func() map[uint32]bool { return map[uint32]bool{} }, nil)
 		completions, _ := fn(cmd, nil, "@")
 		if len(completions) == 0 {
 			t.Error("empty allow set should not suppress @target completions")
 		}
 	})
+}
+
+// TestTargetCompletionFunc_Stage1b_EndpointsInExactMatch verifies that when the
+// user types an exact numeric node ID (e.g. "@1"), the completion set includes
+// both the bare @N token and endpoint tokens (@N/0, @N/1) without requiring the
+// user to type "/".
+func TestTargetCompletionFunc_Stage1b_EndpointsInExactMatch(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	completions, directive := runTargetCompletion(t, "@1")
+
+	if len(completions) == 0 {
+		t.Fatal("expected completions for @1, got none")
+	}
+
+	// Must include NoSpace so the user can type "/" for endpoints without a
+	// trailing space being inserted.
+	if directive&cobra.ShellCompDirectiveNoSpace == 0 {
+		t.Errorf("expected ShellCompDirectiveNoSpace for exact @N match")
+	}
+
+	tokens := make(map[string]bool)
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		tokens[token] = true
+	}
+
+	// Node itself must be present.
+	if !tokens["@1"] {
+		t.Errorf("expected @1 in completions, got %v", completions)
+	}
+
+	// Endpoint tokens for node 1 (endpoints 0 and 1).
+	for _, want := range []string{"@1/0", "@1/1"} {
+		if !tokens[want] {
+			t.Errorf("expected endpoint token %q in stage-1b completions, got %v", want, completions)
+		}
+	}
+
+	// No expansion tokens expected (no topLevelCommands supplied).
+	for tok := range tokens {
+		if strings.Contains(tok, ExpandSeparator) {
+			t.Errorf("unexpected expansion token %q without topLevelCommands", tok)
+		}
+	}
+}
+
+// TestTargetCompletionFunc_Stage1b_CommandsInExactMatch verifies that when a
+// topLevelCommands func is provided and the user types an exact @N, the result
+// set includes "@N+<cmd>" expansion tokens for each target-aware command.
+func TestTargetCompletionFunc_Stage1b_CommandsInExactMatch(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	cmds := []TopLevelCommand{
+		{Name: "tree", Short: "Show device tree", Group: "device", TargetAware: true},
+		{Name: "OnOff", Short: "On/Off cluster", Group: "cluster", TargetAware: true},
+		{Name: "code", Short: "Parse or generate pairing codes", Group: "tool", TargetAware: false},
+		{Name: "commission", Short: "Commission a device", Group: "device", TargetAware: false},
+	}
+
+	completions, _ := runTargetCompletionWithCommands(t, "@1", cmds)
+
+	tokens := make(map[string]bool)
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		tokens[token] = true
+	}
+
+	// TargetAware commands get expansion tokens.
+	if !tokens["@1"+ExpandSeparator+"tree"] {
+		t.Errorf("expected @1+tree expansion token, got %v", completions)
+	}
+	if !tokens["@1"+ExpandSeparator+"OnOff"] {
+		t.Errorf("expected @1+OnOff expansion token, got %v", completions)
+	}
+
+	// Non-TargetAware commands must NOT produce expansion tokens.
+	if tokens["@1"+ExpandSeparator+"code"] {
+		t.Errorf("unexpected @1+code expansion token for non-TargetAware command")
+	}
+	if tokens["@1"+ExpandSeparator+"commission"] {
+		t.Errorf("unexpected @1+commission expansion token for non-TargetAware command")
+	}
+}
+
+// TestTargetCompletionFunc_Stage1b_NamedNoExpansion verifies that alias-based
+// prefixes (e.g. "@kitchen") do NOT trigger stage-1b expansion even when they
+// fully match a named node — expansion only fires for numeric IDs.
+func TestTargetCompletionFunc_Stage1b_NamedNoExpansion(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	cmds := []TopLevelCommand{
+		{Name: "tree", Short: "Show device tree", Group: "device", TargetAware: true},
+	}
+
+	completions, _ := runTargetCompletionWithCommands(t, "@kitchen-light", cmds)
+
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		if strings.Contains(token, ExpandSeparator) {
+			t.Errorf("unexpected expansion token %q for alias-based prefix", token)
+		}
+		if strings.Contains(token, "/") {
+			t.Errorf("unexpected endpoint token %q for alias-based prefix", token)
+		}
+	}
+}
+
+// TestTargetCompletionFunc_Stage1b_NonExistentNodeNoExpansion verifies that a
+// numeric prefix that does not match any commissioned node produces no expansion
+// tokens and no endpoint tokens.
+func TestTargetCompletionFunc_Stage1b_NonExistentNodeNoExpansion(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	cmds := []TopLevelCommand{
+		{Name: "tree", Short: "Show device tree", Group: "device", TargetAware: true},
+	}
+
+	// Node 99 doesn't exist in the test store.
+	completions, _ := runTargetCompletionWithCommands(t, "@99", cmds)
+
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		if strings.Contains(token, ExpandSeparator) {
+			t.Errorf("unexpected expansion token %q for non-existent node", token)
+		}
+		if strings.Contains(token, "/") {
+			t.Errorf("unexpected endpoint token %q for non-existent node", token)
+		}
+	}
 }
 
 // TestNodeSummary ensures the helper returns a non-empty string for a node

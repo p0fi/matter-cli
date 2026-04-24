@@ -55,7 +55,7 @@ name, also clearing NodeLabel on the device.`,
   matter rename @1 --reset
   matter rename @1 "Porch Lamp" --local`,
 		Args:              cobra.ArbitraryArgs,
-		ValidArgsFunction: completion.TargetCompletionFunc(),
+		ValidArgsFunction: completion.TargetCompletionFunc(nil),
 		RunE:              runRename,
 	}
 	cmd.Flags().Bool("reset", false, "reset name by re-reading ProductName from the device")
