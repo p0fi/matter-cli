@@ -61,6 +61,42 @@ func completionClusterFilter() map[uint32]bool {
 	return targetEndpointClusterIDs
 }
 
+// topLevelCommandsForCompletion snapshots the visible root subcommands and
+// labels each with its completion group ("device", "cluster", or "tool") and
+// whether it remains relevant once a node target has been selected. The
+// completion package uses the result to populate "@N+<cmd>" expansion tokens
+// so that Tab after an exact node match offers device commands, tools, and
+// help alongside endpoint completions.
+//
+// Shorthand cluster commands and hidden commands are omitted — they are
+// surfaced elsewhere (by cluster-name matching or via the cluster parent
+// command) and would otherwise flood the menu.
+func topLevelCommandsForCompletion() []completion.TopLevelCommand {
+	cmds := allRootCommands()
+	out := make([]completion.TopLevelCommand, 0, len(cmds))
+	for _, c := range cmds {
+		if c.Hidden || isShorthandCluster(c) || !c.IsAvailableCommand() {
+			continue
+		}
+		var group string
+		switch c.GroupID {
+		case groupDevices:
+			group = "device"
+		case groupClusters:
+			group = "cluster"
+		case groupTools:
+			group = "tool"
+		}
+		out = append(out, completion.TopLevelCommand{
+			Name:        c.Name(),
+			Short:       c.Short,
+			Group:       group,
+			TargetAware: !targetUnawareCommands[c.Name()],
+		})
+	}
+	return out
+}
+
 func init() {
 	allRootCommands = func() []*cobra.Command { return rootCmd.Commands() }
 	rootCmd.AddCommand(withGroup(newClusterCmd(), groupClusters))

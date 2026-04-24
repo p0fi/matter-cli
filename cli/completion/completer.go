@@ -9,6 +9,7 @@ package completion
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -263,10 +264,36 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 	}
 }
 
+// TopLevelCommand describes a single root-level cobra subcommand for the
+// purposes of @target completion expansion. When the user types "@N<TAB>"
+// against an existing node, these commands are surfaced as "@N+<name>"
+// tokens so the shell can offer them alongside endpoint and sibling-node
+// completions in a single menu.
+type TopLevelCommand struct {
+	// Name is the subcommand name as registered with cobra (e.g. "tree").
+	Name string
+	// Short is the one-line description shown next to the command.
+	Short string
+	// Group is "device", "cluster", "tool", or "". It is metadata for
+	// shell-specific completion helpers and is not encoded in the emitted
+	// "@N+<name>" token; the zsh script derives grouping from its own
+	// statically-generated _matter_group_map, keyed by command name.
+	Group string
+	// TargetAware reports whether the command accepts/requires a node
+	// target. Commands that operate on the fabric as a whole (e.g.
+	// "commission", "discover") are skipped for @N expansion so the menu
+	// stays relevant.
+	TargetAware bool
+}
+
 // RootCompletionFunc returns a cobra ValidArgsFunction for the root command
-// that handles two completion types:
+// that handles three completion types:
 //
 //   - @target tokens (e.g. "@1/2") — delegated to TargetCompletionFunc.
+//     When a numeric @N exactly matches an existing node, the returned set
+//     is enriched with endpoint tokens (@N/0, @N/1, ...) and "@N+<cmd>"
+//     expansion tokens for the commands returned by topLevelCommands, so
+//     the user does not need to type " " or "/" to see what comes next.
 //   - cluster shorthand commands — case-insensitive prefix/substring match of
 //     cluster names, so typing "on<TAB>" offers "OnOff" and "level<TAB>" offers
 //     "LevelControl".
@@ -278,11 +305,15 @@ func NodeIDCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 // to the set of cluster IDs present on the current target endpoint. A nil map
 // means no filter (show all clusters); a non-nil but empty map means no
 // clusters are applicable (e.g. node-only target without an endpoint).
+//
+// topLevelCommands, if non-nil, is called when expanding an exact @N match to
+// seed the "Device Commands" / "Tools" / "Cluster Commands" sections.
 func RootCompletionFunc(
 	registry *clusters.Registry,
 	allowedClusters func() map[uint32]bool,
+	topLevelCommands func() []TopLevelCommand,
 ) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	targetFn := TargetCompletionFunc()
+	targetFn := TargetCompletionFunc(topLevelCommands)
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if strings.HasPrefix(toComplete, "@") {
 			return targetFn(cmd, args, toComplete)
@@ -314,6 +345,21 @@ func RootCompletionFunc(
 	}
 }
 
+// ExpandSeparator is the separator embedded in "@N+<cmd>" expansion tokens.
+// The zsh completion script recognises it to split the target prefix from the
+// subcommand name and invoke compadd with -U -p "@N " so the subcommand is
+// inserted as a separate shell word while the displayed candidate is the
+// bare subcommand name. The "+" character is used because it cannot appear
+// in either a valid numeric node token or a top-level cobra command name.
+const ExpandSeparator = "+"
+
+// ExpandEnvVar is the environment variable the zsh completion script sets
+// (to "zsh") before invoking "matter __complete ...". Its presence opts the
+// caller into receiving "@N+<cmd>" expansion tokens. Other shells (bash,
+// fish, PowerShell) do not set it, so they continue to receive only plain
+// @N / @N/<ep> tokens and never display the literal expansion syntax.
+const ExpandEnvVar = "MATTER_COMPLETION_EXPAND"
+
 // TargetCompletionFunc returns a cobra ValidArgsFunction that completes
 // @target tokens in two stages. Emitted tokens are always numeric @N;
 // device names are shown only in the description as a visual hint.
@@ -327,11 +373,24 @@ func RootCompletionFunc(
 // "/" to proceed to endpoint selection or " " (space) for device
 // commands.
 //
+// Stage 1b — exact match expansion:
+// When toComplete is a numeric @N that exactly identifies a commissioned
+// node, the result set is enriched with:
+//   - endpoint tokens "@N/0", "@N/1", ... so the user sees endpoints without
+//     having to type "/" first; and
+//   - "@N+<cmd>" expansion tokens for each top-level command returned by
+//     topLevelCommands (if non-nil), so device-level commands and tools
+//     appear in the same menu as the endpoint list. The zsh script strips
+//     the "@N+" prefix before display and inserts the selection as a
+//     separate word after "@N ".
+//
 // Stage 2 — endpoint selection ("/" present):
 // When the user types "@1/", completions are the non-root endpoints on
 // the matched node (e.g. "@1/1", "@1/2"). Normal trailing space is
 // applied so the user can proceed to a command after selection.
-func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func TargetCompletionFunc(
+	topLevelCommands func() []TopLevelCommand,
+) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Only complete if the user is typing a @target token.
 		if !strings.HasPrefix(toComplete, "@") {
@@ -355,6 +414,18 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 		// Strip "@" and split into name-part and optional endpoint-part.
 		partial := strings.ToLower(toComplete[1:])
 		namePart, epPart, hasSlash := strings.Cut(partial, "/")
+
+		// Look for an exact numeric match so we can enrich stage-1 with
+		// endpoint + subcommand expansion for that node.
+		var exactNode *store.Node
+		if !hasSlash && isAllDigits(namePart) {
+			for _, n := range nodes {
+				if fmt.Sprintf("%d", n.ID) == namePart {
+					exactNode = n
+					break
+				}
+			}
+		}
 
 		var completions []string
 		for _, n := range nodes {
@@ -419,9 +490,51 @@ func TargetCompletionFunc() func(cmd *cobra.Command, args []string, toComplete s
 			}
 		}
 
+		// ── Stage 1b: enrich exact-match with endpoints + command expansion ──
+		if exactNode != nil {
+			idStr := fmt.Sprintf("%d", exactNode.ID)
+			alias := idStr
+			if exactNode.Name != "" {
+				alias = strings.ReplaceAll(strings.ToLower(exactNode.Name), " ", "-")
+			}
+
+			// Endpoint tokens. User sees these in the same menu; they match
+			// the "@N" prefix so the shell keeps them.
+			for _, ep := range exactNode.Endpoints {
+				epStr := fmt.Sprintf("%d", ep.ID)
+				epDesc := endpointDescription(ep)
+				var desc string
+				if alias != idStr {
+					desc = fmt.Sprintf("%s  [%s]", epDesc, alias)
+				} else {
+					desc = epDesc
+				}
+				completions = append(completions, fmt.Sprintf("@%s/%s\t%s", idStr, epStr, desc))
+			}
+
+			// Command expansion tokens. The zsh script splits on
+			// ExpandSeparator and inserts "@N " as a word prefix via
+			// compadd -U -p so the subcommand is displayed bare but
+			// dispatched as a separate shell word. Only emitted when the
+			// caller opted in via ExpandEnvVar: bash, fish, and PowerShell
+			// completions do not rewrite these tokens and would otherwise
+			// surface the literal "@N+<cmd>" text to the user.
+			if topLevelCommands != nil && os.Getenv(ExpandEnvVar) == "zsh" {
+				for _, tc := range topLevelCommands() {
+					if !tc.TargetAware {
+						continue
+					}
+					completions = append(completions,
+						fmt.Sprintf("@%s%s%s\t%s", idStr, ExpandSeparator, tc.Name, tc.Short))
+				}
+			}
+		}
+
 		if !hasSlash {
 			// Node-only stage: suppress trailing space so the user can type
-			// "/" for endpoint or " " for device-level commands.
+			// "/" for endpoint or " " for device-level commands. The shell
+			// script intercepts "@N+<cmd>" tokens separately and inserts
+			// them with a literal space via compadd -U -p.
 			return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
 		}
 		return completions, cobra.ShellCompDirectiveNoFileComp

@@ -96,8 +96,12 @@ func init() {
 	// Enable @target completion on the root command so that typing "@" then
 	// Tab at any position offers device targets. Cluster completions are
 	// filtered to those present on the current target endpoint via
-	// completionClusterFilter (populated in PersistentPreRunE).
-	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(clusters.Global, completionClusterFilter)
+	// completionClusterFilter (populated in PersistentPreRunE). The
+	// top-level command snapshot feeds the "@N+<cmd>" expansion when the
+	// user Tab-completes an exact numeric node match.
+	rootCmd.ValidArgsFunction = completion.RootCompletionFunc(
+		clusters.Global, completionClusterFilter, topLevelCommandsForCompletion,
+	)
 
 	rootCmd.AddCommand(withGroup(newVersionCmd(), groupTools))
 	rootCmd.AddCommand(withGroup(newCompletionCmd(), groupTools))
@@ -113,18 +117,58 @@ func init() {
 // "@1" or "@1/2") and extracts it so that cobra never sees it. The parsed
 // target is stored in extractedTarget and applied during PersistentPreRunE via
 // resolveTarget().
+//
+// Cobra's built-in completion subcommands (__complete, __completeNoDesc) get
+// special treatment: the final arg is the partial word being completed
+// (toComplete) and must be preserved verbatim so the completion handler can
+// see it as the current token. @targets in the *committed* args before
+// toComplete are still extracted so cobra's command traversal can resolve
+// subcommands past the @target (e.g. for "matter @1/1 OnOff <TAB>" the
+// "@1/1" would otherwise stop traversal at root and OnOff's completion
+// function would never run).
 func Execute() error {
 	if len(os.Args) > 1 {
 		args := os.Args[1:]
-		cleaned, target := ExtractTargetFromArgs(args)
-		if target != nil {
-			extractedTarget = target
-			args = cleaned
+		if isCompletionInvocation(args) && len(args) >= 3 {
+			// Preserve args[0] (__complete) and the last element (toComplete);
+			// extract @targets from the committed args in between.
+			toComplete := args[len(args)-1]
+			committed := args[1 : len(args)-1]
+			cleaned, target := ExtractTargetFromArgs(committed)
+			if target != nil {
+				extractedTarget = target
+			}
+			rebuilt := make([]string, 0, len(cleaned)+2)
+			rebuilt = append(rebuilt, args[0])
+			rebuilt = append(rebuilt, cleaned...)
+			rebuilt = append(rebuilt, toComplete)
+			args = rebuilt
+		} else if !isCompletionInvocation(args) {
+			cleaned, target := ExtractTargetFromArgs(args)
+			if target != nil {
+				extractedTarget = target
+				args = cleaned
+			}
 		}
 		normalized := normalizeShorthandArgs(args, clusters.Global)
 		rootCmd.SetArgs(normalized)
 	}
 	return rootCmd.Execute()
+}
+
+// isCompletionInvocation reports whether args start with one of cobra's
+// completion-script-facing subcommands. When true, the final argument is the
+// partial word being completed (toComplete) and must be preserved verbatim
+// so the completion handler still sees it as the current token.
+func isCompletionInvocation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "__complete", "__completeNoDesc":
+		return true
+	}
+	return false
 }
 
 // normalizeShorthandArgs rewrites cluster shorthand command and sub-command
