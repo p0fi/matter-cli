@@ -130,16 +130,16 @@ func buildD2Script(data *TreeData) string {
 	}
 
 	// Node container label includes vendor/product info and optional device details.
-	nodeLabel := fmt.Sprintf("%s · ProductID: 0x%04X", vendordb.FormatVendorID(data.VendorID), data.ProductID)
+	nodeLabel := fmt.Sprintf("%s · Product ID: 0x%04X", vendordb.FormatVendorID(data.VendorID), data.ProductID)
 	var details []string
 	if sv := basicinformation.FormatSpecVersion(data.SpecificationVersion); sv != "" {
-		details = append(details, "Matter "+sv)
+		details = append(details, "Spec Version: "+sv)
 	}
 	if data.SoftwareVersion != 0 {
 		details = append(details, fmt.Sprintf("FW %d", data.SoftwareVersion))
 	}
 	if data.SerialNumber != "" {
-		details = append(details, "SN "+data.SerialNumber)
+		details = append(details, "Serial Number: "+data.SerialNumber)
 	}
 	if len(details) > 0 {
 		nodeLabel += "\n" + strings.Join(details, " · ")
