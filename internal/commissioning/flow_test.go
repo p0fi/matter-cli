@@ -1129,10 +1129,20 @@ func TestReadDeviceInfo_NewAttributes(t *testing.T) {
 // (pre-1.3 or serial-less devices).
 func TestReadDeviceInfo_MissingAttributes(t *testing.T) {
 	c := newTestCommissioner()
-	// Default mock returns an error for every attribute — simulates a device
-	// that exposes only the mandatory attributes but not the optional ones.
+	// Override only the three new optional attributes to return
+	// UNSUPPORTED_ATTRIBUTE, simulating a device that supports the mandatory
+	// BasicInformation attributes but not SoftwareVersion, SerialNumber, or
+	// SpecificationVersion.
 	mc := c.Client.(*mockInteractionClient)
-	mc.readErr = fmt.Errorf("UNSUPPORTED_ATTRIBUTE")
+	unsupported := fmt.Errorf("UNSUPPORTED_ATTRIBUTE")
+	mc.readOverrides = map[attrKey]struct {
+		data []byte
+		err  error
+	}{
+		{0, 0x0028, 0x0009}: {err: unsupported}, // SoftwareVersion
+		{0, 0x0028, 0x000F}: {err: unsupported}, // SerialNumber
+		{0, 0x0028, 0x0015}: {err: unsupported}, // SpecificationVersion
+	}
 
 	result := &CommissioningResult{}
 	session := &mockSession{}
