@@ -9,6 +9,7 @@ package completion
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -273,8 +274,10 @@ type TopLevelCommand struct {
 	Name string
 	// Short is the one-line description shown next to the command.
 	Short string
-	// Group is "device", "cluster", "tool", or "" — used by the zsh script
-	// to route each entry into the matching section header.
+	// Group is "device", "cluster", "tool", or "". It is metadata for
+	// shell-specific completion helpers and is not encoded in the emitted
+	// "@N+<name>" token; the zsh script derives grouping from its own
+	// statically-generated _matter_group_map, keyed by command name.
 	Group string
 	// TargetAware reports whether the command accepts/requires a node
 	// target. Commands that operate on the fabric as a whole (e.g.
@@ -349,6 +352,13 @@ func RootCompletionFunc(
 // bare subcommand name. The "+" character is used because it cannot appear
 // in either a valid numeric node token or a top-level cobra command name.
 const ExpandSeparator = "+"
+
+// ExpandEnvVar is the environment variable the zsh completion script sets
+// (to "zsh") before invoking "matter __complete ...". Its presence opts the
+// caller into receiving "@N+<cmd>" expansion tokens. Other shells (bash,
+// fish, PowerShell) do not set it, so they continue to receive only plain
+// @N / @N/<ep> tokens and never display the literal expansion syntax.
+const ExpandEnvVar = "MATTER_COMPLETION_EXPAND"
 
 // TargetCompletionFunc returns a cobra ValidArgsFunction that completes
 // @target tokens in two stages. Emitted tokens are always numeric @N;
@@ -505,8 +515,11 @@ func TargetCompletionFunc(
 			// Command expansion tokens. The zsh script splits on
 			// ExpandSeparator and inserts "@N " as a word prefix via
 			// compadd -U -p so the subcommand is displayed bare but
-			// dispatched as a separate shell word.
-			if topLevelCommands != nil {
+			// dispatched as a separate shell word. Only emitted when the
+			// caller opted in via ExpandEnvVar: bash, fish, and PowerShell
+			// completions do not rewrite these tokens and would otherwise
+			// surface the literal "@N+<cmd>" text to the user.
+			if topLevelCommands != nil && os.Getenv(ExpandEnvVar) == "zsh" {
 				for _, tc := range topLevelCommands() {
 					if !tc.TargetAware {
 						continue

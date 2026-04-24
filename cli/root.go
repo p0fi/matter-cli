@@ -118,16 +118,32 @@ func init() {
 // target is stored in extractedTarget and applied during PersistentPreRunE via
 // resolveTarget().
 //
-// Cobra's built-in completion subcommands (__complete, __completeNoDesc) are
-// exempt: their toComplete argument may contain a bare @N token that our
-// completion handler needs to see in order to offer context-aware candidates
-// (endpoints, device commands, etc.). Extracting it here would leave cobra
-// with fewer args than __complete requires and completion would silently
-// return nothing.
+// Cobra's built-in completion subcommands (__complete, __completeNoDesc) get
+// special treatment: the final arg is the partial word being completed
+// (toComplete) and must be preserved verbatim so the completion handler can
+// see it as the current token. @targets in the *committed* args before
+// toComplete are still extracted so cobra's command traversal can resolve
+// subcommands past the @target (e.g. for "matter @1/1 OnOff <TAB>" the
+// "@1/1" would otherwise stop traversal at root and OnOff's completion
+// function would never run).
 func Execute() error {
 	if len(os.Args) > 1 {
 		args := os.Args[1:]
-		if !isCompletionInvocation(args) {
+		if isCompletionInvocation(args) && len(args) >= 3 {
+			// Preserve args[0] (__complete) and the last element (toComplete);
+			// extract @targets from the committed args in between.
+			toComplete := args[len(args)-1]
+			committed := args[1 : len(args)-1]
+			cleaned, target := ExtractTargetFromArgs(committed)
+			if target != nil {
+				extractedTarget = target
+			}
+			rebuilt := make([]string, 0, len(cleaned)+2)
+			rebuilt = append(rebuilt, args[0])
+			rebuilt = append(rebuilt, cleaned...)
+			rebuilt = append(rebuilt, toComplete)
+			args = rebuilt
+		} else if !isCompletionInvocation(args) {
 			cleaned, target := ExtractTargetFromArgs(args)
 			if target != nil {
 				extractedTarget = target
@@ -141,8 +157,9 @@ func Execute() error {
 }
 
 // isCompletionInvocation reports whether args start with one of cobra's
-// completion-script-facing subcommands. When true, @target extraction must be
-// skipped so that the completion handler sees the token as toComplete.
+// completion-script-facing subcommands. When true, the final argument is the
+// partial word being completed (toComplete) and must be preserved verbatim
+// so the completion handler still sees it as the current token.
 func isCompletionInvocation(args []string) bool {
 	if len(args) == 0 {
 		return false

@@ -108,6 +108,10 @@ func runTargetCompletionWithCommands(
 	t *testing.T, toComplete string, cmds []TopLevelCommand,
 ) ([]string, cobra.ShellCompDirective) {
 	t.Helper()
+	// Expansion tokens are only emitted when the caller opts in via
+	// ExpandEnvVar (set by the zsh completion script). t.Setenv handles
+	// cleanup automatically.
+	t.Setenv(ExpandEnvVar, "zsh")
 	fn := TargetCompletionFunc(func() []TopLevelCommand { return cmds })
 	cmd := &cobra.Command{Use: "test"}
 	completions, directive := fn(cmd, nil, toComplete)
@@ -652,6 +656,34 @@ func TestTargetCompletionFunc_Stage1b_CommandsInExactMatch(t *testing.T) {
 	}
 	if tokens["@1"+ExpandSeparator+"commission"] {
 		t.Errorf("unexpected @1+commission expansion token for non-TargetAware command")
+	}
+}
+
+// TestTargetCompletionFunc_Stage1b_ExpandEnvVarGate verifies that when the
+// ExpandEnvVar is not set (simulating a non-zsh shell like bash/fish), no
+// "@N+<cmd>" expansion tokens are emitted even if topLevelCommands is provided.
+// Those other shells do not know how to rewrite these tokens and would
+// otherwise surface the literal "@N+<cmd>" text to the user.
+func TestTargetCompletionFunc_Stage1b_ExpandEnvVarGate(t *testing.T) {
+	cleanup := setupTestStore(t, 1, testNodes())
+	defer cleanup()
+
+	// Explicitly clear the env var to simulate a non-zsh shell. t.Setenv
+	// guarantees the original value is restored when the test returns.
+	t.Setenv(ExpandEnvVar, "")
+
+	cmds := []TopLevelCommand{
+		{Name: "tree", Short: "Show device tree", Group: "device", TargetAware: true},
+	}
+	fn := TargetCompletionFunc(func() []TopLevelCommand { return cmds })
+	cmd := &cobra.Command{Use: "test"}
+	completions, _ := fn(cmd, nil, "@1")
+
+	for _, c := range completions {
+		token := strings.SplitN(c, "\t", 2)[0]
+		if strings.Contains(token, ExpandSeparator) {
+			t.Errorf("unexpected expansion token %q when ExpandEnvVar is unset", token)
+		}
 	}
 }
 

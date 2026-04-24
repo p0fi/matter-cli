@@ -527,7 +527,10 @@ _matter() {
   done
   request_cmd+=("${words[$CURRENT]}")
 
-  out=$("${request_cmd[@]}" 2>/dev/null)
+  # MATTER_COMPLETION_EXPAND=zsh opts this shell into the "@N+<cmd>" expansion
+  # tokens the loop below parses. Other shells (bash/fish/powershell) do not
+  # set this and therefore never see the zsh-specific encoding.
+  out=$(MATTER_COMPLETION_EXPAND=zsh "${request_cmd[@]}" 2>/dev/null)
 
   # Extract the cobra ShellCompDirective from the trailing :N line so we can
   # honour flags like ShellCompDirectiveNoSpace (bit 1, value 2).
@@ -554,6 +557,10 @@ _matter() {
         device)  exp_device_cmds+=("$_exp_entry") ;;
         cluster) exp_cluster_cmds+=("$_exp_entry") ;;
         tool)    exp_tool_cmds+=("$_exp_entry") ;;
+        # Ungrouped commands (e.g. "help", which cobra does not register in
+        # any group) are routed to the Tools bucket so they remain visible
+        # instead of being silently dropped.
+        *)       exp_tool_cmds+=("$_exp_entry") ;;
       esac
     elif [[ "$word" == @*/* ]]; then
       endpoint_targets+=("$entry")
