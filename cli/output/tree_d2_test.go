@@ -31,7 +31,7 @@ func TestBuildD2Script_Level1(t *testing.T) {
 
 	assert.Contains(t, script, "Kitchen Light")
 	assert.Contains(t, script, "0x1234")
-	assert.Contains(t, script, "ProductID: 0x5678")
+	assert.Contains(t, script, "Product ID: 0x5678")
 	// Nested: endpoints inside node container
 	assert.Contains(t, script, "ep0:")
 	assert.Contains(t, script, "ep1:")
