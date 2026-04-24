@@ -176,9 +176,9 @@ type CommissioningResult struct {
 	VendorID             uint16
 	ProductName          string
 	ProductID            uint16
-	SpecificationVersion uint32 // Matter spec revision (e.g. 0x01030000 = 1.3); zero on pre-1.3 devices
-	SoftwareVersion      uint32 // firmware version reported by the device
-	SerialNumber         string // optional per-spec; empty if the device doesn't expose it
+	SpecificationVersion uint32         // Matter spec revision (e.g. 0x01030000 = 1.3); zero on pre-1.3 devices
+	SoftwareVersion      uint32         // firmware version reported by the device
+	SerialNumber         string         // optional per-spec; empty if the device doesn't expose it
 	Address              string         // host:port used to reach the device
 	Endpoints            []EndpointInfo // discovered endpoints and their clusters
 }
