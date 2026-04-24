@@ -47,7 +47,10 @@ run = "go vet ./..."
 [tasks.lint]
 description = "Run golangci-lint (includes vet)"
 depends = ["vet"]
-run = "golangci-lint run ./..."
+run = """
+golangci-lint cache clean
+golangci-lint run ./...
+"""
 
 [tasks.fmt]
 description = "Format Go source files"
