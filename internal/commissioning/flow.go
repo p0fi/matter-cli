@@ -172,12 +172,15 @@ type Commissioner struct {
 
 // CommissioningResult contains device information gathered during commissioning.
 type CommissioningResult struct {
-	VendorName  string
-	VendorID    uint16
-	ProductName string
-	ProductID   uint16
-	Address     string         // host:port used to reach the device
-	Endpoints   []EndpointInfo // discovered endpoints and their clusters
+	VendorName           string
+	VendorID             uint16
+	ProductName          string
+	ProductID            uint16
+	SpecificationVersion uint32         // Matter spec revision (e.g. 0x01030000 = 1.3); zero on pre-1.3 devices
+	SoftwareVersion      uint32         // firmware version reported by the device
+	SerialNumber         string         // optional per-spec; empty if the device doesn't expose it
+	Address              string         // host:port used to reach the device
+	Endpoints            []EndpointInfo // discovered endpoints and their clusters
 }
 
 // EndpointInfo describes a single endpoint discovered via the Descriptor cluster.
@@ -622,6 +625,15 @@ func (c *Commissioner) readDeviceInfo(ctx context.Context, session Session, resu
 	}
 	if data, err := c.Client.ReadAttribute(ctx, session, 0, basicInfo, 0x0004); err == nil {
 		result.ProductID = decodeTLVUint16(data)
+	}
+	if data, err := c.Client.ReadAttribute(ctx, session, 0, basicInfo, 0x0009); err == nil {
+		result.SoftwareVersion = decodeTLVUint32(data)
+	}
+	if data, err := c.Client.ReadAttribute(ctx, session, 0, basicInfo, 0x000F); err == nil {
+		result.SerialNumber = decodeTLVString(data)
+	}
+	if data, err := c.Client.ReadAttribute(ctx, session, 0, basicInfo, 0x0015); err == nil {
+		result.SpecificationVersion = decodeTLVUint32(data)
 	}
 
 	// Read endpoint structure from Descriptor cluster.

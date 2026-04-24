@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/p0fi/matter-cli/internal/clusters/basicinformation"
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/p0fi/matter-cli/internal/vendordb"
 )
@@ -90,10 +91,10 @@ func FormatTree(w io.Writer, node *store.Node) error {
 		name = "Unnamed"
 	}
 	fmt.Fprintf(w, "%s %s\n", Bold(name), Muted(fmt.Sprintf("(Node %d)", node.ID)))
-	fmt.Fprintf(w, "  %s  %s\n", Label("Vendor:"), Accent(vendordb.FormatVendorID(node.VendorID)))
-	fmt.Fprintf(w, "  %s %s\n", Label("Product:"), Accent(fmt.Sprintf("0x%04X", node.ProductID)))
+	fmt.Fprintf(w, "  %s %s\n", Label(fmt.Sprintf("%-11s", "Vendor:")), Accent(vendordb.FormatVendorID(node.VendorID)))
+	fmt.Fprintf(w, "  %s %s\n", Label(fmt.Sprintf("%-11s", "Product ID:")), Accent(fmt.Sprintf("0x%04X", node.ProductID)))
 	if node.LastAddress != "" {
-		fmt.Fprintf(w, "  %s %s\n", Label("Address:"), Value(node.LastAddress))
+		fmt.Fprintf(w, "  %s %s\n", Label(fmt.Sprintf("%-11s", "Address:")), Value(node.LastAddress))
 	}
 	fmt.Fprintln(w)
 
@@ -166,13 +167,16 @@ type TreeEndpoint struct {
 
 // TreeData is the full device tree data passed to FormatRichTree.
 type TreeData struct {
-	NodeID      uint64
-	NodeName    string
-	VendorID    uint16
-	ProductID   uint16
-	LastAddress string
-	Endpoints   []TreeEndpoint
-	Level       int
+	NodeID               uint64
+	NodeName             string
+	VendorID             uint16
+	ProductID            uint16
+	SpecificationVersion uint32
+	SoftwareVersion      uint32
+	SerialNumber         string
+	LastAddress          string
+	Endpoints            []TreeEndpoint
+	Level                int
 }
 
 // FormatRichTree renders the device tree with depth controlled by data.Level:
@@ -191,10 +195,20 @@ func FormatRichTree(w io.Writer, data *TreeData) error {
 		name = "Unnamed"
 	}
 	fmt.Fprintf(w, "%s %s\n", Bold(name), Muted(fmt.Sprintf("(Node %d)", data.NodeID)))
-	fmt.Fprintf(w, "  %s  %s\n", Label("Vendor:"), Accent(vendordb.FormatVendorID(data.VendorID)))
-	fmt.Fprintf(w, "  %s %s\n", Label("Product:"), Accent(fmt.Sprintf("0x%04X", data.ProductID)))
+	lbl := func(s string) string { return Label(fmt.Sprintf("%-14s", s)) }
+	fmt.Fprintf(w, "  %s %s\n", lbl("Vendor:"), Accent(vendordb.FormatVendorID(data.VendorID)))
+	fmt.Fprintf(w, "  %s %s\n", lbl("Product ID:"), Accent(fmt.Sprintf("0x%04X", data.ProductID)))
+	if sv := basicinformation.FormatSpecVersion(data.SpecificationVersion); sv != "" {
+		fmt.Fprintf(w, "  %s %s\n", lbl("Spec Version:"), Value(sv))
+	}
+	if data.SoftwareVersion != 0 {
+		fmt.Fprintf(w, "  %s %s\n", lbl("FW ver:"), Value(fmt.Sprintf("%d", data.SoftwareVersion)))
+	}
+	if data.SerialNumber != "" {
+		fmt.Fprintf(w, "  %s %s\n", lbl("Serial Number:"), Value(data.SerialNumber))
+	}
 	if data.LastAddress != "" {
-		fmt.Fprintf(w, "  %s %s\n", Label("Address:"), Value(data.LastAddress))
+		fmt.Fprintf(w, "  %s %s\n", lbl("Address:"), Value(data.LastAddress))
 	}
 	fmt.Fprintln(w)
 

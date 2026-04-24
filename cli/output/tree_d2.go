@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/p0fi/matter-cli/internal/clusters/basicinformation"
 	"github.com/p0fi/matter-cli/internal/vendordb"
 	"oss.terrastruct.com/d2/d2graph"
 	"oss.terrastruct.com/d2/d2layouts/d2dagrelayout"
@@ -128,8 +129,21 @@ func buildD2Script(data *TreeData) string {
 		name = "Unnamed"
 	}
 
-	// Node container label includes vendor/product info.
-	nodeLabel := fmt.Sprintf("%s · ProductID: 0x%04X", vendordb.FormatVendorID(data.VendorID), data.ProductID)
+	// Node container label includes vendor/product info and optional device details.
+	nodeLabel := fmt.Sprintf("%s · Product ID: 0x%04X", vendordb.FormatVendorID(data.VendorID), data.ProductID)
+	var details []string
+	if sv := basicinformation.FormatSpecVersion(data.SpecificationVersion); sv != "" {
+		details = append(details, "Spec Version: "+sv)
+	}
+	if data.SoftwareVersion != 0 {
+		details = append(details, fmt.Sprintf("FW %d", data.SoftwareVersion))
+	}
+	if data.SerialNumber != "" {
+		details = append(details, "Serial Number: "+data.SerialNumber)
+	}
+	if len(details) > 0 {
+		nodeLabel += "\n" + strings.Join(details, " · ")
+	}
 
 	fmt.Fprintf(&sb, "%s: %q {\n", d2SafeKey(name), nodeLabel)
 	fmt.Fprintf(&sb, "    grid-columns: 2\n")

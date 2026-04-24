@@ -21,14 +21,17 @@ type Fabric struct {
 
 // Node represents a commissioned Matter device within a fabric.
 type Node struct {
-	ID          uint64     `json:"id"`
-	FabricID    uint64     `json:"fabric_id"`
-	Name        string     `json:"name"`
-	VendorID    uint16     `json:"vendor_id"`
-	ProductID   uint16     `json:"product_id"`
-	Endpoints   []Endpoint `json:"endpoints"`
-	LastAddress string     `json:"last_address"`
-	LastSeen    time.Time  `json:"last_seen"`
+	ID                   uint64     `json:"id"`
+	FabricID             uint64     `json:"fabric_id"`
+	Name                 string     `json:"name"`
+	VendorID             uint16     `json:"vendor_id"`
+	ProductID            uint16     `json:"product_id"`
+	SpecificationVersion uint32     `json:"specification_version,omitempty"`
+	SoftwareVersion      uint32     `json:"software_version,omitempty"`
+	SerialNumber         string     `json:"serial_number,omitempty"`
+	Endpoints            []Endpoint `json:"endpoints"`
+	LastAddress          string     `json:"last_address"`
+	LastSeen             time.Time  `json:"last_seen"`
 }
 
 // Endpoint represents a single endpoint on a Matter node.

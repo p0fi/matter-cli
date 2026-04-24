@@ -131,12 +131,15 @@ func openFile(path string) error {
 // lists and, optionally, attribute values from the device.
 func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int, verbose bool) (*output.TreeData, error) {
 	data := &output.TreeData{
-		NodeID:      node.ID,
-		NodeName:    node.Name,
-		VendorID:    node.VendorID,
-		ProductID:   node.ProductID,
-		LastAddress: node.LastAddress,
-		Level:       level,
+		NodeID:               node.ID,
+		NodeName:             node.Name,
+		VendorID:             node.VendorID,
+		ProductID:            node.ProductID,
+		SpecificationVersion: node.SpecificationVersion,
+		SoftwareVersion:      node.SoftwareVersion,
+		SerialNumber:         node.SerialNumber,
+		LastAddress:          node.LastAddress,
+		Level:                level,
 	}
 
 	// Populate basic structure from store data (always needed).
