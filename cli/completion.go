@@ -599,9 +599,11 @@ _matter() {
   # Expansion entries share the same "@N " target prefix. -U disables prefix
   # matching against the typed @N word so the bare subcommand names are kept
   # as candidates; -p prepends "@N " to the inserted text so the subcommand
-  # becomes a separate shell word after the target.
+  # becomes a separate shell word after the target. -Q suppresses zsh's
+  # default quoting so the space in "@N " stays a plain word separator
+  # rather than being inserted as a backslash-escaped "\ ".
   if [[ -n "$exp_target" ]]; then
-    local -a exp_prefix_arg=(-U -p "${exp_target} ")
+    local -a exp_prefix_arg=(-U -Q -p "${exp_target} ")
     (( ${#exp_device_cmds}  )) && _describe -t device-commands    "Device Commands"   exp_device_cmds  "${exp_prefix_arg[@]}"
     (( ${#exp_cluster_cmds} )) && _describe -t cluster-commands   "Cluster Commands"  exp_cluster_cmds "${exp_prefix_arg[@]}"
     (( ${#exp_tool_cmds}    )) && _describe -t tools              "Tools"             exp_tool_cmds    "${exp_prefix_arg[@]}"
