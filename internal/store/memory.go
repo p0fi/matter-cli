@@ -119,6 +119,7 @@ func (m *MemoryStore) ListNodes(fabricID uint64) ([]*Node, error) {
 		cp := *n
 		out = append(out, &cp)
 	}
+	sortNodesByID(out)
 	return out, nil
 }
 

@@ -3,10 +3,21 @@
 
 package store
 
-import "errors"
+import (
+	"errors"
+	"sort"
+)
 
 // ErrNotFound is returned when a requested entity does not exist in the store.
 var ErrNotFound = errors.New("not found")
+
+// sortNodesByID sorts nodes in place by ascending numeric Node.ID. Both Store
+// implementations use this helper so their ordering guarantees cannot drift.
+func sortNodesByID(nodes []*Node) {
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].ID < nodes[j].ID
+	})
+}
 
 // Store defines the interface for persistent storage of Matter fabrics,
 // nodes, session resumption data, and arbitrary key-value pairs.
@@ -28,8 +39,9 @@ type Store interface {
 	// GetNode retrieves a node by fabric and node ID. Returns ErrNotFound if
 	// either the fabric or node does not exist.
 	GetNode(fabricID uint64, nodeID uint64) (*Node, error)
-	// ListNodes returns all nodes belonging to the given fabric. Returns
-	// ErrNotFound if the fabric does not exist.
+	// ListNodes returns all nodes belonging to the given fabric, ordered by
+	// ascending numeric Node.ID. Returns ErrNotFound if the fabric does not
+	// exist.
 	ListNodes(fabricID uint64) ([]*Node, error)
 	// DeleteNode removes a node by fabric and node ID. Returns ErrNotFound if
 	// it does not exist.
