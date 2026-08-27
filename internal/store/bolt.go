@@ -229,6 +229,7 @@ func (s *BoltStore) ListNodes(fabricID uint64) ([]*Node, error) {
 	if out == nil {
 		out = []*Node{}
 	}
+	sortNodesByID(out)
 	return out, nil
 }
 

@@ -168,6 +168,32 @@ func storeTestSuite(t *testing.T, s Store) {
 		}
 	})
 
+	t.Run("ListNodes_NumericOrder", func(t *testing.T) {
+		if err := s.SaveFabric(&Fabric{ID: 30, Label: "order-test-fabric"}); err != nil {
+			t.Fatalf("SaveFabric: %v", err)
+		}
+		// Save in deliberately nonnumeric insertion order so decimal-text
+		// (lexicographic) ordering would produce 1, 10, 11, 2, 3.
+		for _, id := range []uint64{10, 2, 1, 11, 3} {
+			if err := s.SaveNode(30, &Node{ID: id}); err != nil {
+				t.Fatalf("SaveNode %d: %v", id, err)
+			}
+		}
+		nodes, err := s.ListNodes(30)
+		if err != nil {
+			t.Fatalf("ListNodes: %v", err)
+		}
+		want := []uint64{1, 2, 3, 10, 11}
+		if len(nodes) != len(want) {
+			t.Fatalf("ListNodes len = %d, want %d", len(nodes), len(want))
+		}
+		for i, n := range nodes {
+			if n.ID != want[i] {
+				t.Errorf("ListNodes[%d].ID = %d, want %d", i, n.ID, want[i])
+			}
+		}
+	})
+
 	t.Run("Node_FabricNotFound", func(t *testing.T) {
 		err := s.SaveNode(9999, &Node{ID: 1})
 		if !errors.Is(err, ErrNotFound) {
