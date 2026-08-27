@@ -5,6 +5,7 @@ package interaction
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/tlv"
@@ -34,12 +35,25 @@ func TestStatusCode_String(t *testing.T) {
 		{StatusDataVersionMismatch, "DATA_VERSION_MISMATCH"},
 		{StatusTimeout, "TIMEOUT"},
 		{StatusBusy, "BUSY"},
+		{StatusAccessRestricted, "ACCESS_RESTRICTED"},
+		{StatusUnsupportedCluster, "UNSUPPORTED_CLUSTER"},
+		{StatusNoUpstreamSubscription, "NO_UPSTREAM_SUBSCRIPTION"},
+		{StatusNeedsTimedInteraction, "NEEDS_TIMED_INTERACTION"},
+		{StatusUnsupportedEvent, "UNSUPPORTED_EVENT"},
 		{StatusPathsExhausted, "PATHS_EXHAUSTED"},
 		{StatusTimedRequestMismatch, "TIMED_REQUEST_MISMATCH"},
 		{StatusFailsafeRequired, "FAILSAFE_REQUIRED"},
 		{StatusInvalidInState, "INVALID_IN_STATE"},
 		{StatusNoCommandResponse, "NO_COMMAND_RESPONSE"},
-		{StatusCode(0xFF), "UNKNOWN(0xFF)"},
+		{StatusDynamicConstraintError, "DYNAMIC_CONSTRAINT_ERROR"},
+		{StatusAlreadyExists, "ALREADY_EXISTS"},
+		{StatusInvalidTransportType, "INVALID_TRANSPORT_TYPE"},
+		// Reserved, deprecated, and unrecognized values fall back to UNKNOWN.
+		{StatusCode(0x82), "UNKNOWN"},
+		{StatusCode(0x8A), "UNKNOWN"},
+		{StatusCode(0xC4), "UNKNOWN"},
+		{StatusCode(0xF0), "UNKNOWN"}, // WRITE_IGNORED: SDK-only, not part of the spec catalog.
+		{StatusCode(0xFF), "UNKNOWN"},
 	}
 
 	for _, tt := range tests {
@@ -56,7 +70,7 @@ func TestStatusError_Error(t *testing.T) {
 	t.Run("without cluster code", func(t *testing.T) {
 		err := &StatusError{GeneralCode: StatusNotFound}
 		got := err.Error()
-		want := "interaction: status NOT_FOUND (0x8B)"
+		want := "NOT_FOUND (0x8B)"
 		if got != want {
 			t.Errorf("Error() = %q, want %q", got, want)
 		}
@@ -66,9 +80,56 @@ func TestStatusError_Error(t *testing.T) {
 		cc := uint8(0x42)
 		err := &StatusError{GeneralCode: StatusFailure, ClusterCode: &cc}
 		got := err.Error()
-		want := "interaction: status FAILURE (0x01), cluster status 0x42"
+		want := "FAILURE (0x01), cluster status 0x42"
 		if got != want {
 			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("regression: 0x87 renders as CONSTRAINT_ERROR", func(t *testing.T) {
+		err := &StatusError{GeneralCode: StatusConstraintError}
+		got := err.Error()
+		want := "CONSTRAINT_ERROR (0x87)"
+		if got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unknown code", func(t *testing.T) {
+		err := &StatusError{GeneralCode: StatusCode(0xFF)}
+		got := err.Error()
+		want := "UNKNOWN (0xFF)"
+		if got != want {
+			t.Errorf("Error() = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestFormatStatus(t *testing.T) {
+	t.Run("known status, no cluster code", func(t *testing.T) {
+		got := FormatStatus(StatusConstraintError, nil)
+		want := "CONSTRAINT_ERROR (0x87)"
+		if got != want {
+			t.Errorf("FormatStatus() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("known status, with cluster code", func(t *testing.T) {
+		cc := uint8(0x03)
+		got := FormatStatus(StatusFailure, &cc)
+		want := "FAILURE (0x01), cluster status 0x03"
+		if got != want {
+			t.Errorf("FormatStatus() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unknown, reserved, or deprecated status falls back to UNKNOWN", func(t *testing.T) {
+		for _, code := range []StatusCode{0x82, 0x8A, 0xC4, 0xF0, 0xFF} {
+			got := FormatStatus(code, nil)
+			want := fmt.Sprintf("UNKNOWN (0x%02X)", uint8(code))
+			if got != want {
+				t.Errorf("FormatStatus(0x%02X) = %q, want %q", uint8(code), got, want)
+			}
 		}
 	})
 }

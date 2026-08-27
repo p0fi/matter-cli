@@ -590,6 +590,18 @@ func newClusterReadCmd() *cobra.Command {
 	return cmd
 }
 
+// imStatusError builds a typed Interaction Model status error from a raw
+// general status code and optional cluster-specific status. It is the single
+// conversion point used by direct-CASE and session-daemon read/write/invoke
+// branches so both transports produce identical, errors.As-discoverable
+// status errors.
+func imStatusError(code uint8, clusterCode *uint8) *interaction.StatusError {
+	return &interaction.StatusError{
+		GeneralCode: interaction.StatusCode(code),
+		ClusterCode: clusterCode,
+	}
+}
+
 // readAttribute performs the actual attribute read over CASE and displays the result.
 func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -615,8 +627,9 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 		}
 		for _, r := range dresp.Reports {
 			if r.StatusCode != 0 {
-				stepper.Fail(fmt.Sprintf("Read error: status 0x%02X", r.StatusCode))
-				return fmt.Errorf("read error: status 0x%02X", r.StatusCode)
+				se := imStatusError(r.StatusCode, r.ClusterStatus)
+				stepper.Fail("Read error: " + se.Error())
+				return fmt.Errorf("read error: %w", se)
 			}
 			data, _ := daemon.DecodeFields(r.Data)
 			if len(data) > 0 {
@@ -648,8 +661,9 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 
 	for _, r := range reports {
 		if r.Status != nil {
-			stepper.Fail(fmt.Sprintf("Read error: status 0x%02X", r.Status.Status.Status))
-			return fmt.Errorf("read error: status 0x%02X", r.Status.Status.Status)
+			se := imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
+			stepper.Fail("Read error: " + se.Error())
+			return fmt.Errorf("read error: %w", se)
 		}
 		if r.Data != nil {
 			displayReadValue(cmd, stepper, cl, attr, r.Data.Data)
@@ -715,8 +729,9 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			return fmt.Errorf("invoking command: %w", err)
 		}
 		if dresp.StatusCode != 0 {
-			stepper.Fail(fmt.Sprintf("Command failed with status 0x%02X", dresp.StatusCode))
-			return fmt.Errorf("command failed with status 0x%02X", dresp.StatusCode)
+			se := imStatusError(dresp.StatusCode, dresp.ClusterStatus)
+			stepper.Fail("Command failed with status " + se.Error())
+			return fmt.Errorf("command failed: %w", se)
 		}
 		if dresp.HasData {
 			data, _ := daemon.DecodeFields(dresp.Data)
@@ -745,8 +760,9 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 	}
 
 	if resp.Status != nil && resp.Status.Status.Status != 0 {
-		stepper.Fail(fmt.Sprintf("Command failed with status 0x%02X", resp.Status.Status.Status))
-		return fmt.Errorf("command failed with status 0x%02X", resp.Status.Status.Status)
+		se := imStatusError(resp.Status.Status.Status, resp.Status.Status.ClusterStatus)
+		stepper.Fail("Command failed with status " + se.Error())
+		return fmt.Errorf("command failed: %w", se)
 	}
 
 	if resp.Command != nil && len(resp.Command.Fields) > 0 {
@@ -1005,8 +1021,9 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 		}
 		for _, st := range dresp.Statuses {
 			if st.StatusCode != 0 {
-				stepper.Fail(fmt.Sprintf("Write error: status 0x%02X", st.StatusCode))
-				return fmt.Errorf("write error: status 0x%02X", st.StatusCode)
+				se := imStatusError(st.StatusCode, st.ClusterStatus)
+				stepper.Fail("Write error: " + se.Error())
+				return fmt.Errorf("write error: %w", se)
 			}
 		}
 		stepper.Success(fmt.Sprintf("%s/%s written",
@@ -1038,8 +1055,9 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 
 	for _, st := range statuses {
 		if st.Status.Status != 0 {
-			stepper.Fail(fmt.Sprintf("Write error: status 0x%02X", st.Status.Status))
-			return fmt.Errorf("write error: status 0x%02X", st.Status.Status)
+			se := imStatusError(st.Status.Status, st.Status.ClusterStatus)
+			stepper.Fail("Write error: " + se.Error())
+			return fmt.Errorf("write error: %w", se)
 		}
 	}
 

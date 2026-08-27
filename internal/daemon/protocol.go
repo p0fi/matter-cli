@@ -106,6 +106,16 @@ type Response struct {
 	// Error contains a human-readable error message when OK is false.
 	Error string `json:"error,omitempty"`
 
+	// StatusCode is the Interaction Model general status code when Error
+	// originates from a typed *interaction.StatusError (e.g. a top-level
+	// StatusResponse failure such as Busy). Zero when Error is not a
+	// status-shaped failure. Lets Client reconstruct the same typed error
+	// that a direct CASE interaction would have produced.
+	StatusCode uint8 `json:"status_code,omitempty"`
+	// ClusterStatus is the optional cluster-specific status accompanying
+	// StatusCode.
+	ClusterStatus *uint8 `json:"cluster_status,omitempty"`
+
 	// Invoke result.
 	Invoke *InvokeResp `json:"invoke,omitempty"`
 
@@ -165,6 +175,9 @@ type AttrReportResp struct {
 	Data string `json:"data"`
 	// StatusCode is non-zero if this particular attribute returned an error.
 	StatusCode uint8 `json:"status_code,omitempty"`
+	// ClusterStatus is the cluster-specific status code when StatusCode is
+	// Failure (0x01). Nil when the response carried no cluster status.
+	ClusterStatus *uint8 `json:"cluster_status,omitempty"`
 }
 
 // WriteResp carries the result of a write request.
@@ -178,6 +191,9 @@ type AttrStatusResp struct {
 	ClusterID   uint32 `json:"cluster_id"`
 	AttributeID uint32 `json:"attribute_id"`
 	StatusCode  uint8  `json:"status_code"`
+	// ClusterStatus is the cluster-specific status code when StatusCode is
+	// Failure (0x01). Nil when the response carried no cluster status.
+	ClusterStatus *uint8 `json:"cluster_status,omitempty"`
 }
 
 // StatusResp carries daemon status information.

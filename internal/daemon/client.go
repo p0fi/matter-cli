@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/p0fi/matter-cli/internal/interaction"
 	"github.com/p0fi/matter-cli/internal/store"
 )
 
@@ -169,7 +170,7 @@ func (c *Client) Invoke(nodeID, fabricID uint64, inv *InvokeReq) (*InvokeResp, e
 		return nil, err
 	}
 	if !resp.OK {
-		return nil, fmt.Errorf("daemon: invoke: %s", resp.Error)
+		return nil, respError("daemon: invoke", resp)
 	}
 	return resp.Invoke, nil
 }
@@ -186,7 +187,7 @@ func (c *Client) Read(nodeID, fabricID uint64, rd *ReadReq) (*ReadResp, error) {
 		return nil, err
 	}
 	if !resp.OK {
-		return nil, fmt.Errorf("daemon: read: %s", resp.Error)
+		return nil, respError("daemon: read", resp)
 	}
 	return resp.Read, nil
 }
@@ -203,9 +204,25 @@ func (c *Client) Write(nodeID, fabricID uint64, wr *WriteReq) (*WriteResp, error
 		return nil, err
 	}
 	if !resp.OK {
-		return nil, fmt.Errorf("daemon: write: %s", resp.Error)
+		return nil, respError("daemon: write", resp)
 	}
 	return resp.Write, nil
+}
+
+// respError builds the error returned for a failed Response. When the
+// daemon-side failure carried a typed Interaction Model status, it is
+// reconstructed as an *interaction.StatusError so callers get the same
+// typed error — and the same errors.As/IsStatus behavior — that a direct
+// CASE interaction would have produced.
+func respError(prefix string, resp *Response) error {
+	if resp.StatusCode != 0 {
+		se := &interaction.StatusError{
+			GeneralCode: interaction.StatusCode(resp.StatusCode),
+			ClusterCode: resp.ClusterStatus,
+		}
+		return fmt.Errorf("%s: %w", prefix, se)
+	}
+	return fmt.Errorf("%s: %s", prefix, resp.Error)
 }
 
 // send opens a connection to the daemon, sends a JSON request, reads the JSON
