@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,15 @@ func newTreeCmd() *cobra.Command {
   matter @2 tree -L 3
   matter @1 tree -L 4`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			outFile, _ := cmd.Flags().GetString("out")
+			if outFile != "" {
+				resolved, err := expandUserTilde(outFile, runtime.GOOS, os.UserHomeDir)
+				if err != nil {
+					return fmt.Errorf("resolving --out path: %w", err)
+				}
+				outFile = resolved
+			}
+
 			nodeID, _, err := requireTarget(cmd)
 			if err != nil {
 				return err
@@ -80,7 +90,6 @@ func newTreeCmd() *cobra.Command {
 				return err
 			}
 
-			outFile, _ := cmd.Flags().GetString("out")
 			if outFile != "" {
 				stepper := output.NewStepper(w, verbose)
 				if err := output.RenderTreeSVG(data, outFile); err != nil {
