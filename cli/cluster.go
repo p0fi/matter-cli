@@ -590,6 +590,84 @@ func newClusterReadCmd() *cobra.Command {
 	return cmd
 }
 
+// imStatusError builds a typed Interaction Model status error from a raw
+// general status code and optional cluster-specific status. It is the
+// cli-package entry point used by direct-CASE and session-daemon
+// read/write/invoke branches so both transports produce identical,
+// errors.As-discoverable status errors.
+func imStatusError(code uint8, clusterCode *uint8) *interaction.StatusError {
+	return interaction.NewStatusError(code, clusterCode)
+}
+
+// daemonReadResult walks a session-daemon read response exactly as
+// readAttribute does inline: the first non-success status stops processing
+// and becomes a typed error; otherwise the first report carrying decoded
+// data is returned. found is false when no report carried data.
+func daemonReadResult(reports []daemon.AttrReportResp) (data []byte, found bool, err error) {
+	for _, r := range reports {
+		if r.StatusCode != 0 {
+			return nil, false, imStatusError(r.StatusCode, r.ClusterStatus)
+		}
+		decoded, _ := daemon.DecodeFields(r.Data)
+		if len(decoded) > 0 {
+			return decoded, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// directReadResult is the direct-CASE equivalent of daemonReadResult.
+func directReadResult(reports []interaction.AttributeReport) (data []byte, found bool, err error) {
+	for _, r := range reports {
+		if r.Status != nil {
+			return nil, false, imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
+		}
+		if r.Data != nil {
+			return r.Data.Data, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// daemonWriteError returns the typed status error for the first failed
+// attribute write in a session-daemon write response, or nil if every write
+// succeeded.
+func daemonWriteError(statuses []daemon.AttrStatusResp) error {
+	for _, st := range statuses {
+		if st.StatusCode != 0 {
+			return imStatusError(st.StatusCode, st.ClusterStatus)
+		}
+	}
+	return nil
+}
+
+// directWriteError is the direct-CASE equivalent of daemonWriteError.
+func directWriteError(statuses []interaction.AttributeStatus) error {
+	for _, st := range statuses {
+		if st.Status.Status != 0 {
+			return imStatusError(st.Status.Status, st.Status.ClusterStatus)
+		}
+	}
+	return nil
+}
+
+// daemonInvokeError returns the typed status error for a failed
+// session-daemon invoke response, or nil on success.
+func daemonInvokeError(resp *daemon.InvokeResp) error {
+	if resp.StatusCode != 0 {
+		return imStatusError(resp.StatusCode, resp.ClusterStatus)
+	}
+	return nil
+}
+
+// directInvokeError is the direct-CASE equivalent of daemonInvokeError.
+func directInvokeError(resp *interaction.InvokeResponseIB) error {
+	if resp.Status != nil && resp.Status.Status.Status != 0 {
+		return imStatusError(resp.Status.Status.Status, resp.Status.Status.ClusterStatus)
+	}
+	return nil
+}
+
 // readAttribute performs the actual attribute read over CASE and displays the result.
 func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -613,16 +691,14 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			stepper.Fail(fmt.Sprintf("Read failed: %v", err))
 			return fmt.Errorf("reading attribute: %w", err)
 		}
-		for _, r := range dresp.Reports {
-			if r.StatusCode != 0 {
-				stepper.Fail(fmt.Sprintf("Read error: status 0x%02X", r.StatusCode))
-				return fmt.Errorf("read error: status 0x%02X", r.StatusCode)
-			}
-			data, _ := daemon.DecodeFields(r.Data)
-			if len(data) > 0 {
-				displayReadValue(cmd, stepper, cl, attr, data)
-				return nil
-			}
+		data, found, err := daemonReadResult(dresp.Reports)
+		if err != nil {
+			stepper.Fail("Read error: " + err.Error())
+			return fmt.Errorf("read error: %w", err)
+		}
+		if found {
+			displayReadValue(cmd, stepper, cl, attr, data)
+			return nil
 		}
 		stepper.Success(fmt.Sprintf("%s/%s = <no data>",
 			output.Bold(cl.DisplayName), output.Info(attr.DisplayName)))
@@ -646,15 +722,14 @@ func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 		return fmt.Errorf("reading attribute: %w", err)
 	}
 
-	for _, r := range reports {
-		if r.Status != nil {
-			stepper.Fail(fmt.Sprintf("Read error: status 0x%02X", r.Status.Status.Status))
-			return fmt.Errorf("read error: status 0x%02X", r.Status.Status.Status)
-		}
-		if r.Data != nil {
-			displayReadValue(cmd, stepper, cl, attr, r.Data.Data)
-			return nil
-		}
+	data, found, err := directReadResult(reports)
+	if err != nil {
+		stepper.Fail("Read error: " + err.Error())
+		return fmt.Errorf("read error: %w", err)
+	}
+	if found {
+		displayReadValue(cmd, stepper, cl, attr, data)
+		return nil
 	}
 
 	stepper.Success(fmt.Sprintf("%s/%s = <no data>",
@@ -714,9 +789,9 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 			stepper.Fail(fmt.Sprintf("Invoke failed: %v", err))
 			return fmt.Errorf("invoking command: %w", err)
 		}
-		if dresp.StatusCode != 0 {
-			stepper.Fail(fmt.Sprintf("Command failed with status 0x%02X", dresp.StatusCode))
-			return fmt.Errorf("command failed with status 0x%02X", dresp.StatusCode)
+		if err := daemonInvokeError(dresp); err != nil {
+			stepper.Fail("Command failed with status " + err.Error())
+			return fmt.Errorf("command failed: %w", err)
 		}
 		if dresp.HasData {
 			data, _ := daemon.DecodeFields(dresp.Data)
@@ -744,9 +819,9 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 		return fmt.Errorf("invoking command: %w", err)
 	}
 
-	if resp.Status != nil && resp.Status.Status.Status != 0 {
-		stepper.Fail(fmt.Sprintf("Command failed with status 0x%02X", resp.Status.Status.Status))
-		return fmt.Errorf("command failed with status 0x%02X", resp.Status.Status.Status)
+	if err := directInvokeError(resp); err != nil {
+		stepper.Fail("Command failed with status " + err.Error())
+		return fmt.Errorf("command failed: %w", err)
 	}
 
 	if resp.Command != nil && len(resp.Command.Fields) > 0 {
@@ -1003,11 +1078,9 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 			stepper.Fail(fmt.Sprintf("Write failed: %v", err))
 			return fmt.Errorf("writing attribute: %w", err)
 		}
-		for _, st := range dresp.Statuses {
-			if st.StatusCode != 0 {
-				stepper.Fail(fmt.Sprintf("Write error: status 0x%02X", st.StatusCode))
-				return fmt.Errorf("write error: status 0x%02X", st.StatusCode)
-			}
+		if err := daemonWriteError(dresp.Statuses); err != nil {
+			stepper.Fail("Write error: " + err.Error())
+			return fmt.Errorf("write error: %w", err)
 		}
 		stepper.Success(fmt.Sprintf("%s/%s written",
 			output.Bold(cl.DisplayName), output.Info(attr.DisplayName)))
@@ -1036,11 +1109,9 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 		return fmt.Errorf("writing attribute: %w", err)
 	}
 
-	for _, st := range statuses {
-		if st.Status.Status != 0 {
-			stepper.Fail(fmt.Sprintf("Write error: status 0x%02X", st.Status.Status))
-			return fmt.Errorf("write error: status 0x%02X", st.Status.Status)
-		}
+	if err := directWriteError(statuses); err != nil {
+		stepper.Fail("Write error: " + err.Error())
+		return fmt.Errorf("write error: %w", err)
 	}
 
 	stepper.Success(fmt.Sprintf("%s/%s = %s",

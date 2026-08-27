@@ -271,7 +271,7 @@ func treeReadAttrRaw(ctx context.Context, dc *daemonNodeConn, client *interactio
 		}
 		r := dresp.Reports[0]
 		if r.StatusCode != 0 {
-			return nil, fmt.Errorf("status 0x%02X", r.StatusCode)
+			return nil, imStatusError(r.StatusCode, r.ClusterStatus)
 		}
 		raw, _ := daemon.DecodeFields(r.Data)
 		return raw, nil
@@ -285,7 +285,7 @@ func treeReadAttrRaw(ctx context.Context, dc *daemonNodeConn, client *interactio
 	}
 	for _, r := range reports {
 		if r.Status != nil {
-			return nil, fmt.Errorf("status 0x%02X", r.Status.Status.Status)
+			return nil, imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
 		}
 		if r.Data != nil {
 			return r.Data.Data, nil

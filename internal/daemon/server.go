@@ -449,6 +449,20 @@ func (s *Server) evictSession(nodeID uint64) {
 	}
 }
 
+// statusResponse builds an error Response for an interaction failure,
+// preserving the underlying typed *interaction.StatusError (general and
+// cluster status) when present so Client can reconstruct the same typed
+// error a direct CASE interaction would have produced.
+func statusResponse(prefix string, err error) Response {
+	resp := Response{OK: false, Error: fmt.Sprintf("%s: %v", prefix, err)}
+	var se *interaction.StatusError
+	if errors.As(err, &se) {
+		resp.StatusCode = uint8(se.GeneralCode)
+		resp.ClusterStatus = se.ClusterCode
+	}
+	return resp
+}
+
 // handleInvoke processes an invoke request.
 func (s *Server) handleInvoke(ctx context.Context, req *Request) Response {
 	if req.Invoke == nil {
@@ -483,7 +497,7 @@ func (s *Server) handleInvoke(ctx context.Context, req *Request) Response {
 	if err != nil {
 		// The session may be stale — evict so the next attempt retries.
 		s.evictSession(req.NodeID)
-		return Response{OK: false, Error: fmt.Sprintf("invoke failed: %v", err)}
+		return statusResponse("invoke failed", err)
 	}
 
 	invokeResp := &InvokeResp{}
@@ -525,7 +539,7 @@ func (s *Server) handleRead(ctx context.Context, req *Request) Response {
 	reports, err := client.Read(readCtx, session, paths...)
 	if err != nil {
 		s.evictSession(req.NodeID)
-		return Response{OK: false, Error: fmt.Sprintf("read failed: %v", err)}
+		return statusResponse("read failed", err)
 	}
 
 	readResp := &ReadResp{
@@ -538,6 +552,7 @@ func (s *Server) handleRead(ctx context.Context, req *Request) Response {
 			rr.ClusterID = derefU32(r.Status.Path.ClusterID)
 			rr.AttributeID = derefU32(r.Status.Path.AttributeID)
 			rr.StatusCode = r.Status.Status.Status
+			rr.ClusterStatus = r.Status.Status.ClusterStatus
 		}
 		if r.Data != nil {
 			rr.Endpoint = derefU16(r.Data.Path.EndpointID)
@@ -584,7 +599,7 @@ func (s *Server) handleWrite(ctx context.Context, req *Request) Response {
 	statuses, err := client.Write(writeCtx, session, writes...)
 	if err != nil {
 		s.evictSession(req.NodeID)
-		return Response{OK: false, Error: fmt.Sprintf("write failed: %v", err)}
+		return statusResponse("write failed", err)
 	}
 
 	writeResp := &WriteResp{
@@ -592,10 +607,11 @@ func (s *Server) handleWrite(ctx context.Context, req *Request) Response {
 	}
 	for i, st := range statuses {
 		writeResp.Statuses[i] = AttrStatusResp{
-			Endpoint:    derefU16(st.Path.EndpointID),
-			ClusterID:   derefU32(st.Path.ClusterID),
-			AttributeID: derefU32(st.Path.AttributeID),
-			StatusCode:  st.Status.Status,
+			Endpoint:      derefU16(st.Path.EndpointID),
+			ClusterID:     derefU32(st.Path.ClusterID),
+			AttributeID:   derefU32(st.Path.AttributeID),
+			StatusCode:    st.Status.Status,
+			ClusterStatus: st.Status.ClusterStatus,
 		}
 	}
 

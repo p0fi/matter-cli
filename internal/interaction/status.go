@@ -71,6 +71,19 @@ const (
 	StatusTimeout StatusCode = 0x94
 	// StatusBusy indicates the node is busy and cannot process the request.
 	StatusBusy StatusCode = 0x9C
+	// StatusAccessRestricted indicates access to the resource is restricted
+	// by an ARL (Access Restriction List) entry.
+	StatusAccessRestricted StatusCode = 0x9D
+	// StatusUnsupportedCluster indicates the cluster is not supported on the endpoint.
+	StatusUnsupportedCluster StatusCode = 0xC3
+	// StatusNoUpstreamSubscription indicates there is no upstream subscription
+	// to forward the request against.
+	StatusNoUpstreamSubscription StatusCode = 0xC5
+	// StatusNeedsTimedInteraction indicates the action requires a prior timed
+	// invoke or timed write.
+	StatusNeedsTimedInteraction StatusCode = 0xC6
+	// StatusUnsupportedEvent indicates the event is not supported.
+	StatusUnsupportedEvent StatusCode = 0xC7
 	// StatusPathsExhausted indicates too many paths in the request.
 	StatusPathsExhausted StatusCode = 0xC8
 	// StatusTimedRequestMismatch indicates a timed request mismatch.
@@ -81,42 +94,73 @@ const (
 	StatusInvalidInState StatusCode = 0xCB
 	// StatusNoCommandResponse indicates no response was provided for a command.
 	StatusNoCommandResponse StatusCode = 0xCC
+	// StatusDynamicConstraintError indicates a value constraint violation that
+	// depends on dynamic, runtime state rather than a fixed schema constraint.
+	StatusDynamicConstraintError StatusCode = 0xCF
+	// StatusAlreadyExists indicates the entity being created already exists.
+	StatusAlreadyExists StatusCode = 0xD0
+	// StatusInvalidTransportType indicates the operation is not valid for the
+	// transport type over which the interaction arrived.
+	StatusInvalidTransportType StatusCode = 0xD1
 )
 
 // statusNames maps status codes to human-readable descriptions.
 var statusNames = map[StatusCode]string{
-	StatusSuccess:               "SUCCESS",
-	StatusFailure:               "FAILURE",
-	StatusInvalidSubscription:   "INVALID_SUBSCRIPTION",
-	StatusUnsupportedAccess:     "UNSUPPORTED_ACCESS",
-	StatusUnsupportedEndpoint:   "UNSUPPORTED_ENDPOINT",
-	StatusInvalidAction:         "INVALID_ACTION",
-	StatusUnsupportedCommand:    "UNSUPPORTED_COMMAND",
-	StatusInvalidCommand:        "INVALID_COMMAND",
-	StatusUnsupportedAttribute:  "UNSUPPORTED_ATTRIBUTE",
-	StatusConstraintError:       "CONSTRAINT_ERROR",
-	StatusUnsupportedWrite:      "UNSUPPORTED_WRITE",
-	StatusResourceExhausted:     "RESOURCE_EXHAUSTED",
-	StatusNotFound:              "NOT_FOUND",
-	StatusUnreportableAttribute: "UNREPORTABLE_ATTRIBUTE",
-	StatusInvalidDataType:       "INVALID_DATA_TYPE",
-	StatusUnsupportedRead:       "UNSUPPORTED_READ",
-	StatusDataVersionMismatch:   "DATA_VERSION_MISMATCH",
-	StatusTimeout:               "TIMEOUT",
-	StatusBusy:                  "BUSY",
-	StatusPathsExhausted:        "PATHS_EXHAUSTED",
-	StatusTimedRequestMismatch:  "TIMED_REQUEST_MISMATCH",
-	StatusFailsafeRequired:      "FAILSAFE_REQUIRED",
-	StatusInvalidInState:        "INVALID_IN_STATE",
-	StatusNoCommandResponse:     "NO_COMMAND_RESPONSE",
+	StatusSuccess:                "SUCCESS",
+	StatusFailure:                "FAILURE",
+	StatusInvalidSubscription:    "INVALID_SUBSCRIPTION",
+	StatusUnsupportedAccess:      "UNSUPPORTED_ACCESS",
+	StatusUnsupportedEndpoint:    "UNSUPPORTED_ENDPOINT",
+	StatusInvalidAction:          "INVALID_ACTION",
+	StatusUnsupportedCommand:     "UNSUPPORTED_COMMAND",
+	StatusInvalidCommand:         "INVALID_COMMAND",
+	StatusUnsupportedAttribute:   "UNSUPPORTED_ATTRIBUTE",
+	StatusConstraintError:        "CONSTRAINT_ERROR",
+	StatusUnsupportedWrite:       "UNSUPPORTED_WRITE",
+	StatusResourceExhausted:      "RESOURCE_EXHAUSTED",
+	StatusNotFound:               "NOT_FOUND",
+	StatusUnreportableAttribute:  "UNREPORTABLE_ATTRIBUTE",
+	StatusInvalidDataType:        "INVALID_DATA_TYPE",
+	StatusUnsupportedRead:        "UNSUPPORTED_READ",
+	StatusDataVersionMismatch:    "DATA_VERSION_MISMATCH",
+	StatusTimeout:                "TIMEOUT",
+	StatusBusy:                   "BUSY",
+	StatusAccessRestricted:       "ACCESS_RESTRICTED",
+	StatusUnsupportedCluster:     "UNSUPPORTED_CLUSTER",
+	StatusNoUpstreamSubscription: "NO_UPSTREAM_SUBSCRIPTION",
+	StatusNeedsTimedInteraction:  "NEEDS_TIMED_INTERACTION",
+	StatusUnsupportedEvent:       "UNSUPPORTED_EVENT",
+	StatusPathsExhausted:         "PATHS_EXHAUSTED",
+	StatusTimedRequestMismatch:   "TIMED_REQUEST_MISMATCH",
+	StatusFailsafeRequired:       "FAILSAFE_REQUIRED",
+	StatusInvalidInState:         "INVALID_IN_STATE",
+	StatusNoCommandResponse:      "NO_COMMAND_RESPONSE",
+	StatusDynamicConstraintError: "DYNAMIC_CONSTRAINT_ERROR",
+	StatusAlreadyExists:          "ALREADY_EXISTS",
+	StatusInvalidTransportType:   "INVALID_TRANSPORT_TYPE",
 }
 
-// String returns a human-readable name for the status code.
+// String returns the standard Matter specification name for the status
+// code, or "UNKNOWN" if the code is reserved, deprecated, or otherwise not
+// part of the current standard Interaction Model status catalog.
 func (s StatusCode) String() string {
 	if name, ok := statusNames[s]; ok {
 		return name
 	}
-	return fmt.Sprintf("UNKNOWN(0x%02X)", uint8(s))
+	return "UNKNOWN"
+}
+
+// FormatStatus renders an Interaction Model status using the canonical,
+// name-first "NAME (0xNN)" contract, with an optional cluster-specific
+// status appended as ", cluster status 0xNN". It is the single formatter
+// shared by every interaction call site so status output is consistent
+// across direct CASE and session-daemon transports.
+func FormatStatus(code StatusCode, clusterCode *uint8) string {
+	s := fmt.Sprintf("%s (0x%02X)", code, uint8(code))
+	if clusterCode != nil {
+		s += fmt.Sprintf(", cluster status 0x%02X", *clusterCode)
+	}
+	return s
 }
 
 // StatusIB represents the Status Information Block as defined in the Matter spec.
@@ -141,14 +185,22 @@ type StatusError struct {
 	ClusterCode *uint8
 }
 
-// Error returns a human-readable description of the status error.
-func (e *StatusError) Error() string {
-	if e.ClusterCode != nil {
-		return fmt.Sprintf("interaction: status %s (0x%02X), cluster status 0x%02X",
-			e.GeneralCode, uint8(e.GeneralCode), *e.ClusterCode)
+// NewStatusError builds a *StatusError from a raw general status code and
+// optional cluster-specific status. It is the single construction point used
+// throughout the codebase so a general status and its cluster status are
+// always paired into the same typed representation, regardless of which wire
+// shape (session-daemon JSON, direct-CASE StatusIB) they were read from.
+func NewStatusError(code uint8, clusterCode *uint8) *StatusError {
+	return &StatusError{
+		GeneralCode: StatusCode(code),
+		ClusterCode: clusterCode,
 	}
-	return fmt.Sprintf("interaction: status %s (0x%02X)",
-		e.GeneralCode, uint8(e.GeneralCode))
+}
+
+// Error returns the canonical name-first status representation, e.g.
+// "CONSTRAINT_ERROR (0x87)" or "FAILURE (0x01), cluster status 0x03".
+func (e *StatusError) Error() string {
+	return FormatStatus(e.GeneralCode, e.ClusterCode)
 }
 
 // IsStatus returns true if err (or any error in its chain) is a StatusError
@@ -160,6 +212,28 @@ func IsStatus(err error, code StatusCode) bool {
 	}
 	return se.GeneralCode == code
 }
+
+// WrapStatus returns an error whose Error() is exactly msg, with se available
+// through Unwrap(). It lets command-specific decoders keep concise,
+// actionable wording in normal output while remaining discoverable through
+// errors.As / IsStatus as the underlying typed status error.
+func WrapStatus(msg string, se *StatusError) error {
+	return &wrappedStatusError{msg: msg, err: se}
+}
+
+// wrappedStatusError pairs a concise, user-facing message with an underlying
+// typed status error that remains reachable via Unwrap.
+type wrappedStatusError struct {
+	msg string
+	err error
+}
+
+// Error returns the concise, user-facing message, without the underlying
+// status error's own text appended.
+func (e *wrappedStatusError) Error() string { return e.msg }
+
+// Unwrap exposes the underlying typed status error for errors.As / errors.Is.
+func (e *wrappedStatusError) Unwrap() error { return e.err }
 
 // statusFromIB creates a StatusError from a StatusIB, or returns nil if
 // the status indicates success.

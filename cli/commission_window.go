@@ -375,11 +375,15 @@ func invokeAdminCommissioningDirect(ctx context.Context, stepper *output.Stepper
 
 // handleAdminStatus turns IM / cluster-specific status codes from the
 // Administrator Commissioning cluster into user-friendly errors. Returns nil
-// for an explicit Success (0,nil).
+// for an explicit Success (0,nil). The underlying typed Interaction Model
+// status remains discoverable via errors.As/IsStatus, and the raw general and
+// cluster status fields are logged for verbose troubleshooting.
 func handleAdminStatus(stepper *output.Stepper, commandID uint32, imStatus uint8, clusterStatus *uint8) error {
 	if imStatus == 0 && clusterStatus == nil {
 		return nil
 	}
+
+	se := imStatusError(imStatus, clusterStatus)
 
 	var msg string
 	switch {
@@ -399,11 +403,17 @@ func handleAdminStatus(stepper *output.Stepper, commandID uint32, imStatus uint8
 			msg = fmt.Sprintf("cluster status 0x%02X", *clusterStatus)
 		}
 	default:
-		msg = fmt.Sprintf("%s (0x%02X)", interaction.StatusCode(imStatus), imStatus)
+		msg = se.Error()
 	}
 
+	slog.Debug("admin commissioning command rejected",
+		"command", commandID,
+		"status", se.GeneralCode.String(),
+		"statusCode", fmt.Sprintf("0x%02X", uint8(se.GeneralCode)),
+		"clusterStatus", clusterStatus)
+
 	stepper.Fail(fmt.Sprintf("Command failed: %s", msg))
-	return fmt.Errorf("%s", msg)
+	return interaction.WrapStatus(msg, se)
 }
 
 // loadNodeVIDPID returns the stored VendorID/ProductID for a node, falling back

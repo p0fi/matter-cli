@@ -239,7 +239,8 @@ func writeNodeLabel(ctx context.Context, nodeID uint64, label string) error {
 		}
 		for _, st := range resp.Statuses {
 			if st.StatusCode != 0 {
-				return fmt.Errorf("NodeLabel write rejected: status 0x%02X", st.StatusCode)
+				se := imStatusError(st.StatusCode, st.ClusterStatus)
+				return fmt.Errorf("NodeLabel write rejected: %w", se)
 			}
 		}
 		return nil
@@ -260,7 +261,8 @@ func writeNodeLabel(ctx context.Context, nodeID uint64, label string) error {
 	}
 	for _, st := range statuses {
 		if st.Status.Status != 0 {
-			return fmt.Errorf("NodeLabel write rejected: status 0x%02X", st.Status.Status)
+			se := imStatusError(st.Status.Status, st.Status.ClusterStatus)
+			return fmt.Errorf("NodeLabel write rejected: %w", se)
 		}
 	}
 	return nil
@@ -286,7 +288,7 @@ func readProductName(ctx context.Context, nodeID uint64) (string, error) {
 		}
 		r := resp.Reports[0]
 		if r.StatusCode != 0 {
-			return "", fmt.Errorf("status 0x%02X", r.StatusCode)
+			return "", imStatusError(r.StatusCode, r.ClusterStatus)
 		}
 		data, derr := daemon.DecodeFields(r.Data)
 		if derr != nil {
@@ -308,7 +310,7 @@ func readProductName(ctx context.Context, nodeID uint64) (string, error) {
 	}
 	for _, r := range reports {
 		if r.Status != nil {
-			return "", fmt.Errorf("status 0x%02X", r.Status.Status.Status)
+			return "", imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
 		}
 		if r.Data != nil {
 			return decodeTLVString(r.Data.Data)

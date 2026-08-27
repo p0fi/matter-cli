@@ -182,7 +182,7 @@ func readCurrentFabricIndex(ctx context.Context, nodeID uint64) (uint8, error) {
 		}
 		r := resp.Reports[0]
 		if r.StatusCode != 0 {
-			return 0, fmt.Errorf("status 0x%02X", r.StatusCode)
+			return 0, imStatusError(r.StatusCode, r.ClusterStatus)
 		}
 		data, derr := daemon.DecodeFields(r.Data)
 		if derr != nil {
@@ -207,7 +207,7 @@ func readCurrentFabricIndex(ctx context.Context, nodeID uint64) (uint8, error) {
 	}
 	r := reports[0]
 	if r.Status != nil {
-		return 0, fmt.Errorf("status 0x%02X", r.Status.Status.Status)
+		return 0, imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
 	}
 	if r.Data != nil {
 		return decodeFabricIndex(r.Data.Data)
@@ -255,8 +255,8 @@ func invokeRemoveFabric(ctx context.Context, nodeID uint64, payload []byte) erro
 			return fmt.Errorf("invoking RemoveFabric: %w", err)
 		}
 		if resp.StatusCode != 0 {
-			return fmt.Errorf("RemoveFabric failed: IM status 0x%02X (%s)",
-				resp.StatusCode, interaction.StatusCode(resp.StatusCode))
+			se := imStatusError(resp.StatusCode, resp.ClusterStatus)
+			return fmt.Errorf("RemoveFabric failed: %w", se)
 		}
 		if resp.HasData {
 			data, err := daemon.DecodeFields(resp.Data)
@@ -279,12 +279,9 @@ func invokeRemoveFabric(ctx context.Context, nodeID uint64, payload []byte) erro
 	if err != nil {
 		return fmt.Errorf("invoking RemoveFabric: %w", err)
 	}
-	if resp.Status != nil {
-		st := resp.Status.Status.Status
-		if st != 0 {
-			return fmt.Errorf("RemoveFabric failed: IM status 0x%02X (%s)",
-				st, interaction.StatusCode(st))
-		}
+	if resp.Status != nil && resp.Status.Status.Status != 0 {
+		se := imStatusError(resp.Status.Status.Status, resp.Status.Status.ClusterStatus)
+		return fmt.Errorf("RemoveFabric failed: %w", se)
 	}
 	if resp.Command != nil && len(resp.Command.Fields) > 0 {
 		return parseNOCResponse(resp.Command.Fields)
