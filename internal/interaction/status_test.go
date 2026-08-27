@@ -105,6 +105,29 @@ func TestStatusError_Error(t *testing.T) {
 	})
 }
 
+func TestNewStatusError(t *testing.T) {
+	t.Run("without cluster code", func(t *testing.T) {
+		se := NewStatusError(uint8(StatusConstraintError), nil)
+		if se.GeneralCode != StatusConstraintError {
+			t.Errorf("GeneralCode = %v, want %v", se.GeneralCode, StatusConstraintError)
+		}
+		if se.ClusterCode != nil {
+			t.Errorf("ClusterCode = %v, want nil", se.ClusterCode)
+		}
+	})
+
+	t.Run("with cluster code", func(t *testing.T) {
+		cc := uint8(0x03)
+		se := NewStatusError(uint8(StatusFailure), &cc)
+		if se.GeneralCode != StatusFailure {
+			t.Errorf("GeneralCode = %v, want %v", se.GeneralCode, StatusFailure)
+		}
+		if se.ClusterCode == nil || *se.ClusterCode != cc {
+			t.Errorf("ClusterCode = %v, want %#v", se.ClusterCode, &cc)
+		}
+	})
+}
+
 func TestFormatStatus(t *testing.T) {
 	t.Run("known status, no cluster code", func(t *testing.T) {
 		got := FormatStatus(StatusConstraintError, nil)

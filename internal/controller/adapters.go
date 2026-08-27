@@ -153,10 +153,7 @@ func (ic *controllerIMClient) Invoke(ctx context.Context, session commissioning.
 		// Commands that return only a status (e.g., AddTrustedRootCertificate)
 		// report success/failure here. Check for non-success status codes.
 		if resp.Status.Status.Status != 0 {
-			se := &interaction.StatusError{
-				GeneralCode: interaction.StatusCode(resp.Status.Status.Status),
-				ClusterCode: resp.Status.Status.ClusterStatus,
-			}
+			se := interaction.NewStatusError(resp.Status.Status.Status, resp.Status.Status.ClusterStatus)
 			return nil, fmt.Errorf("command status error: %w (cluster: %d, command: 0x%04X)",
 				se, cluster, command)
 		}
@@ -192,12 +189,8 @@ func (ic *controllerIMClient) InvokeTimed(ctx context.Context, session commissio
 	}
 
 	if resp.Status != nil {
-		code := interaction.StatusCode(resp.Status.Status.Status)
-		if code != interaction.StatusSuccess {
-			se := &interaction.StatusError{
-				GeneralCode: code,
-				ClusterCode: resp.Status.Status.ClusterStatus,
-			}
+		if resp.Status.Status.Status != 0 {
+			se := interaction.NewStatusError(resp.Status.Status.Status, resp.Status.Status.ClusterStatus)
 			slog.Error("controller: InvokeTimed command rejected",
 				"status", se.GeneralCode.String(),
 				"statusCode", fmt.Sprintf("0x%02X", uint8(se.GeneralCode)),

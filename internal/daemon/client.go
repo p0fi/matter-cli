@@ -216,10 +216,7 @@ func (c *Client) Write(nodeID, fabricID uint64, wr *WriteReq) (*WriteResp, error
 // CASE interaction would have produced.
 func respError(prefix string, resp *Response) error {
 	if resp.StatusCode != 0 {
-		se := &interaction.StatusError{
-			GeneralCode: interaction.StatusCode(resp.StatusCode),
-			ClusterCode: resp.ClusterStatus,
-		}
+		se := interaction.NewStatusError(resp.StatusCode, resp.ClusterStatus)
 		return fmt.Errorf("%s: %w", prefix, se)
 	}
 	return fmt.Errorf("%s: %s", prefix, resp.Error)

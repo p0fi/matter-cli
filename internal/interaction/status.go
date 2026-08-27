@@ -185,6 +185,18 @@ type StatusError struct {
 	ClusterCode *uint8
 }
 
+// NewStatusError builds a *StatusError from a raw general status code and
+// optional cluster-specific status. It is the single construction point used
+// throughout the codebase so a general status and its cluster status are
+// always paired into the same typed representation, regardless of which wire
+// shape (session-daemon JSON, direct-CASE StatusIB) they were read from.
+func NewStatusError(code uint8, clusterCode *uint8) *StatusError {
+	return &StatusError{
+		GeneralCode: StatusCode(code),
+		ClusterCode: clusterCode,
+	}
+}
+
 // Error returns the canonical name-first status representation, e.g.
 // "CONSTRAINT_ERROR (0x87)" or "FAILURE (0x01), cluster status 0x03".
 func (e *StatusError) Error() string {
