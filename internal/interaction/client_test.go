@@ -472,6 +472,22 @@ func TestClient_Subscribe(t *testing.T) {
 	if r.sub.ID != 42 {
 		t.Errorf("SubscriptionID = %d, want 42", r.sub.ID)
 	}
+	if r.sub.MaxInterval != 30 {
+		t.Errorf("MaxInterval = %d, want 30", r.sub.MaxInterval)
+	}
+
+	// The priming report must be delivered as the first Reports batch.
+	select {
+	case reports := <-r.sub.Reports:
+		if len(reports) != 1 || reports[0].Data == nil {
+			t.Fatalf("priming report = %+v, want one Data-bearing entry", reports)
+		}
+		if reports[0].Data.DataVersion != 1 {
+			t.Errorf("priming DataVersion = %d, want 1", reports[0].Data.DataVersion)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for priming report")
+	}
 
 	// 3. Send a periodic report.
 	time.Sleep(50 * time.Millisecond)
@@ -542,6 +558,55 @@ func TestClient_Subscribe_Error(t *testing.T) {
 	}
 	if !IsStatus(r.err, StatusResourceExhausted) {
 		t.Errorf("expected StatusResourceExhausted, got: %v", r.err)
+	}
+}
+
+// TestClient_Subscribe_PrimingAttributeStatusIsError verifies that a
+// priming ReportData carrying a per-attribute status failure (rather than
+// data) causes Subscribe to return an error — establishment must not be
+// reported as successful when the priming value itself failed.
+func TestClient_Subscribe_PrimingAttributeStatusIsError(t *testing.T) {
+	em := protocol.NewExchangeManager()
+	session := &protocol.Session{ID: 11, Type: protocol.SessionCASE}
+	client := NewClient(em)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	type result struct {
+		sub *Subscription
+		err error
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		sub, err := client.Subscribe(ctx, session,
+			[]AttributePath{NewAttributePath(1, 0x0006, 0x0000)},
+			1, 60,
+		)
+		ch <- result{sub, err}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	primingReport := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Status: &AttributeStatus{
+					Path:   NewAttributePath(1, 0x0006, 0x0000),
+					Status: StatusIB{Status: uint8(StatusUnsupportedAttribute)},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, primingReport)
+
+	r := <-ch
+	if r.sub != nil {
+		t.Fatal("expected no subscription when the priming report fails")
+	}
+	if !IsStatus(r.err, StatusUnsupportedAttribute) {
+		t.Errorf("expected StatusUnsupportedAttribute, got: %v", r.err)
 	}
 }
 

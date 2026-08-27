@@ -23,13 +23,19 @@ type SubscribeResponse struct {
 
 // Subscription represents an active subscription to attribute or event changes.
 // Reports are delivered through the Reports channel and errors through the
-// Errors channel. Call Cancel to terminate the subscription.
+// Errors channel. The priming report is delivered as the first batch on
+// Reports. Call Cancel to terminate the subscription.
 type Subscription struct {
 	// ID is the subscription identifier assigned by the peer.
 	ID uint32
-	// Reports delivers attribute report batches from the peer.
+	// MaxInterval is the maximum reporting interval, in seconds, negotiated
+	// with the peer in the SubscribeResponse.
+	MaxInterval uint16
+	// Reports delivers attribute report batches from the peer, starting with
+	// the priming report.
 	Reports <-chan []AttributeReport
-	// Errors delivers errors that occur during the subscription.
+	// Errors delivers errors that occur during the subscription, including a
+	// non-success status for any attribute path (priming or ongoing).
 	Errors <-chan error
 
 	cancel func()

@@ -31,6 +31,16 @@ const (
 	groupTools    = "tools"
 )
 
+// bypassDaemonAnnotation marks a command whose own connection logic must
+// never observe a session daemon spawned for it — currently only subscribe
+// (generic and shorthand), which is documented to always run in the
+// foreground even when --keep-alive is set. maybeStartDaemon skips spawning
+// the daemon for these commands so a process that will never use it doesn't
+// leave one running behind it (see docs/DAEMON_STORE.md and connectToNode's
+// daemon-lock guard in cli/cluster.go, which still refuses to run if a
+// daemon happens to already be running from an earlier invocation).
+const bypassDaemonAnnotation = "bypass-daemon"
+
 // Version information set at build time via ldflags.
 var (
 	version = "dev"
@@ -299,6 +309,10 @@ func initConfig() {
 // is already running, this is a no-op. The daemon is spawned as a detached
 // background process so it survives the current CLI invocation.
 func maybeStartDaemon(cmd *cobra.Command) error {
+	if cmd.Annotations[bypassDaemonAnnotation] == "true" {
+		return nil
+	}
+
 	ka, _ := cmd.Flags().GetString("keep-alive")
 	if ka == "" {
 		return nil

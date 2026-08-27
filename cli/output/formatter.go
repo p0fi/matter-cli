@@ -36,6 +36,14 @@ func IsTTY() bool {
 	return isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 }
 
+// IsStderrTTY reports whether stderr is a terminal. Commands that write
+// routine lifecycle progress to stderr (e.g. streaming subscriptions) use
+// this instead of IsTTY, since stdout may be piped while stderr is still an
+// interactive terminal, or vice versa.
+func IsStderrTTY() bool {
+	return isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+}
+
 // TermWidth returns the current terminal column width.
 // Returns 0 if stdout is not a terminal or the width cannot be determined.
 func TermWidth() int {

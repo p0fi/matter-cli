@@ -6,10 +6,12 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/daemon"
 	"github.com/p0fi/matter-cli/internal/interaction"
+	"github.com/p0fi/matter-cli/internal/tlv"
 )
 
 // TestImStatusError_WriteRegression is the regression case from issue #81:
@@ -209,6 +211,77 @@ func TestInvokeError_DaemonAndDirectParity(t *testing.T) {
 			Status: &interaction.CommandStatusIB{Status: interaction.StatusIB{Status: 0}},
 		}); err != nil {
 			t.Errorf("directInvokeError() = %v, want nil", err)
+		}
+	})
+}
+
+// TestDecodeTLVValue_Containers covers formatTLVContainer's array/struct/
+// truncation behavior. It exists because that path had no prior test
+// coverage and was refactored (extracted onto the shared tlvChildren walker
+// also used by decodeTLVNative in subscribe.go) as part of hardening
+// attribute subscriptions — this pins its externally observable behavior.
+func TestDecodeTLVValue_Containers(t *testing.T) {
+	t.Run("short array", func(t *testing.T) {
+		w := tlv.NewWriter()
+		if err := w.StartArray(tlv.AnonymousTag()); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.PutUnsignedInt(tlv.AnonymousTag(), 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.PutUnsignedInt(tlv.AnonymousTag(), 2); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.EndContainer(); err != nil {
+			t.Fatal(err)
+		}
+		got := decodeTLVValue(w.Bytes())
+		want := "[1, 2]"
+		if got != want {
+			t.Errorf("decodeTLVValue() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("struct keyed by tag number", func(t *testing.T) {
+		w := tlv.NewWriter()
+		if err := w.StartStructure(tlv.AnonymousTag()); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.PutBool(tlv.ContextTag(0), true); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.EndContainer(); err != nil {
+			t.Fatal(err)
+		}
+		got := decodeTLVValue(w.Bytes())
+		want := "{0: true}"
+		if got != want {
+			t.Errorf("decodeTLVValue() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("long array truncates with first...last", func(t *testing.T) {
+		w := tlv.NewWriter()
+		if err := w.StartArray(tlv.AnonymousTag()); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 20; i++ {
+			if err := w.PutUnsignedInt(tlv.AnonymousTag(), uint64(i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := w.EndContainer(); err != nil {
+			t.Fatal(err)
+		}
+		got := decodeTLVValue(w.Bytes())
+		if len(got) > maxValueLen {
+			t.Errorf("decodeTLVValue() = %q (len %d), want it truncated to at most %d chars", got, len(got), maxValueLen)
+		}
+		if got[0] != '[' || got[len(got)-1] != ']' {
+			t.Errorf("decodeTLVValue() = %q, want it to remain array-bracketed", got)
+		}
+		if !strings.Contains(got, "0, ") || !strings.Contains(got, "..., 19]") {
+			t.Errorf("decodeTLVValue() = %q, want it to show the first and last elements", got)
 		}
 	})
 }
