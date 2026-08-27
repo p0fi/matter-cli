@@ -319,13 +319,30 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 			msg.Protocol.ProtocolOpcode, OpcodeReportData)
 	}
 
-	// Send StatusResponse(Success) to acknowledge the priming report.
+	var primingReport ReportData
+	if err := tlv.Unmarshal(msg.Payload, &primingReport); err != nil {
+		c.exchangeManager.CloseExchange(exchange)
+		return nil, fmt.Errorf("interaction: decoding priming report: %w", err)
+	}
+	primingData, primingErr := splitAttributeReports(primingReport.AttributeReports)
+
+	// Send StatusResponse(Success) to acknowledge the priming report. This
+	// happens regardless of whether the report carried a per-attribute error
+	// status — the ACK is a transport-level acknowledgment of receipt, not an
+	// endorsement of the report's content.
 	ack := StatusResponseMessage{
 		Status: uint8(StatusSuccess),
 	}
 	if err := sendIMMessage(ctx, exchange, OpcodeStatusResponse, ack); err != nil {
 		c.exchangeManager.CloseExchange(exchange)
 		return nil, fmt.Errorf("interaction: acknowledging priming report: %w", err)
+	}
+
+	// A priming attribute-status failure must not be presented as a
+	// successful establishment.
+	if primingErr != nil {
+		c.exchangeManager.CloseExchange(exchange)
+		return nil, primingErr
 	}
 
 	// Wait for the SubscribeResponse.
@@ -353,10 +370,17 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 	subCtx, cancel := context.WithCancel(ctx)
 
 	sub := &Subscription{
-		ID:      subResp.SubscriptionID,
-		Reports: reports,
-		Errors:  errs,
-		cancel:  cancel,
+		ID:          subResp.SubscriptionID,
+		MaxInterval: subResp.MaxInterval,
+		Reports:     reports,
+		Errors:      errs,
+		cancel:      cancel,
+	}
+
+	// Deliver the priming report as the first batch on Reports, ahead of any
+	// ongoing reports the ongoing-report goroutine below might receive.
+	if len(primingData) > 0 {
+		reports <- primingData
 	}
 
 	// Run background goroutine to receive periodic reports.
@@ -405,15 +429,20 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 				return
 			}
 
-			if len(report.AttributeReports) > 0 {
+			dataReports, statusErr := splitAttributeReports(report.AttributeReports)
+
+			if len(dataReports) > 0 {
 				select {
-				case reports <- report.AttributeReports:
+				case reports <- dataReports:
 				case <-subCtx.Done():
 					return
 				}
 			}
 
-			// Acknowledge the report.
+			// Acknowledge the report. This happens regardless of whether it
+			// carried a per-attribute error status — the ACK is a
+			// transport-level acknowledgment of receipt, not an endorsement
+			// of the report's content.
 			reportAck := StatusResponseMessage{
 				Status: uint8(StatusSuccess),
 			}
@@ -424,10 +453,38 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 				}
 				return
 			}
+
+			if statusErr != nil {
+				select {
+				case errs <- statusErr:
+				default:
+				}
+				return
+			}
 		}
 	}()
 
 	return sub, nil
+}
+
+// splitAttributeReports partitions a ReportData's AttributeReports into the
+// AttributeReport entries carrying data, returning the first non-success
+// attribute status (if any) as a terminal error. A non-success status takes
+// priority over any data entries in the same batch, matching the issue's
+// requirement that per-attribute status failures are terminal.
+func splitAttributeReports(reports []AttributeReport) (dataReports []AttributeReport, err error) {
+	for _, r := range reports {
+		if r.Status != nil {
+			if sErr := statusFromIB(r.Status.Status); sErr != nil {
+				return nil, sErr
+			}
+			continue
+		}
+		if r.Data != nil {
+			dataReports = append(dataReports, r)
+		}
+	}
+	return dataReports, nil
 }
 
 // sendIMMessage marshals a TLV struct and sends it via the exchange's Send method.

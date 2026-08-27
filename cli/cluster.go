@@ -11,8 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"os"
-	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -234,6 +232,18 @@ func filterShorthandCommands(t *Target) {
 func connectToNode(ctx context.Context, nodeID uint64) (
 	*interaction.Client, *protocol.Session, func(), error,
 ) {
+	// The session daemon holds an exclusive BoltDB flock for its entire
+	// lifetime (see docs/DAEMON_STORE.md); openStore() below would hang
+	// forever while it's running. Every other caller of connectToNode only
+	// reaches it after confirming the daemon is not running via
+	// connectViaDaemon, but subscribe always bypasses the daemon for the IM
+	// transport itself, so it can reach here even while a daemon is up.
+	if daemon.NewClient("").IsRunning() {
+		return nil, nil, nil, fmt.Errorf(
+			"a session daemon is running and holds the database lock\n" +
+				"Stop it first with: matter session stop")
+	}
+
 	s, err := openStore()
 	if err != nil {
 		return nil, nil, nil, err
@@ -475,6 +485,31 @@ func formatTLVElement(r *tlv.Reader) string {
 	}
 }
 
+// tlvChildren iterates the children of the container the reader is
+// currently positioned on (an Array, List, or Structure — call after Next()
+// has selected one), invoking visit once per child element before that
+// child is itself consumed. Iteration stops at EndOfContainer or the first
+// error, whichever comes first; a non-nil return from tlvChildren is always
+// that first child error, never a wrapping of it, so callers that want to
+// stop on a read failure can propagate it directly and callers that treat a
+// truncated container as best-effort (formatTLVContainer) can discard it.
+// This is the single container-walking loop shared by the human-display
+// formatter (formatTLVContainer) and the native-type decoder
+// (decodeTLVArrayNative/decodeTLVStructNative in subscribe.go).
+func tlvChildren(r *tlv.Reader, visit func(r *tlv.Reader) error) error {
+	for {
+		if err := r.Next(); err != nil {
+			return err
+		}
+		if r.Type() == tlv.TypeEndOfContainer {
+			return nil
+		}
+		if err := visit(r); err != nil {
+			return err
+		}
+	}
+}
+
 // formatTLVContainer formats an array, list, or structure container.
 // Long containers are truncated to show the first and last element with
 // an ellipsis in between, e.g. [0, 1, ..., 65533].
@@ -486,21 +521,18 @@ func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
 	}
 
 	var parts []string
-	for {
-		if err := r.Next(); err != nil {
-			break
-		}
-		if r.Type() == tlv.TypeEndOfContainer {
-			break
-		}
-
+	// A read failure mid-container is best-effort here: keep whatever
+	// elements were already decoded and format them, rather than losing the
+	// whole value the way a strict decoder would.
+	_ = tlvChildren(r, func(r *tlv.Reader) error {
 		elem := formatTLVElement(r)
 		if isStruct {
 			tag := r.TagValue()
 			elem = fmt.Sprintf("%d: %s", tag.TagNum, elem)
 		}
 		parts = append(parts, elem)
-	}
+		return nil
+	})
 
 	full := open + strings.Join(parts, ", ") + close
 	if len(full) <= maxValueLen || len(parts) <= 2 {
@@ -1120,64 +1152,6 @@ func writeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 	return nil
 }
 
-// subscribeAttribute establishes a subscription to an attribute on a remote
-// node and streams reports to stdout until the context is cancelled (Ctrl+C)
-// or an error occurs.
-func subscribeAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo, minInterval, maxInterval uint16) error {
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
-
-	stepper.Step(fmt.Sprintf("Subscribing to %s/%s on %s endpoint %s %s",
-		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
-		output.Muted(fmt.Sprintf("(0x%04X/0x%04X) [%d..%d]s", cl.ID, attr.ID, minInterval, maxInterval))))
-
-	// Intercept SIGINT so Ctrl+C cancels the subscription cleanly.
-	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
-
-	client, session, cleanup, err := connectToNode(ctx, nodeID)
-	if err != nil {
-		stepper.Fail(fmt.Sprintf("Failed to connect: %v", err))
-		return err
-	}
-	defer cleanup()
-
-	path := interaction.NewAttributePath(endpoint, cl.ID, attr.ID)
-	sub, err := client.Subscribe(ctx, session, []interaction.AttributePath{path}, minInterval, maxInterval)
-	if err != nil {
-		stepper.Fail(fmt.Sprintf("Subscribe failed: %v", err))
-		return fmt.Errorf("subscribing to attribute: %w", err)
-	}
-	defer sub.Cancel()
-
-	stepper.Success(fmt.Sprintf("Subscribed (ID %d) — streaming changes, Ctrl+C to stop", sub.ID))
-
-	for {
-		select {
-		case reports, ok := <-sub.Reports:
-			if !ok {
-				return nil
-			}
-			for _, r := range reports {
-				if r.Data != nil {
-					value := decodeTLVValue(r.Data.Data)
-					fmt.Fprintf(cmd.OutOrStdout(), "  %s/%s = %s\n",
-						output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-						output.Success(value))
-				}
-			}
-		case err, ok := <-sub.Errors:
-			if !ok {
-				return nil
-			}
-			return fmt.Errorf("subscription error: %w", err)
-		case <-ctx.Done():
-			return nil
-		}
-	}
-}
-
 // encodeTLVValue encodes a string value into raw TLV bytes based on the attribute type.
 func encodeTLVValue(attrType, value string) ([]byte, error) {
 	w := tlv.NewWriter()
@@ -1321,8 +1295,9 @@ func newClusterSubscribeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
-		Example: `  matter @1/1 cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10
-  matter @2/1 cluster subscribe --cluster OnOff --attribute OnOff --min 1 --max 10`,
+		Example: `  matter @1/1 cluster subscribe --cluster OnOff --attribute OnOff
+  matter @2/1 cluster subscribe --cluster OnOff --attribute OnOff -m 0 -M 30 -n 5`,
+		Annotations: map[string]string{bypassDaemonAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -1330,8 +1305,6 @@ func newClusterSubscribeCmd() *cobra.Command {
 			}
 			clusterName, _ := cmd.Flags().GetString("cluster")
 			attrName, _ := cmd.Flags().GetString("attribute")
-			minInt, _ := cmd.Flags().GetUint16("min")
-			maxInt, _ := cmd.Flags().GetUint16("max")
 
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
@@ -1349,13 +1322,16 @@ func newClusterSubscribeCmd() *cobra.Command {
 				return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clusterName)
 			}
 
-			return subscribeAttribute(cmd, nodeID, endpoint, cl, attr, minInt, maxInt)
+			opts, err := subscribeOptionsFromFlags(cmd, nodeID, endpoint, cl, attr)
+			if err != nil {
+				return err
+			}
+			return runSubscribe(cmd, opts)
 		},
 	}
-	cmd.Flags().String("cluster", "", "cluster name or ID")
-	cmd.Flags().String("attribute", "", "attribute name or ID")
-	cmd.Flags().Uint16("min", 1, "minimum reporting interval in seconds")
-	cmd.Flags().Uint16("max", 10, "maximum reporting interval in seconds")
+	cmd.Flags().StringP("cluster", "C", "", "cluster name or ID")
+	cmd.Flags().StringP("attribute", "a", "", "attribute name or ID")
+	addSubscribeIntervalFlags(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
 	_ = cmd.RegisterFlagCompletionFunc("attribute", completion.AttributeNameCompletion(clusters.Global))
 	return cmd
@@ -1536,6 +1512,44 @@ func registerShorthandClusters() {
 			},
 		}
 		cmd.AddCommand(writeCmd)
+
+		// Add a "subscribe" subcommand for streaming attribute changes.
+		subscribeCmd := &cobra.Command{
+			Use:         "subscribe <attribute>",
+			Short:       fmt.Sprintf("Subscribe to a %s attribute", clCopy.DisplayName),
+			GroupID:     groupShorthandAttr,
+			Args:        cobra.ExactArgs(1),
+			Annotations: map[string]string{bypassDaemonAnnotation: "true"},
+			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				if len(args) >= 1 {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				results := clusters.Global.SearchAttributes(clCopy.ID, toComplete)
+				names := make([]string, len(results))
+				for i, a := range results {
+					names[i] = fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID)
+				}
+				return names, cobra.ShellCompDirectiveNoFileComp
+			},
+			RunE: func(cmd *cobra.Command, args []string) error {
+				nodeID, endpoint, err := requireTarget(cmd)
+				if err != nil {
+					return err
+				}
+				attrName := args[0]
+				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)
+				if !ok {
+					return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clCopy.Name)
+				}
+				opts, err := subscribeOptionsFromFlags(cmd, nodeID, endpoint, &clCopy, attr)
+				if err != nil {
+					return err
+				}
+				return runSubscribe(cmd, opts)
+			},
+		}
+		addSubscribeIntervalFlags(subscribeCmd)
+		cmd.AddCommand(subscribeCmd)
 
 		rootCmd.AddCommand(withGroup(cmd, groupClusters))
 		shorthandCmds = append(shorthandCmds, cmd)

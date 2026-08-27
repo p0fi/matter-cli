@@ -231,6 +231,14 @@ func establishSubscription(t *testing.T, em *protocol.ExchangeManager, session *
 	// holds its own cancel that will be called by sub.Cancel().
 	_ = cancel
 
+	// Drain the priming report so callers can assume the next Reports batch
+	// is the first ongoing report.
+	select {
+	case <-r.sub.Reports:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out draining priming report")
+	}
+
 	return r.sub
 }
 
@@ -264,6 +272,47 @@ func TestClient_Subscribe_OngoingErrorStatus(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for error on Errors channel")
+	}
+}
+
+// TestClient_Subscribe_OngoingAttributeStatusIsError verifies that a
+// per-attribute AttributeReport.Status failure carried inside an otherwise
+// well-formed ongoing ReportData is surfaced on Errors (not silently dropped
+// or forwarded as if it were data) and terminates the goroutine.
+func TestClient_Subscribe_OngoingAttributeStatusIsError(t *testing.T) {
+	em := protocol.NewExchangeManager()
+	session := &protocol.Session{ID: 35, Type: protocol.SessionCASE}
+	client := NewClient(em)
+
+	sub := establishSubscription(t, em, session, client)
+	defer sub.Cancel()
+
+	time.Sleep(60 * time.Millisecond)
+
+	report := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Status: &AttributeStatus{
+					Path:   NewAttributePath(1, 0x0006, 0x0000),
+					Status: StatusIB{Status: uint8(StatusUnsupportedAttribute)},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, report)
+
+	select {
+	case reports := <-sub.Reports:
+		t.Fatalf("expected no data report, got: %+v", reports)
+	case err, ok := <-sub.Errors:
+		if !ok {
+			t.Fatal("Errors channel closed without delivering an error")
+		}
+		if !IsStatus(err, StatusUnsupportedAttribute) {
+			t.Errorf("expected StatusUnsupportedAttribute, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for attribute status error")
 	}
 }
 

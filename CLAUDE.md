@@ -87,11 +87,29 @@ matter cluster read  --cluster on-off --attribute on-off @1/1
 matter cluster write --cluster level-control --attribute current-level 128 @1/1
 matter cluster invoke --cluster on-off --command toggle @1/1
 
+# Subscribe to an attribute — prints the priming value, then streams reports
+# until Ctrl+C, --count records, or --duration elapses. Records go to stdout
+# (NDJSON with --format json, one YAML document per record with --format
+# yaml, timestamped rows with --format table); lifecycle progress goes to
+# stderr. Always runs in the foreground; -K/--keep-alive is ignored for
+# subscribe (with a warning) rather than spawning a daemon it won't use.
+matter cluster subscribe --cluster on-off --attribute on-off @1/1
+matter cluster subscribe --cluster on-off --attribute on-off -m 0 -M 30 -n 5 @1/1
+matter cluster subscribe --cluster on-off --attribute on-off -d 30s --format json @1/1
+
 # Shorthand cluster commands (same thing, fewer keystrokes)
 matter OnOff Toggle @1/1
 matter OnOff read OnOff @1/1
 matter LevelControl write CurrentLevel 128 @1/1
+matter OnOff subscribe OnOff @1/1
+matter OnOff subscribe OnOff -m 0 -M 30 -n 5 @1/1
 ```
+
+Subscribe flags: `--cluster`/`-C` and `--attribute`/`-a` (generic form only),
+`--min`/`-m` (default 1s), `--max`/`-M` (default 60s), `--count`/`-n` (stop
+after this many emitted records, 0 = unlimited), `--duration`/`-d` (stop
+this long after establishment, 0 = unlimited). The priming value counts
+toward `--count`; heartbeats do not.
 
 ### Session daemon & interactive mode
 
