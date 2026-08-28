@@ -225,7 +225,7 @@ func filterShorthandCommands(t *Target) {
 	for _, ep := range node.Endpoints {
 		if ep.ID == t.Endpoint {
 			for _, cl := range ep.Clusters {
-				if cl.Side != "server" && cl.Side != "" {
+				if !cl.IsServer() {
 					continue
 				}
 				clusterIDs[cl.ID] = true

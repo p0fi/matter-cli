@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
+	"log/slog"
 
 	"github.com/p0fi/matter-cli/cli/completion"
 	"github.com/p0fi/matter-cli/cli/output"
@@ -17,11 +17,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// discoverAttrListTimeout bounds a single AttributeList read. It matches the
-// per-cluster budget `tree -L 3` uses so a wedged cluster cannot stall a
-// node-wide walk.
-const discoverAttrListTimeout = 10 * time.Second
 
 // DiscoveredCluster is one cluster instance visited by `cluster discover`,
 // as reported in the command's json/yaml output.
@@ -85,18 +80,20 @@ func runClusterDiscover(cmd *cobra.Command) error {
 		fabricID = 1
 	}
 
+	// Resolve the flag before touching the store: a typo'd cluster name should
+	// not depend on the node being commissioned and reachable.
+	var only *clusters.ClusterInfo
+	if selector, _ := cmd.Flags().GetString("cluster"); selector != "" {
+		cl, err := resolveCluster(selector)
+		if err != nil {
+			return err
+		}
+		only = cl
+	}
+
 	node, err := loadNodeForCompletion(fabricID, target.NodeID)
 	if err != nil {
 		return fmt.Errorf("getting node %d: %w", target.NodeID, err)
-	}
-
-	var only *clusters.ClusterInfo
-	if name, _ := cmd.Flags().GetString("cluster"); name != "" {
-		cl, ok := clusters.Global.ClusterByName(name)
-		if !ok {
-			return fmt.Errorf("unknown cluster %q", name)
-		}
-		only = cl
 	}
 
 	targets := discoverTargets(node, target, only)
@@ -115,9 +112,9 @@ func runClusterDiscover(cmd *cobra.Command) error {
 
 	// Persist only after the sweep has released its connection: a direct CASE
 	// session holds the BoltDB lock for its whole lifetime (see
-	// docs/DAEMON_STORE.md), and persistNode would block on that lock forever.
+	// docs/DAEMON_STORE.md), and the save below would block on that lock forever.
 	if updated > 0 {
-		if err := persistNode(fabricID, node); err != nil {
+		if err := persistAttributeCache(fabricID, node); err != nil {
 			return fmt.Errorf("saving attribute lists for node %d: %w", node.ID, err)
 		}
 	}
@@ -154,10 +151,11 @@ func sweepAttributeLists(
 		defer cleanup()
 	}
 
+	slog.Debug("discovering attribute lists", "node", node.ID, "clusters", len(targets))
 	stepper.Step(fmt.Sprintf("Reading attribute lists from %s", label))
 
 	read := func(ctx context.Context, endpoint uint16, clusterID uint32) ([]uint32, error) {
-		listCtx, cancel := context.WithTimeout(ctx, discoverAttrListTimeout)
+		listCtx, cancel := context.WithTimeout(ctx, treeAttrListTimeout)
 		defer cancel()
 		return treeReadAttrList(listCtx, dc, client, session, endpoint, clusterID)
 	}
@@ -167,7 +165,7 @@ func sweepAttributeLists(
 	return results, updated, failed, nil
 }
 
-// discoverAttributeLists reads the AttributeList// discoverAttributeLists reads the AttributeList of every target and caches each
+// discoverAttributeLists reads the AttributeList of every target and caches each
 // successful result on node. It returns one result per target, plus the counts
 // of clusters whose cache was refreshed and whose read failed.
 //
@@ -188,12 +186,12 @@ func discoverAttributeLists(
 		}
 
 		attrIDs, err := read(ctx, t.endpoint, t.clusterID)
+		recordAttrListResult(node, t.endpoint, t.clusterID, attrIDs, err)
 		if err != nil {
 			res.Error = treeFormatErr(err)
 			failed++
 		} else {
 			res.Attributes = attrIDs
-			recordAttrListResult(node, t.endpoint, t.clusterID, attrIDs, nil)
 			updated++
 		}
 		results = append(results, res)
@@ -257,7 +255,7 @@ func discoverTargets(node *store.Node, target *Target, only *clusters.ClusterInf
 			continue
 		}
 		for _, cl := range ep.Clusters {
-			if cl.Side != "server" && cl.Side != "" {
+			if !cl.IsServer() {
 				continue
 			}
 			if only != nil && cl.ID != only.ID {

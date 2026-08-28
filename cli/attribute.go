@@ -62,6 +62,24 @@ func parseAttributeID(s string) (uint32, bool) {
 	return uint32(v), true
 }
 
+// resolveCluster resolves a cluster selector — a name or a raw numeric ID
+// ("0x0006" or "6") — against the registry.
+//
+// Names win over IDs, matching resolveReadableAttribute: no registered cluster
+// is named as a bare number, so the two namespaces cannot collide.
+func resolveCluster(selector string) (*clusters.ClusterInfo, error) {
+	if cl, ok := clusters.Global.ClusterByName(selector); ok {
+		return cl, nil
+	}
+	if id, ok := parseAttributeID(selector); ok {
+		if cl, ok := clusters.Global.ClusterByID(id); ok {
+			return cl, nil
+		}
+		return nil, fmt.Errorf("unknown cluster 0x%04X", id)
+	}
+	return nil, fmt.Errorf("unknown cluster %q", selector)
+}
+
 // resolveReadableAttribute resolves an attribute selector — a name or a raw
 // numeric ID — for read and subscribe. Names are matched against the codegen
 // registry first; a numeric ID that the registry knows about resolves to the
@@ -131,6 +149,32 @@ func unknownAttributeError(cl *clusters.ClusterInfo, selector string) error {
 // tests bind it to a fake so the traversal and cache-write logic can be
 // exercised without a device.
 type attrListReader func(ctx context.Context, endpoint uint16, clusterID uint32) ([]uint32, error)
+
+// persistAttributeCache saves the attribute lists discovered on node without
+// disturbing the rest of its record.
+//
+// The node passed in was loaded before the CASE session opened, and the session
+// itself writes to the same record: connectToNode (and the daemon) refresh
+// LastSeen on every connect, and LastAddress whenever mDNS rediscovery finds a
+// device at a new IP. Saving the pre-session snapshot would roll both back —
+// most damagingly the rediscovered address, leaving the store pointing at an
+// address already known to be dead. So reload the current record and copy only
+// the attribute lists onto it.
+func persistAttributeCache(fabricID uint64, node *store.Node) error {
+	current, err := loadNodeForCompletion(fabricID, node.ID)
+	if err != nil {
+		return fmt.Errorf("reloading node %d: %w", node.ID, err)
+	}
+	for _, ep := range node.Endpoints {
+		for _, cl := range ep.Clusters {
+			if cl.Attributes == nil {
+				continue
+			}
+			applyAttributeList(current, ep.ID, cl.ID, cl.Attributes)
+		}
+	}
+	return persistNode(fabricID, current)
+}
 
 // recordAttrListResult write-throughs one AttributeList read into node's
 // completion cache and reports whether the cache changed.

@@ -6,10 +6,14 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/store"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -297,4 +301,119 @@ func TestTreePopulateAttributes(t *testing.T) {
 		treePopulateAttributes(context.Background(), data, node, 3, read, readValue)
 		assert.Zero(t, valueReads)
 	})
+}
+
+// setupCLITestStore creates a temporary BoltDB store holding nodes and points
+// the CLI's store helpers at it, so tests can exercise the real
+// loadNodeForCompletion/persistNode paths rather than package variables.
+func setupCLITestStore(t *testing.T, fabricID uint64, nodes []*store.Node) {
+	t.Helper()
+
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "matter-cli")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("creating test db dir: %v", err)
+	}
+
+	s, err := store.NewBoltStore(filepath.Join(dbDir, "matter.db"))
+	if err != nil {
+		t.Fatalf("creating test BoltStore: %v", err)
+	}
+	if err := s.SaveFabric(&store.Fabric{ID: fabricID, Label: "test"}); err != nil {
+		s.Close()
+		t.Fatalf("saving test fabric: %v", err)
+	}
+	for _, n := range nodes {
+		n.FabricID = fabricID
+		if err := s.SaveNode(fabricID, n); err != nil {
+			s.Close()
+			t.Fatalf("saving test node %d: %v", n.ID, err)
+		}
+	}
+	s.Close()
+
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	viper.Set("default-fabric-id", fabricID)
+	t.Cleanup(func() { viper.Set("default-fabric-id", nil) })
+}
+
+// TestPersistAttributeCacheKeepsSessionWrites is the regression test for the
+// write-through clobbering unrelated fields. connectToNode refreshes LastSeen
+// on every connect and LastAddress after mDNS rediscovery, both after the
+// caller's snapshot was taken; persisting that snapshot would roll them back
+// and leave the store pointing at an address already known to be dead.
+func TestPersistAttributeCacheKeepsSessionWrites(t *testing.T) {
+	const fabricID = 1
+	stored := &store.Node{
+		ID:          1,
+		Name:        "Kitchen Light",
+		LastAddress: "192.168.1.42:5540",
+		Endpoints: []store.Endpoint{{
+			ID: 1,
+			Clusters: []store.ClusterRef{
+				{ID: 0x0006, Name: "OnOff", Side: "server"},
+				{ID: 0x0008, Name: "LevelControl", Side: "server"},
+			},
+		}},
+	}
+	setupCLITestStore(t, fabricID, []*store.Node{stored})
+
+	// The snapshot the command loaded before opening its CASE session.
+	snapshot, err := loadNodeForCompletion(fabricID, 1)
+	require.NoError(t, err)
+
+	// Meanwhile the session rediscovers the device at a new address and
+	// stamps LastSeen, exactly as connectToNode does.
+	live, err := loadNodeForCompletion(fabricID, 1)
+	require.NoError(t, err)
+	live.LastAddress = "192.168.1.99:5540"
+	live.LastSeen = time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, persistNode(fabricID, live))
+
+	// The sweep caches what it read onto its stale snapshot, then persists.
+	require.True(t, applyAttributeList(snapshot, 1, 0x0006, []uint32{0x0000, 0x4001}))
+	require.NoError(t, persistAttributeCache(fabricID, snapshot))
+
+	got, err := loadNodeForCompletion(fabricID, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, "192.168.1.99:5540", got.LastAddress,
+		"the rediscovered address must survive the attribute write-through")
+	assert.False(t, got.LastSeen.IsZero(), "LastSeen must not be rolled back")
+	assert.Equal(t, []uint32{0x0000, 0x4001}, clusterRef(t, got, 1, 0x0006).Attributes,
+		"the discovered attribute list must still be saved")
+	assert.Nil(t, clusterRef(t, got, 1, 0x0008).Attributes,
+		"clusters that were never read stay cold")
+}
+
+// TestFilterShorthandCommandsBuildsAttributeFilter covers the seam between the
+// stored ClusterRef.Attributes and the completion filter — the conversion in
+// filterShorthandCommands that the package-variable tests bypass.
+func TestFilterShorthandCommandsBuildsAttributeFilter(t *testing.T) {
+	const fabricID = 1
+	setupCLITestStore(t, fabricID, []*store.Node{{
+		ID: 1,
+		Endpoints: []store.Endpoint{{
+			ID: 1,
+			Clusters: []store.ClusterRef{
+				// Discovered: advertises OnOff and ClusterRevision only.
+				{ID: 0x0006, Name: "OnOff", Side: "server", Attributes: []uint32{0x0000, 0xFFFD}},
+				// Never discovered.
+				{ID: 0x0008, Name: "LevelControl", Side: "server"},
+				// Client side: must not contribute a filter at all.
+				{ID: 0x001E, Name: "Binding", Side: "client", Attributes: []uint32{0x0000}},
+			},
+		}},
+	}})
+	restoreHiddenState(t)
+	setAttributeCache(t, nil)
+
+	filterShorthandCommands(&Target{NodeID: 1, Endpoint: 1, EndpointSet: true, ExplicitEndpoint: true})
+
+	assert.Equal(t, map[uint32]bool{0x0000: true, 0xFFFD: true}, completionAttributeFilter(0x0006),
+		"a discovered cluster's stored list should become its completion filter")
+	assert.Nil(t, completionAttributeFilter(0x0008),
+		"a cluster with no stored list must stay unfiltered")
+	assert.Nil(t, completionAttributeFilter(0x001E),
+		"client-side clusters are not completion targets")
 }

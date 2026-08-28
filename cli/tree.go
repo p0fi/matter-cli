@@ -103,7 +103,7 @@ func newTreeCmd() *cobra.Command {
 			// free. A save failure is not worth failing the tree over — the
 			// user asked for output, not for a cache refresh.
 			if cacheUpdated {
-				if err := persistNode(fabricID, node); err != nil {
+				if err := persistAttributeCache(fabricID, node); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not cache attribute lists: %v\n",
 						output.WarningIcon(), err)
 				}
