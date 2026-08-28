@@ -4,6 +4,7 @@
 package output
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/charmbracelet/lipgloss"
@@ -38,6 +39,7 @@ var (
 	colorMagenta   = lipgloss.ANSIColor(13) // Bright Magenta→ accents / IDs
 	colorLightGray = lipgloss.ANSIColor(7)  // Light Gray     → values
 	colorGray      = lipgloss.ANSIColor(8)  // Bright Black (Dark Gray) → muted/secondary
+	colorBlack     = lipgloss.ANSIColor(0)  // Black         → text on filled badges
 
 	// StyleSuccess renders text in green.
 	StyleSuccess = lipgloss.NewStyle().Foreground(colorGreen)
@@ -67,6 +69,12 @@ var (
 	// reliably subdued appearance in both dark and light palettes, unlike the
 	// faint attribute (SGR 2) which many terminals render inconsistently.
 	StyleMuted = lipgloss.NewStyle().Foreground(colorGray)
+
+	// StyleTipBadge renders the "TIP" badge that prefixes advisory hints.
+	// It is a filled badge rather than a glyph on purpose: the stepper owns
+	// the leading-icon vocabulary (● ✓ ✗ ▲), so a hint that borrowed one of
+	// those would read as another step in the sequence.
+	StyleTipBadge = lipgloss.NewStyle().Foreground(colorBlack).Background(colorBlue).Bold(true)
 
 	// StyleCommand renders command names in cyan.
 	StyleCommand = lipgloss.NewStyle().Foreground(colorCyan)
@@ -125,6 +133,30 @@ func Command(s string) string { return render(StyleCommand, s) }
 
 // Flag formats a flag name in yellow.
 func Flag(s string) string { return render(StyleFlag, s) }
+
+// TipBadge returns the "TIP" badge used to mark advisory hints.
+//
+// Under NO_COLOR it degrades to "TIP:" rather than the badge's padded text:
+// the padding only exists to give the filled background room to breathe, and
+// without a background it just reads as ragged indentation.
+func TipBadge() string {
+	if NoColor() {
+		return "TIP:"
+	}
+	return render(StyleTipBadge, " TIP ")
+}
+
+// Tip formats an advisory hint: an indented TIP badge followed by body.
+//
+// Hints are deliberately unlike every other line a command prints. They carry
+// no stepper icon, they are indented, and the badge is filled, so a suggestion
+// the user is free to ignore cannot be mistaken for a step that just ran.
+//
+// body is emitted verbatim so callers can highlight a command or path within
+// it; wrap plain prose in Muted to get the standard subdued hint text.
+func Tip(body string) string {
+	return fmt.Sprintf("  %s %s", TipBadge(), body)
+}
 
 // visWidth returns the visible display width of s, ignoring ANSI escape codes.
 func visWidth(s string) int { return lipgloss.Width(s) }

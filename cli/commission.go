@@ -325,9 +325,15 @@ func newCommissionIPCmd() *cobra.Command {
 // commission. Reading every cluster's AttributeList during commissioning itself
 // would add latency and another failure surface to the most fragile part of the
 // flow, so the cache stays cold until the user asks for it.
+//
+// The suggestion is rendered as a tip rather than as another stepper line: it
+// reports nothing about the commission that just ran, and the user is free to
+// ignore it.
 func printDiscoverTip(cmd *cobra.Command, nodeID uint64) {
-	fmt.Fprintf(cmd.OutOrStdout(), "\n%s Run %s to enable attribute-name completion for this device.\n",
-		output.InfoIcon(), output.Accent(fmt.Sprintf("matter @%d cluster discover", nodeID)))
+	command := output.Command(fmt.Sprintf("matter @%d cluster discover", nodeID))
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n", output.Tip(
+		output.Muted("Run ")+command+
+			output.Muted(" to enable attribute-name completion for this device")))
 }
 
 // nextNodeID returns the next available node ID by scanning existing nodes.
