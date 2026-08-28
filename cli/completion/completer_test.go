@@ -13,6 +13,7 @@ import (
 	"github.com/p0fi/matter-cli/internal/store"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 )
 
 // setupTestStore creates a temporary BoltDB store with the given nodes and
@@ -751,4 +752,156 @@ func TestNodeSummary(t *testing.T) {
 	if s == "" {
 		t.Error("nodeSummary returned empty string")
 	}
+}
+
+// attrTestRegistry is a two-attribute cluster: one read-only, one writable,
+// plus the global attributes Register appends.
+func attrTestRegistry() *clusters.Registry {
+	r := clusters.NewRegistry()
+	r.Register(clusters.ClusterInfo{
+		ID:          0x0006,
+		Name:        "OnOff",
+		DisplayName: "On/Off",
+		Attributes: []clusters.AttributeInfo{
+			{ID: 0x0000, Name: "OnOff", DisplayName: "OnOff", Type: "bool", Readable: true},
+			{ID: 0x4001, Name: "OnTime", DisplayName: "OnTime", Type: "uint16", Readable: true, Writable: true},
+		},
+	})
+	return r
+}
+
+// completionNames strips the "\tdescription" suffix from completion candidates.
+func completionNames(candidates []string) []string {
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		name, _, _ := strings.Cut(c, "\t")
+		out = append(out, name)
+	}
+	return out
+}
+
+func TestAttributeCompletions(t *testing.T) {
+	r := attrTestRegistry()
+
+	tests := []struct {
+		name         string
+		toComplete   string
+		allowed      AttributeFilter
+		writableOnly bool
+		want         []string
+	}{
+		{
+			name: "nil filter offers the full spec list",
+			want: []string{"OnOff", "OnTime", "GeneratedCommandList", "AcceptedCommandList",
+				"EventList", "AttributeList", "FeatureMap", "ClusterRevision"},
+		},
+		{
+			name:    "filter returning nil falls back to the full spec list",
+			allowed: func(uint32) map[uint32]bool { return nil },
+			want: []string{"OnOff", "OnTime", "GeneratedCommandList", "AcceptedCommandList",
+				"EventList", "AttributeList", "FeatureMap", "ClusterRevision"},
+		},
+		{
+			name:    "populated filter scopes to advertised attributes",
+			allowed: func(uint32) map[uint32]bool { return map[uint32]bool{0x0000: true, 0xFFFD: true} },
+			want:    []string{"OnOff", "ClusterRevision"},
+		},
+		{
+			name:    "empty filter is authoritative and offers nothing",
+			allowed: func(uint32) map[uint32]bool { return map[uint32]bool{} },
+			want:    nil,
+		},
+		{
+			name:         "writableOnly drops read-only attributes",
+			writableOnly: true,
+			want:         []string{"OnTime"},
+		},
+		{
+			name:         "writableOnly intersects with the filter",
+			allowed:      func(uint32) map[uint32]bool { return map[uint32]bool{0x0000: true, 0x4001: true} },
+			writableOnly: true,
+			want:         []string{"OnTime"},
+		},
+		{
+			name:         "writableOnly yields nothing when the device advertises no writable attribute",
+			allowed:      func(uint32) map[uint32]bool { return map[uint32]bool{0x0000: true} },
+			writableOnly: true,
+			want:         nil,
+		},
+		{
+			name:       "prefix narrows candidates",
+			toComplete: "OnT",
+			want:       []string{"OnTime"},
+		},
+		{
+			name:       "prefix and filter compose",
+			toComplete: "On",
+			allowed:    func(uint32) map[uint32]bool { return map[uint32]bool{0x0000: true} },
+			want:       []string{"OnOff"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, directive := AttributeCompletions(r, 0x0006, tt.toComplete, tt.allowed, tt.writableOnly)
+			assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+			if tt.want == nil {
+				assert.Empty(t, got)
+				return
+			}
+			assert.Equal(t, tt.want, completionNames(got))
+		})
+	}
+}
+
+// TestAttributeCompletionsFilterReceivesClusterID verifies the filter is asked
+// about the cluster being completed, not some ambient one.
+func TestAttributeCompletionsFilterReceivesClusterID(t *testing.T) {
+	var asked []uint32
+	filter := func(id uint32) map[uint32]bool {
+		asked = append(asked, id)
+		return nil
+	}
+	AttributeCompletions(attrTestRegistry(), 0x0006, "", filter, false)
+	assert.Equal(t, []uint32{0x0006}, asked)
+}
+
+func TestAttributeNameCompletion(t *testing.T) {
+	r := attrTestRegistry()
+
+	newCmd := func(clusterName string) *cobra.Command {
+		cmd := &cobra.Command{Use: "read"}
+		cmd.Flags().String("cluster", "", "")
+		if clusterName != "" {
+			_ = cmd.Flags().Set("cluster", clusterName)
+		}
+		return cmd
+	}
+
+	t.Run("unknown cluster reports an error directive", func(t *testing.T) {
+		fn := AttributeNameCompletion(r, nil, false)
+		got, directive := fn(newCmd("NotACluster"), nil, "")
+		assert.Nil(t, got)
+		assert.Equal(t, cobra.ShellCompDirectiveError, directive)
+	})
+
+	t.Run("cold cache offers the full spec list", func(t *testing.T) {
+		fn := AttributeNameCompletion(r, func(uint32) map[uint32]bool { return nil }, false)
+		got, _ := fn(newCmd("OnOff"), nil, "")
+		assert.Contains(t, completionNames(got), "OnTime")
+	})
+
+	t.Run("populated cache scopes candidates", func(t *testing.T) {
+		fn := AttributeNameCompletion(r, func(uint32) map[uint32]bool {
+			return map[uint32]bool{0x0000: true}
+		}, false)
+		got, _ := fn(newCmd("OnOff"), nil, "")
+		assert.Equal(t, []string{"OnOff"}, completionNames(got))
+	})
+
+	t.Run("writableOnly is honoured through the flag form", func(t *testing.T) {
+		fn := AttributeNameCompletion(r, nil, true)
+		got, _ := fn(newCmd("OnOff"), nil, "")
+		assert.Equal(t, []string{"OnTime"}, completionNames(got))
+	})
 }

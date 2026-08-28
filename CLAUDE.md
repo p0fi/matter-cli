@@ -49,6 +49,14 @@ matter @1 commission close-window                # revoke an open window
 matter fabric ls
 matter @1 tree                  # show endpoints & clusters
 matter @1 tree -L 4             # full tree including attribute values
+
+# Cache the attributes each cluster actually advertises (AttributeList, 0xFFFB)
+# so read/write/subscribe completion offers only what the device implements
+# instead of every attribute the spec defines. `tree -L 3`/`-L 4` refresh the
+# same cache as a byproduct of the reads they already do.
+matter @1 cluster discover                    # every endpoint on the node
+matter @1/1 cluster discover                  # just endpoint 1
+matter @1 cluster discover --cluster OnOff    # narrow to one cluster
 matter fabric reset             # remove all devices locally (interactive prompt)
 matter fabric reset --yes       # skip confirmation (for scripts/CI)
 
@@ -87,6 +95,13 @@ matter cluster read  --cluster on-off --attribute on-off @1/1
 matter cluster write --cluster level-control --attribute current-level 128 @1/1
 matter cluster invoke --cluster on-off --command toggle @1/1
 
+# Attributes can be named or given as a raw ID (hex or decimal). A raw ID always
+# bypasses the advertised-attribute filter, which is the escape hatch for
+# devices that under-report their own AttributeList.
+matter @1/1 OnOff read 0xFFFA                 # read an unadvertised attribute
+matter @1/1 OnOff read 0x1234                 # unknown to the spec: raw TLV dump
+matter @1/1 OnOff write 0x4001 42             # write: registry-known IDs only
+
 # Subscribe to an attribute — prints the priming value, then streams reports
 # until Ctrl+C, --count records, or --duration elapses. Records go to stdout
 # (NDJSON with --format json, one YAML document per record with --format
@@ -104,6 +119,15 @@ matter LevelControl write CurrentLevel 128 @1/1
 matter OnOff subscribe OnOff @1/1
 matter OnOff subscribe OnOff -m 0 -M 30 -n 5 @1/1
 ```
+
+Attribute completion for `read`, `write`, and `subscribe` (shorthand and
+generic) is scoped to the attributes the target cluster instance advertises,
+once `matter cluster discover` or `matter tree -L 3`/`-L 4` has cached them.
+Before that — or for a cluster whose list has never been read — completion falls
+back to the full spec list. Reads and subscribes accept a raw attribute ID (hex
+or decimal) that always bypasses the filter, including IDs absent from the spec
+registry (the value is dumped as raw TLV). Writes accept a raw ID only for
+attributes the registry knows, since encoding a value requires its type.
 
 Subscribe flags: `--cluster`/`-C` and `--attribute`/`-a` (generic form only),
 `--min`/`-m` (default 1s), `--max`/`-M` (default 60s), `--count`/`-n` (stop

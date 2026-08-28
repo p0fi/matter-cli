@@ -60,21 +60,66 @@ func ClusterNameCompletion(registry *clusters.Registry) func(cmd *cobra.Command,
 	}
 }
 
+// AttributeFilter reports the set of attribute IDs a cluster instance on the
+// current target endpoint is known to implement, as cached from its
+// AttributeList (0xFFFB) by `matter cluster discover` or `matter tree -L 3`.
+//
+// A nil result means the list has never been read for that cluster, so
+// completion falls back to every attribute the spec registry knows about rather
+// than offering nothing at all. A non-nil result — including an empty map — is
+// authoritative and filters completions to exactly what it contains.
+type AttributeFilter func(clusterID uint32) map[uint32]bool
+
+// AttributeCompletions returns shell completion candidates for the attributes
+// of a cluster, matching toComplete case-insensitively against attribute names.
+//
+// allowed, when non-nil, scopes the candidates to the attributes the target
+// device actually advertises. writableOnly drops read-only attributes, for the
+// `write` call sites.
+func AttributeCompletions(
+	registry *clusters.Registry,
+	clusterID uint32,
+	toComplete string,
+	allowed AttributeFilter,
+	writableOnly bool,
+) ([]string, cobra.ShellCompDirective) {
+	results := registry.SearchAttributes(clusterID, toComplete)
+
+	var supported map[uint32]bool
+	if allowed != nil {
+		supported = allowed(clusterID)
+	}
+
+	var names []string
+	for _, a := range results {
+		if writableOnly && !a.Writable {
+			continue
+		}
+		if supported != nil && !supported[a.ID] {
+			continue
+		}
+		names = append(names, fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID))
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
 // AttributeNameCompletion returns a cobra ValidArgsFunction that completes
-// attribute names for the cluster specified by the --cluster flag.
-func AttributeNameCompletion(registry *clusters.Registry) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+// attribute names for the cluster specified by the --cluster flag, scoped to
+// the attributes the target device advertises when allowed is non-nil and the
+// cache has been populated. writableOnly restricts candidates to writable
+// attributes for the `write` command.
+func AttributeNameCompletion(
+	registry *clusters.Registry,
+	allowed AttributeFilter,
+	writableOnly bool,
+) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		clusterName, _ := cmd.Flags().GetString("cluster")
 		cluster, ok := registry.ClusterByName(clusterName)
 		if !ok {
 			return nil, cobra.ShellCompDirectiveError
 		}
-		results := registry.SearchAttributes(cluster.ID, toComplete)
-		names := make([]string, len(results))
-		for i, a := range results {
-			names[i] = fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID)
-		}
-		return names, cobra.ShellCompDirectiveNoFileComp
+		return AttributeCompletions(registry, cluster.ID, toComplete, allowed, writableOnly)
 	}
 }
 

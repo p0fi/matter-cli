@@ -53,6 +53,13 @@ type ClusterRef struct {
 	ID   uint32 `json:"id"`
 	Name string `json:"name"`
 	Side string `json:"side"`
+	// Attributes holds the attribute IDs this cluster instance advertised in
+	// its AttributeList (0xFFFB), as read live from the device by
+	// `matter cluster discover` or `matter tree -L 3`/`-L 4`. It is a cache
+	// used to scope shell completion to what the device actually implements;
+	// a nil slice means the list has never been read, not that the cluster
+	// has no attributes.
+	Attributes []uint32 `json:"attributes,omitempty"`
 }
 
 // ResumptionInfo holds CASE session resumption data for a peer node.

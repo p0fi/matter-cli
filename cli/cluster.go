@@ -59,6 +59,25 @@ func completionClusterFilter() map[uint32]bool {
 	return targetEndpointClusterIDs
 }
 
+// targetEndpointAttributeIDs holds, per cluster ID on the current target
+// endpoint, the set of attribute IDs that cluster instance advertised in its
+// AttributeList (0xFFFB). It is populated by filterShorthandCommands from the
+// cache written by `matter cluster discover` and `matter tree -L 3`/`-L 4`, and
+// read by completionAttributeFilter. Semantics mirror
+// targetEndpointClusterIDs, but per cluster:
+//   - no entry for a cluster: that cluster's list has never been read, so
+//     completion falls back to the full spec list rather than offering nothing
+//   - entry present: authoritative — complete only these attribute IDs
+var targetEndpointAttributeIDs map[uint32]map[uint32]bool
+
+// completionAttributeFilter exposes targetEndpointAttributeIDs to the
+// completion package without leaking the package variable. It returns nil for
+// clusters whose attribute list has not been cached, which the completion
+// package treats as "do not filter".
+func completionAttributeFilter(clusterID uint32) map[uint32]bool {
+	return targetEndpointAttributeIDs[clusterID]
+}
+
 // topLevelCommandsForCompletion snapshots the visible root subcommands and
 // labels each with its completion group ("device", "cluster", or "tool") and
 // whether it remains relevant once a node target has been selected. The
@@ -137,9 +156,11 @@ var deviceOnlyCommands = map[string]bool{
 //
 // Nothing is hidden when the target lacks a node ID.
 func filterShorthandCommands(t *Target) {
-	// Reset the cluster filter at the start of every call. Later branches
-	// populate it when a target makes cluster completion meaningful.
+	// Reset both completion filters at the start of every call. Later
+	// branches populate them when a target makes cluster completion
+	// meaningful.
 	targetEndpointClusterIDs = nil
+	targetEndpointAttributeIDs = nil
 
 	if t == nil || t.NodeID == 0 {
 		return
@@ -196,20 +217,38 @@ func filterShorthandCommands(t *Target) {
 		return
 	}
 
-	// Collect the server cluster IDs on the target endpoint.
+	// Collect the server cluster IDs on the target endpoint, along with each
+	// cluster's cached AttributeList so attribute completion can be scoped to
+	// what the device actually implements.
 	clusterIDs := make(map[uint32]bool)
+	attributeIDs := make(map[uint32]map[uint32]bool)
 	for _, ep := range node.Endpoints {
 		if ep.ID == t.Endpoint {
 			for _, cl := range ep.Clusters {
-				if cl.Side == "server" || cl.Side == "" {
-					clusterIDs[cl.ID] = true
+				if cl.Side != "server" && cl.Side != "" {
+					continue
 				}
+				clusterIDs[cl.ID] = true
+				// A nil Attributes slice means the list has never been read;
+				// leave the cluster absent from the map so completion falls
+				// back to the full spec list.
+				if cl.Attributes == nil {
+					continue
+				}
+				ids := make(map[uint32]bool, len(cl.Attributes))
+				for _, attrID := range cl.Attributes {
+					ids[attrID] = true
+				}
+				attributeIDs[cl.ID] = ids
 			}
 			break
 		}
 	}
 	if len(clusterIDs) == 0 {
 		return
+	}
+	if len(attributeIDs) > 0 {
+		targetEndpointAttributeIDs = attributeIDs
 	}
 
 	// Hide shorthand cluster commands whose cluster is absent from the endpoint.
@@ -579,6 +618,7 @@ func newClusterCmd() *cobra.Command {
 	cmd.AddCommand(newClusterInvokeCmd())
 	cmd.AddCommand(newClusterSubscribeCmd())
 	cmd.AddCommand(newClusterListCmd())
+	cmd.AddCommand(newClusterDiscoverCmd())
 	return cmd
 }
 
@@ -586,6 +626,7 @@ func newClusterReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read a cluster attribute",
+		Long:  "Read a cluster attribute.\n\n" + attributeEscapeHatchHelp,
 		Example: `  matter @1/1 cluster read --cluster OnOff --attribute OnOff
   matter @2/1 cluster read --cluster LevelControl --attribute CurrentLevel`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -607,18 +648,19 @@ func newClusterReadCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unknown cluster %q", clusterName)
 			}
-			attr, ok := clusters.Global.AttributeByName(cl.ID, attrName)
-			if !ok {
-				return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clusterName)
+			attr, err := resolveReadableAttribute(cl, attrName)
+			if err != nil {
+				return err
 			}
 
 			return readAttribute(cmd, nodeID, endpoint, cl, attr)
 		},
 	}
 	cmd.Flags().String("cluster", "", "cluster name or ID")
-	cmd.Flags().String("attribute", "", "attribute name or ID")
+	cmd.Flags().String("attribute", "", attributeFlagUsage)
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
-	_ = cmd.RegisterFlagCompletionFunc("attribute", completion.AttributeNameCompletion(clusters.Global))
+	_ = cmd.RegisterFlagCompletionFunc("attribute",
+		completion.AttributeNameCompletion(clusters.Global, completionAttributeFilter, false))
 	return cmd
 }
 
@@ -1038,6 +1080,7 @@ func newClusterWriteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "write",
 		Short: "Write a cluster attribute",
+		Long:  "Write a cluster attribute.\n\n" + writeAttributeEscapeHatchHelp,
 		Example: `  matter @1/1 cluster write --cluster OnOff --attribute OnTime --value 300
   matter @2/1 cluster write --cluster FanControl --attribute FanMode --value 0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1060,9 +1103,9 @@ func newClusterWriteCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unknown cluster %q", clusterName)
 			}
-			attr, ok := clusters.Global.AttributeByName(cl.ID, attrName)
-			if !ok {
-				return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clusterName)
+			attr, err := resolveWritableAttribute(cl, attrName)
+			if err != nil {
+				return err
 			}
 			if !attr.Writable {
 				return fmt.Errorf("attribute %q is read-only", attrName)
@@ -1072,10 +1115,11 @@ func newClusterWriteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("cluster", "", "cluster name or ID")
-	cmd.Flags().String("attribute", "", "attribute name or ID")
+	cmd.Flags().String("attribute", "", writeAttributeFlagUsage)
 	cmd.Flags().String("value", "", "value to write")
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
-	_ = cmd.RegisterFlagCompletionFunc("attribute", completion.AttributeNameCompletion(clusters.Global))
+	_ = cmd.RegisterFlagCompletionFunc("attribute",
+		completion.AttributeNameCompletion(clusters.Global, completionAttributeFilter, true))
 	return cmd
 }
 
@@ -1295,6 +1339,7 @@ func newClusterSubscribeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subscribe",
 		Short: "Subscribe to cluster attribute changes",
+		Long:  "Subscribe to cluster attribute changes.\n\n" + attributeEscapeHatchHelp,
 		Example: `  matter @1/1 cluster subscribe --cluster OnOff --attribute OnOff
   matter @2/1 cluster subscribe --cluster OnOff --attribute OnOff -m 0 -M 30 -n 5`,
 		Annotations: map[string]string{bypassDaemonAnnotation: "true"},
@@ -1317,9 +1362,9 @@ func newClusterSubscribeCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unknown cluster %q", clusterName)
 			}
-			attr, ok := clusters.Global.AttributeByName(cl.ID, attrName)
-			if !ok {
-				return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clusterName)
+			attr, err := resolveReadableAttribute(cl, attrName)
+			if err != nil {
+				return err
 			}
 
 			opts, err := subscribeOptionsFromFlags(cmd, nodeID, endpoint, cl, attr)
@@ -1330,10 +1375,11 @@ func newClusterSubscribeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringP("cluster", "C", "", "cluster name or ID")
-	cmd.Flags().StringP("attribute", "a", "", "attribute name or ID")
+	cmd.Flags().StringP("attribute", "a", "", attributeFlagUsage)
 	addSubscribeIntervalFlags(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("cluster", completion.ClusterNameCompletion(clusters.Global))
-	_ = cmd.RegisterFlagCompletionFunc("attribute", completion.AttributeNameCompletion(clusters.Global))
+	_ = cmd.RegisterFlagCompletionFunc("attribute",
+		completion.AttributeNameCompletion(clusters.Global, completionAttributeFilter, false))
 	return cmd
 }
 
@@ -1445,30 +1491,27 @@ func registerShorthandClusters() {
 
 		// Add a "read" subcommand for reading attributes.
 		readCmd := &cobra.Command{
-			Use:     "read <attribute>",
-			Short:   fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
+			Use:   "read <attribute>",
+			Short: fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
+			Long: fmt.Sprintf("Read a %s attribute.\n\n", clCopy.DisplayName) +
+				attributeEscapeHatchHelp,
 			GroupID: groupShorthandAttr,
 			Args:    cobra.ExactArgs(1),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				if len(args) >= 1 {
 					return nil, cobra.ShellCompDirectiveNoFileComp
 				}
-				results := clusters.Global.SearchAttributes(clCopy.ID, toComplete)
-				names := make([]string, len(results))
-				for i, a := range results {
-					names[i] = fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID)
-				}
-				return names, cobra.ShellCompDirectiveNoFileComp
+				return completion.AttributeCompletions(
+					clusters.Global, clCopy.ID, toComplete, completionAttributeFilter, false)
 			},
 			RunE: func(cmd *cobra.Command, args []string) error {
 				nodeID, endpoint, err := requireTarget(cmd)
 				if err != nil {
 					return err
 				}
-				attrName := args[0]
-				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)
-				if !ok {
-					return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clCopy.Name)
+				attr, err := resolveReadableAttribute(&clCopy, args[0])
+				if err != nil {
+					return err
 				}
 				return readAttribute(cmd, nodeID, endpoint, &clCopy, attr)
 			},
@@ -1477,21 +1520,17 @@ func registerShorthandClusters() {
 
 		// Add a "write" subcommand for writing attributes.
 		writeCmd := &cobra.Command{
-			Use:     "write <attribute> <value>",
-			Short:   fmt.Sprintf("Write a %s attribute", clCopy.DisplayName),
+			Use:   "write <attribute> <value>",
+			Short: fmt.Sprintf("Write a %s attribute", clCopy.DisplayName),
+			Long: fmt.Sprintf("Write a %s attribute.\n\n", clCopy.DisplayName) +
+				writeAttributeEscapeHatchHelp,
 			GroupID: groupShorthandAttr,
 			Args:    cobra.ExactArgs(2),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				if len(args) == 0 {
 					// Complete attribute names (only writable ones).
-					results := clusters.Global.SearchAttributes(clCopy.ID, toComplete)
-					var names []string
-					for _, a := range results {
-						if a.Writable {
-							names = append(names, fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID))
-						}
-					}
-					return names, cobra.ShellCompDirectiveNoFileComp
+					return completion.AttributeCompletions(
+						clusters.Global, clCopy.ID, toComplete, completionAttributeFilter, true)
 				}
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			},
@@ -1500,13 +1539,12 @@ func registerShorthandClusters() {
 				if err != nil {
 					return err
 				}
-				attrName := args[0]
-				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)
-				if !ok {
-					return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clCopy.Name)
+				attr, err := resolveWritableAttribute(&clCopy, args[0])
+				if err != nil {
+					return err
 				}
 				if !attr.Writable {
-					return fmt.Errorf("attribute %q is read-only", attrName)
+					return fmt.Errorf("attribute %q is read-only", args[0])
 				}
 				return writeAttribute(cmd, nodeID, endpoint, &clCopy, attr, args[1])
 			},
@@ -1515,8 +1553,10 @@ func registerShorthandClusters() {
 
 		// Add a "subscribe" subcommand for streaming attribute changes.
 		subscribeCmd := &cobra.Command{
-			Use:         "subscribe <attribute>",
-			Short:       fmt.Sprintf("Subscribe to a %s attribute", clCopy.DisplayName),
+			Use:   "subscribe <attribute>",
+			Short: fmt.Sprintf("Subscribe to a %s attribute", clCopy.DisplayName),
+			Long: fmt.Sprintf("Subscribe to a %s attribute.\n\n", clCopy.DisplayName) +
+				attributeEscapeHatchHelp,
 			GroupID:     groupShorthandAttr,
 			Args:        cobra.ExactArgs(1),
 			Annotations: map[string]string{bypassDaemonAnnotation: "true"},
@@ -1524,22 +1564,17 @@ func registerShorthandClusters() {
 				if len(args) >= 1 {
 					return nil, cobra.ShellCompDirectiveNoFileComp
 				}
-				results := clusters.Global.SearchAttributes(clCopy.ID, toComplete)
-				names := make([]string, len(results))
-				for i, a := range results {
-					names[i] = fmt.Sprintf("%s\t%s (0x%04X)", a.Name, a.DisplayName, a.ID)
-				}
-				return names, cobra.ShellCompDirectiveNoFileComp
+				return completion.AttributeCompletions(
+					clusters.Global, clCopy.ID, toComplete, completionAttributeFilter, false)
 			},
 			RunE: func(cmd *cobra.Command, args []string) error {
 				nodeID, endpoint, err := requireTarget(cmd)
 				if err != nil {
 					return err
 				}
-				attrName := args[0]
-				attr, ok := clusters.Global.AttributeByName(clCopy.ID, attrName)
-				if !ok {
-					return fmt.Errorf("unknown attribute %q in cluster %q", attrName, clCopy.Name)
+				attr, err := resolveReadableAttribute(&clCopy, args[0])
+				if err != nil {
+					return err
 				}
 				opts, err := subscribeOptionsFromFlags(cmd, nodeID, endpoint, &clCopy, attr)
 				if err != nil {

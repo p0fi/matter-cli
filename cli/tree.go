@@ -29,6 +29,13 @@ import (
 // attrListAttrID is the Matter GlobalAttributeID for AttributeList.
 const attrListAttrID uint32 = 0xFFFB
 
+// Per-read budgets for the live reads that levels 3 and 4 perform, so one
+// unresponsive cluster cannot stall the whole traversal.
+const (
+	treeAttrListTimeout  = 10 * time.Second
+	treeAttrValueTimeout = 5 * time.Second
+)
+
 // globalAttrNames maps the standard Matter global attribute IDs (present on
 // every cluster, per the spec "Global Attributes" table) to their display names.
 var globalAttrNames = map[uint32]string{
@@ -85,9 +92,21 @@ func newTreeCmd() *cobra.Command {
 			verbose, _ := cmd.Flags().GetBool("verbose")
 			w := cmd.OutOrStdout()
 
-			data, err := buildTreeData(cmd.Context(), w, node, level, verbose)
+			data, cacheUpdated, err := buildTreeData(cmd.Context(), w, node, level, verbose)
 			if err != nil {
 				return err
+			}
+
+			// Levels 3 and 4 already read every cluster's AttributeList to
+			// render the tree; write it through so attribute-name completion
+			// gets the same scoping `matter cluster discover` provides, for
+			// free. A save failure is not worth failing the tree over — the
+			// user asked for output, not for a cache refresh.
+			if cacheUpdated {
+				if err := persistNode(fabricID, node); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "%s Could not cache attribute lists: %v\n",
+						output.WarningIcon(), err)
+				}
 			}
 
 			if outFile != "" {
@@ -138,7 +157,13 @@ func openFile(path string) error {
 // returns a TreeData structure ready for rendering. For levels 3 and 4 it
 // establishes a CASE session (or uses the session daemon) to read attribute
 // lists and, optionally, attribute values from the device.
-func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int, verbose bool) (*output.TreeData, error) {
+//
+// Every AttributeList it reads successfully is also written back into node's
+// ClusterRef cache, which shell completion uses to scope attribute names to
+// what the device implements. Clusters whose read failed keep whatever was
+// cached before. The second return value reports whether any cache entry
+// changed, so the caller knows whether persisting the node is worthwhile.
+func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int, verbose bool) (*output.TreeData, bool, error) {
 	data := &output.TreeData{
 		NodeID:               node.ID,
 		NodeName:             node.Name,
@@ -178,7 +203,7 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 	}
 
 	if level <= 2 {
-		return data, nil
+		return data, false, nil
 	}
 
 	// Level 3/4: augment with live attribute data from the device.
@@ -195,7 +220,7 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 	dc, client, session, cleanup, err := treeEstablishConnection(ctx, node.ID)
 	if err != nil {
 		stepper.Fail(fmt.Sprintf("Connection failed: %v", err))
-		return nil, fmt.Errorf("connecting to node %d: %w", node.ID, err)
+		return nil, false, fmt.Errorf("connecting to node %d: %w", node.ID, err)
 	}
 	if cleanup != nil {
 		defer cleanup()
@@ -204,15 +229,55 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 	// Step 2: read all attribute data (auto-completes step 1 with ✓).
 	stepper.Step(fmt.Sprintf("Reading device information from %s", boldLabel))
 
+	readList := func(ctx context.Context, ep uint16, clID uint32) ([]uint32, error) {
+		listCtx, cancel := context.WithTimeout(ctx, treeAttrListTimeout)
+		defer cancel()
+		return treeReadAttrList(listCtx, dc, client, session, ep, clID)
+	}
+	readValue := func(ctx context.Context, ep uint16, clID, attrID uint32) (string, error) {
+		valCtx, cancel := context.WithTimeout(ctx, treeAttrValueTimeout)
+		defer cancel()
+		return treeReadAttrValue(valCtx, dc, client, session, ep, clID, attrID)
+	}
+
+	cacheUpdated := treePopulateAttributes(ctx, data, node, level, readList, readValue)
+
+	// Complete step 2 with ✓ and leave the cursor on a clean line.
+	stepper.Clear()
+	return data, cacheUpdated, nil
+}
+
+// treeAttrValueReader reads one attribute's already-formatted display value.
+type treeAttrValueReader func(ctx context.Context, endpoint uint16, clusterID, attrID uint32) (string, error)
+
+// treePopulateAttributes fills each cluster in data with the attribute names it
+// advertises and, at level 4, their values. Every AttributeList it reads
+// successfully is also write-through into node's completion cache, so a tree run
+// leaves attribute-name completion scoped exactly as `cluster discover` would.
+// It reports whether any cache entry changed.
+//
+// The readers are injected so the traversal — including the partial-failure
+// behaviour, where a cluster whose list read failed keeps its previously cached
+// list — is testable without a device.
+func treePopulateAttributes(
+	ctx context.Context,
+	data *output.TreeData,
+	node *store.Node,
+	level int,
+	readList attrListReader,
+	readValue treeAttrValueReader,
+) bool {
+	cacheUpdated := false
+
 	for ei := range data.Endpoints {
 		ep := &data.Endpoints[ei]
 		for ci := range ep.Clusters {
 			cl := &ep.Clusters[ci]
 
-			listCtx, listCancel := context.WithTimeout(ctx, 10*time.Second)
-			attrIDs, listErr := treeReadAttrList(listCtx, dc, client, session, ep.ID, cl.ID)
-			listCancel()
-
+			attrIDs, listErr := readList(ctx, ep.ID, cl.ID)
+			if recordAttrListResult(node, ep.ID, cl.ID, attrIDs, listErr) {
+				cacheUpdated = true
+			}
 			if listErr != nil {
 				cl.ListErr = treeFormatErr(listErr)
 				continue
@@ -225,26 +290,22 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 				})
 			}
 
-			if level >= 4 {
-				for ai := range cl.Attrs {
-					attr := &cl.Attrs[ai]
-					valCtx, valCancel := context.WithTimeout(ctx, 5*time.Second)
-					value, valErr := treeReadAttrValue(valCtx, dc, client, session, ep.ID, cl.ID, attr.ID)
-					valCancel()
-
-					if valErr != nil {
-						attr.Err = treeFormatErr(valErr)
-					} else {
-						attr.Value = value
-					}
+			if level < 4 {
+				continue
+			}
+			for ai := range cl.Attrs {
+				attr := &cl.Attrs[ai]
+				value, valErr := readValue(ctx, ep.ID, cl.ID, attr.ID)
+				if valErr != nil {
+					attr.Err = treeFormatErr(valErr)
+				} else {
+					attr.Value = value
 				}
 			}
 		}
 	}
 
-	// Complete step 2 with ✓ and leave the cursor on a clean line.
-	stepper.Clear()
-	return data, nil
+	return cacheUpdated
 }
 
 // treeEstablishConnection returns either a daemon connection or a direct CASE

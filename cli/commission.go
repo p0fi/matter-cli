@@ -209,6 +209,7 @@ func newCommissionCodeCmd() *cobra.Command {
 
 			stepper.Success(fmt.Sprintf("Device commissioned successfully as node %s",
 				output.Bold(fmt.Sprintf("%d", nodeID))))
+			printDiscoverTip(cmd, nodeID)
 			return nil
 		},
 	}
@@ -309,6 +310,7 @@ func newCommissionIPCmd() *cobra.Command {
 
 			stepper.Success(fmt.Sprintf("Device commissioned successfully as node %s",
 				output.Bold(fmt.Sprintf("%d", nodeID))))
+			printDiscoverTip(cmd, nodeID)
 			return nil
 		},
 	}
@@ -317,6 +319,15 @@ func newCommissionIPCmd() *cobra.Command {
 	cmd.Flags().String("wifi-password", "", "WiFi password for network provisioning")
 	cmd.Flags().String("thread-dataset", "", "hex-encoded Thread operational dataset")
 	return cmd
+}
+
+// printDiscoverTip points the user at `cluster discover` after a successful
+// commission. Reading every cluster's AttributeList during commissioning itself
+// would add latency and another failure surface to the most fragile part of the
+// flow, so the cache stays cold until the user asks for it.
+func printDiscoverTip(cmd *cobra.Command, nodeID uint64) {
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s Run %s to enable attribute-name completion for this device.\n",
+		output.InfoIcon(), output.Accent(fmt.Sprintf("matter @%d cluster discover", nodeID)))
 }
 
 // nextNodeID returns the next available node ID by scanning existing nodes.
