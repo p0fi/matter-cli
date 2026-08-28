@@ -241,3 +241,61 @@ func TestSearchAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestAttributeByID(t *testing.T) {
+	r := NewRegistry()
+	r.Register(newTestCluster())
+
+	tests := []struct {
+		name      string
+		clusterID uint32
+		attrID    uint32
+		wantName  string
+		wantFound bool
+	}{
+		{"cluster-attribute", 0x0006, 0x0000, "OnOff", true},
+		{"global-attribute", 0x0006, 0xFFFB, "AttributeList", true},
+		{"unknown-attribute", 0x0006, 0x1234, "", false},
+		{"missing-cluster", 0x9999, 0x0000, "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attr, ok := r.AttributeByID(tt.clusterID, tt.attrID)
+			if ok != tt.wantFound {
+				t.Fatalf("AttributeByID(0x%04X, 0x%04X) found = %v, want %v",
+					tt.clusterID, tt.attrID, ok, tt.wantFound)
+			}
+			if !tt.wantFound {
+				return
+			}
+			if attr.Name != tt.wantName {
+				t.Fatalf("AttributeByID(0x%04X, 0x%04X) name = %q, want %q",
+					tt.clusterID, tt.attrID, attr.Name, tt.wantName)
+			}
+			if attr.ID != tt.attrID {
+				t.Fatalf("AttributeByID returned ID 0x%04X, want 0x%04X", attr.ID, tt.attrID)
+			}
+		})
+	}
+}
+
+// TestAttributeByIDMatchesAttributeByName pins the two lookups to the same
+// underlying entry: a numeric ID must resolve to a fully-typed definition, not
+// a partial one, since write encoding depends on the Type field.
+func TestAttributeByIDMatchesAttributeByName(t *testing.T) {
+	r := NewRegistry()
+	r.Register(newTestCluster())
+
+	byName, ok := r.AttributeByName(0x0006, "OnOff")
+	if !ok {
+		t.Fatal("AttributeByName(0x0006, \"OnOff\") not found")
+	}
+	byID, ok := r.AttributeByID(0x0006, byName.ID)
+	if !ok {
+		t.Fatalf("AttributeByID(0x0006, 0x%04X) not found", byName.ID)
+	}
+	if *byID != *byName {
+		t.Fatalf("AttributeByID = %+v, AttributeByName = %+v", *byID, *byName)
+	}
+}

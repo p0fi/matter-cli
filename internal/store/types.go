@@ -53,6 +53,30 @@ type ClusterRef struct {
 	ID   uint32 `json:"id"`
 	Name string `json:"name"`
 	Side string `json:"side"`
+	// Attributes holds the attribute IDs this cluster instance advertised in
+	// its AttributeList (0xFFFB), as read live from the device by
+	// `matter cluster discover` or `matter tree -L 3`/`-L 4`. It is a cache
+	// used to scope shell completion to what the device actually implements;
+	// a nil slice means the list has never been read, not that the cluster
+	// has no attributes.
+	//
+	// omitempty collapses a successfully-read but empty list back to nil on
+	// the next load, so it reads as "never read" and completion falls back to
+	// the full spec list. That is the safe direction to degrade — offering
+	// every attribute beats offering none — and the case is close to
+	// unreachable in practice, since the spec requires every cluster to
+	// expose the global attributes (0xFFF8-0xFFFD). The alternative, dropping
+	// omitempty, would write "attributes":null into every cluster of every
+	// record to preserve a distinction nothing can currently act on.
+	Attributes []uint32 `json:"attributes,omitempty"`
+}
+
+// IsServer reports whether the reference is to the cluster's server side.
+//
+// An empty Side counts as server: records written before the field was
+// populated carry no side, and every one of them described a server cluster.
+func (c ClusterRef) IsServer() bool {
+	return c.Side == "server" || c.Side == ""
 }
 
 // ResumptionInfo holds CASE session resumption data for a peer node.

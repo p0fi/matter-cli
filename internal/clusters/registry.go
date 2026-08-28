@@ -109,6 +109,27 @@ func (r *Registry) AttributeByName(clusterID uint32, name string) (*AttributeInf
 	return nil, false
 }
 
+// AttributeByID returns the attribute with the given numeric ID within the
+// specified cluster. It complements AttributeByName so that callers can accept
+// a raw attribute ID (e.g. "0x0006") wherever a name is accepted, and still
+// recover the spec-defined name and type needed to format a read or encode a
+// write.
+func (r *Registry) AttributeByID(clusterID, id uint32) (*AttributeInfo, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	ci, ok := r.byID[clusterID]
+	if !ok {
+		return nil, false
+	}
+	for i := range ci.Attributes {
+		if ci.Attributes[i].ID == id {
+			return &ci.Attributes[i], true
+		}
+	}
+	return nil, false
+}
+
 // CommandByName returns the command with the given name (case-insensitive)
 // within the specified cluster.
 func (r *Registry) CommandByName(clusterID uint32, name string) (*CommandInfo, bool) {
