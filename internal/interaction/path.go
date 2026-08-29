@@ -26,6 +26,17 @@ func NewAttributePath(endpoint uint16, cluster uint32, attribute uint32) Attribu
 	}
 }
 
+// NewWildcardAttributePath creates an AttributePath targeting every attribute
+// of one cluster instance. The attribute ID is left nil, which the Interaction
+// Model reads as a wildcard, so a single ReadRequest carrying this path returns
+// one report per attribute the cluster exposes.
+func NewWildcardAttributePath(endpoint uint16, cluster uint32) AttributePath {
+	return AttributePath{
+		EndpointID: &endpoint,
+		ClusterID:  &cluster,
+	}
+}
+
 // String returns a human-readable representation of the attribute path.
 func (p AttributePath) String() string {
 	ep := "*"

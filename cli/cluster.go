@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -424,25 +425,6 @@ func formatAttrValue(raw []byte, attrType string) string {
 	return fmt.Sprintf("%d (0b%b)", n, n)
 }
 
-// displayReadValue formats and prints an attribute read result. For FeatureMap
-// attributes on clusters with known features, it appends a detailed breakdown
-// showing which feature flags are enabled and which are not.
-func displayReadValue(cmd *cobra.Command, stepper *output.Stepper, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo, data []byte) {
-	if attr.ID == 0xFFFC && len(cl.Features) > 0 {
-		if n, ok := decodeTLVUint(data); ok {
-			stepper.Success(fmt.Sprintf("%s/%s = %s",
-				output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-				output.Success(fmt.Sprintf("%d (0b%b)", n, n))))
-			printFeatureMap(cmd.OutOrStdout(), cl.Features, uint32(n))
-			return
-		}
-	}
-	value := formatAttrValue(data, attr.Type)
-	stepper.Success(fmt.Sprintf("%s/%s = %s",
-		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-		output.Success(value)))
-}
-
 // decodeTLVUint decodes a single unsigned integer from raw TLV bytes.
 func decodeTLVUint(raw []byte) (uint64, bool) {
 	if len(raw) == 0 {
@@ -625,10 +607,12 @@ func newClusterCmd() *cobra.Command {
 func newClusterReadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
-		Short: "Read a cluster attribute",
-		Long:  "Read a cluster attribute.\n\n" + attributeEscapeHatchHelp,
+		Short: "Read a cluster attribute, or every attribute of the cluster",
+		Long: "Read a cluster attribute.\n\n" +
+			wholeClusterReadHelp + "\n\n" + attributeEscapeHatchHelp,
 		Example: `  matter @1/1 cluster read --cluster OnOff --attribute OnOff
-  matter @2/1 cluster read --cluster LevelControl --attribute CurrentLevel`,
+  matter @2/1 cluster read --cluster LevelControl --attribute CurrentLevel
+  matter @1/0 cluster read --cluster BasicInformation`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, endpoint, err := requireTarget(cmd)
 			if err != nil {
@@ -640,20 +624,24 @@ func newClusterReadCmd() *cobra.Command {
 			if clusterName == "" {
 				return fmt.Errorf("--cluster is required")
 			}
-			if attrName == "" {
-				return fmt.Errorf("--attribute is required")
-			}
 
 			cl, ok := clusters.Global.ClusterByName(clusterName)
 			if !ok {
 				return fmt.Errorf("unknown cluster %q", clusterName)
 			}
-			attr, err := resolveReadableAttribute(cl, attrName)
-			if err != nil {
-				return err
+
+			// No --attribute reads the whole cluster: a nil attribute is the
+			// CLI's spelling of the wildcard the wire encodes as an omitted
+			// attribute ID.
+			var attr *clusters.AttributeInfo
+			if attrName != "" {
+				attr, err = resolveReadableAttribute(cl, attrName)
+				if err != nil {
+					return err
+				}
 			}
 
-			return readAttribute(cmd, nodeID, endpoint, cl, attr)
+			return runClusterRead(cmd, nodeID, endpoint, cl, attr)
 		},
 	}
 	cmd.Flags().String("cluster", "", "cluster name or ID")
@@ -673,34 +661,61 @@ func imStatusError(code uint8, clusterCode *uint8) *interaction.StatusError {
 	return interaction.NewStatusError(code, clusterCode)
 }
 
-// daemonReadResult walks a session-daemon read response exactly as
-// readAttribute does inline: the first non-success status stops processing
-// and becomes a typed error; otherwise the first report carrying decoded
-// data is returned. found is false when no report carried data.
-func daemonReadResult(reports []daemon.AttrReportResp) (data []byte, found bool, err error) {
-	for _, r := range reports {
-		if r.StatusCode != 0 {
-			return nil, false, imStatusError(r.StatusCode, r.ClusterStatus)
-		}
-		decoded, _ := daemon.DecodeFields(r.Data)
-		if len(decoded) > 0 {
-			return decoded, true, nil
-		}
-	}
-	return nil, false, nil
+// attrReport is the transport-neutral form of one attribute report. The
+// session-daemon and direct-CASE branches each normalise into it at the
+// transport boundary, so buildReadRecords is the single record-building path
+// and the two transports cannot drift apart.
+type attrReport struct {
+	attributeID uint32
+	data        []byte
+	// err is non-nil when the device answered this path with a status
+	// instead of data — an attribute it refuses to disclose, typically.
+	err error
 }
 
-// directReadResult is the direct-CASE equivalent of daemonReadResult.
-func directReadResult(reports []interaction.AttributeReport) (data []byte, found bool, err error) {
+// daemonAttrReports normalises a session-daemon read response.
+func daemonAttrReports(reports []daemon.AttrReportResp) []attrReport {
+	out := make([]attrReport, 0, len(reports))
 	for _, r := range reports {
-		if r.Status != nil {
-			return nil, false, imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus)
+		ar := attrReport{attributeID: r.AttributeID}
+		if r.StatusCode != 0 {
+			ar.err = imStatusError(r.StatusCode, r.ClusterStatus)
+		} else {
+			ar.data, _ = daemon.DecodeFields(r.Data)
 		}
-		if r.Data != nil {
-			return r.Data.Data, true, nil
+		out = append(out, ar)
+	}
+	return out
+}
+
+// directAttrReports is the direct-CASE equivalent of daemonAttrReports.
+func directAttrReports(reports []interaction.AttributeReport) []attrReport {
+	out := make([]attrReport, 0, len(reports))
+	for _, r := range reports {
+		switch {
+		case r.Status != nil:
+			out = append(out, attrReport{
+				attributeID: derefAttrID(r.Status.Path.AttributeID),
+				err:         imStatusError(r.Status.Status.Status, r.Status.Status.ClusterStatus),
+			})
+		case r.Data != nil:
+			out = append(out, attrReport{
+				attributeID: derefAttrID(r.Data.Path.AttributeID),
+				data:        r.Data.Data,
+			})
 		}
 	}
-	return nil, false, nil
+	return out
+}
+
+// derefAttrID reads the attribute ID out of a report's wire path. A report
+// echoing a wildcard back is not something a conforming device does; reading
+// it as attribute 0 keeps the row visible instead of dropping data silently.
+func derefAttrID(id *uint32) uint32 {
+	if id == nil {
+		return 0
+	}
+	return *id
 }
 
 // daemonWriteError returns the typed status error for the first failed
@@ -742,73 +757,260 @@ func directInvokeError(resp *interaction.InvokeResponseIB) error {
 	return nil
 }
 
-// readAttribute performs the actual attribute read over CASE and displays the result.
-func readAttribute(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) error {
+// clusterReadTimeout bounds a whole `cluster read` — connect plus read — so an
+// unresponsive device gives the shell back instead of hanging. It matches the
+// budget the session daemon already applies to its own read handler rather than
+// introducing a second number.
+const clusterReadTimeout = 30 * time.Second
+
+// featureMapAttrID is the Matter GlobalAttributeID for FeatureMap.
+const featureMapAttrID uint32 = 0xFFFC
+
+// readTarget is the fully resolved addressee of one read. It travels with the
+// reports so record building stays a pure function of what was asked and what
+// came back.
+type readTarget struct {
+	nodeID   uint64
+	endpoint uint16
+	cl       *clusters.ClusterInfo
+}
+
+// runClusterRead reads one attribute, or — when attr is nil — every attribute
+// the cluster exposes, in a single wildcard ReadRequest. The endpoint always
+// comes from the resolved target; only the attribute is wildcardable.
+func runClusterRead(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
-	stepper := output.NewStepper(cmd.OutOrStdout(), verbose)
+	formatFlag, _ := cmd.Flags().GetString("format")
+	format := output.ResolveFormat(formatFlag)
 
-	stepper.Step(fmt.Sprintf("Reading %s/%s from %s endpoint %s %s",
-		output.Bold(cl.DisplayName), output.Info(attr.DisplayName),
-		output.Bold(resolveNodeLabel(nodeID)), output.Bold(fmt.Sprintf("%d", endpoint)),
-		output.Muted(fmt.Sprintf("(0x%04X/0x%04X)", cl.ID, attr.ID))))
+	// Human output is one stream: the progress lines and the value that
+	// follows them belong together on stdout, as they always have. Machine
+	// output is not — progress moves to stderr so stdout carries records and
+	// nothing else.
+	progressW := cmd.OutOrStdout()
+	if format != output.FormatTable {
+		progressW = cmd.ErrOrStderr()
+	}
+	stepper := output.NewStepper(progressW, verbose)
+	stepper.Step(readStepMessage(nodeID, endpoint, cl, attr))
 
-	// Try the daemon first for faster session reuse.
+	reports, err := fetchAttrReports(cmd, stepper, nodeID, endpoint, cl, attr)
+	if err != nil {
+		return err
+	}
+	if len(reports) == 0 {
+		stepper.Fail("Read returned no attributes")
+		return emptyReadError(nodeID, endpoint, cl)
+	}
+
+	records := buildReadRecords(readTarget{nodeID: nodeID, endpoint: endpoint, cl: cl}, reports, time.Now())
+
+	// A status on an attribute the user named explicitly is the outcome of the
+	// read, so it stays a command failure exactly as it was before wildcard
+	// reads existed. In a wildcard read the same status is one row among many
+	// and must not cost the user the other twenty.
+	if attr != nil && len(records) == 1 && records[0].Error != "" {
+		stepper.Fail("Read error: " + records[0].Error)
+		return fmt.Errorf("read error: %w", reports[0].err)
+	}
+
+	return renderReadRecords(cmd, stepper, cl, format, records)
+}
+
+// readStepMessage describes what is about to be read, naming the attribute for
+// a single-attribute read and the cluster as a whole for a wildcard one.
+func readStepMessage(nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) string {
+	node := output.Bold(resolveNodeLabel(nodeID))
+	ep := output.Bold(fmt.Sprintf("%d", endpoint))
+	if attr == nil {
+		return fmt.Sprintf("Reading all %s attributes from %s endpoint %s %s",
+			output.Bold(cl.DisplayName), node, ep,
+			output.Muted(fmt.Sprintf("(0x%04X/*)", cl.ID)))
+	}
+	return fmt.Sprintf("Reading %s/%s from %s endpoint %s %s",
+		output.Bold(cl.DisplayName), output.Info(attr.DisplayName), node, ep,
+		output.Muted(fmt.Sprintf("(0x%04X/0x%04X)", cl.ID, attr.ID)))
+}
+
+// fetchAttrReports performs the read over whichever transport is available and
+// returns the reports in transport-neutral form. The session daemon is tried
+// first so a read repeated while debugging reuses its CASE session instead of
+// paying for a fresh handshake.
+func fetchAttrReports(cmd *cobra.Command, stepper *output.Stepper, nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) ([]attrReport, error) {
 	if dc, ok := connectViaDaemon(nodeID); ok {
 		slog.Debug("using session daemon for read", "node", nodeID)
 		stepper.Step("Sending read request " + output.Muted("(via session daemon)"))
-		dresp, err := dc.Read(daemon.AttrPathReq{
-			Endpoint:    endpoint,
-			ClusterID:   cl.ID,
-			AttributeID: attr.ID,
-		})
+		dresp, err := dc.Read(daemonReadPath(endpoint, cl, attr))
 		if err != nil {
 			stepper.Fail(fmt.Sprintf("Read failed: %v", err))
-			return fmt.Errorf("reading attribute: %w", err)
+			return nil, fmt.Errorf("reading attribute: %w", err)
 		}
-		data, found, err := daemonReadResult(dresp.Reports)
-		if err != nil {
-			stepper.Fail("Read error: " + err.Error())
-			return fmt.Errorf("read error: %w", err)
-		}
-		if found {
-			displayReadValue(cmd, stepper, cl, attr, data)
-			return nil
-		}
-		stepper.Success(fmt.Sprintf("%s/%s = <no data>",
-			output.Bold(cl.DisplayName), output.Info(attr.DisplayName)))
-		return nil
+		return daemonAttrReports(dresp.Reports), nil
 	}
 
-	// No daemon available — establish a direct CASE session.
-	ctx := cmd.Context()
+	// No daemon available — establish a direct CASE session. The deadline
+	// covers the handshake as well as the read, which is what brings this path
+	// in line with the daemon's own read timeout.
+	ctx, cancel := context.WithTimeout(cmd.Context(), clusterReadTimeout)
+	defer cancel()
+
 	client, session, cleanup, err := connectToNode(ctx, nodeID)
 	if err != nil {
 		stepper.Fail(fmt.Sprintf("Failed to connect: %v", err))
-		return err
+		return nil, err
 	}
 	defer cleanup()
 
 	stepper.Step("Sending read request")
-	path := interaction.NewAttributePath(endpoint, cl.ID, attr.ID)
-	reports, err := client.Read(ctx, session, path)
+	reports, err := client.Read(ctx, session, directReadPath(endpoint, cl, attr))
 	if err != nil {
 		stepper.Fail(fmt.Sprintf("Read failed: %v", err))
-		return fmt.Errorf("reading attribute: %w", err)
+		return nil, fmt.Errorf("reading attribute: %w", err)
+	}
+	return directAttrReports(reports), nil
+}
+
+// daemonReadPath builds the IPC path for a read, flagging the wildcard case
+// rather than naming an attribute.
+func daemonReadPath(endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) daemon.AttrPathReq {
+	req := daemon.AttrPathReq{Endpoint: endpoint, ClusterID: cl.ID}
+	if attr == nil {
+		req.WildcardAttribute = true
+		return req
+	}
+	req.AttributeID = attr.ID
+	return req
+}
+
+// directReadPath is the direct-CASE equivalent of daemonReadPath.
+func directReadPath(endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.AttributeInfo) interaction.AttributePath {
+	if attr == nil {
+		return interaction.NewWildcardAttributePath(endpoint, cl.ID)
+	}
+	return interaction.NewAttributePath(endpoint, cl.ID, attr.ID)
+}
+
+// buildReadRecords turns the reports a device returned into the records the
+// output layer renders, sorted by attribute ID ascending. It is pure: the same
+// target, reports, and timestamp always produce the same records, so name
+// resolution, native decoding, and status mapping are all table-testable
+// without a device.
+//
+// Ascending order puts the global attributes (0xFFF8–0xFFFD) last for free, so
+// the attributes a user came for appear first without a filtering rule. Nothing
+// is dropped: the output reflects what the device reported.
+func buildReadRecords(t readTarget, reports []attrReport, now time.Time) []output.ReadRecord {
+	records := make([]output.ReadRecord, 0, len(reports))
+	for _, r := range reports {
+		name, attrType := readAttributeMeta(t.cl, r.attributeID)
+		rec := output.ReadRecord{
+			Timestamp:   now,
+			NodeID:      t.nodeID,
+			Endpoint:    t.endpoint,
+			ClusterID:   t.cl.ID,
+			Cluster:     t.cl.DisplayName,
+			AttributeID: r.attributeID,
+			Attribute:   name,
+		}
+		if r.err != nil {
+			// Machine consumers get the full status text; the table gets the
+			// compact "<access denied>"/"<timeout>" rendering tree already uses.
+			rec.Error = r.err.Error()
+			rec.Display = treeFormatErr(r.err)
+			records = append(records, rec)
+			continue
+		}
+
+		rec.Display = formatAttrValue(r.data, attrType)
+		value, err := decodeTLVNative(r.data)
+		if err != nil {
+			rec.Raw = fmt.Sprintf("0x%s", hex.EncodeToString(r.data))
+			rec.DecodeError = err.Error()
+		} else {
+			rec.Value = value
+		}
+		records = append(records, rec)
 	}
 
-	data, found, err := directReadResult(reports)
-	if err != nil {
-		stepper.Fail("Read error: " + err.Error())
-		return fmt.Errorf("read error: %w", err)
-	}
-	if found {
-		displayReadValue(cmd, stepper, cl, attr, data)
-		return nil
-	}
+	sort.SliceStable(records, func(i, j int) bool {
+		return records[i].AttributeID < records[j].AttributeID
+	})
+	return records
+}
 
-	stepper.Success(fmt.Sprintf("%s/%s = <no data>",
-		output.Bold(cl.DisplayName), output.Info(attr.DisplayName)))
-	return nil
+// readAttributeMeta resolves an attribute ID's display name and spec type
+// within a cluster, following the registry → global-attribute table → hex
+// fallback order the tree command uses. The type comes back empty for an
+// attribute the registry has never heard of; TLV is self-describing, so the
+// value still renders without it.
+func readAttributeMeta(cl *clusters.ClusterInfo, attrID uint32) (name, attrType string) {
+	if attr, ok := clusters.Global.AttributeByID(cl.ID, attrID); ok {
+		name = attr.DisplayName
+		if name == "" {
+			name = attr.Name
+		}
+		return name, attr.Type
+	}
+	return treeResolveAttrName(cl.ID, attrID), ""
+}
+
+// renderReadRecords writes the result to stdout. A single record in human
+// output keeps the one-line form the read command has always printed,
+// FeatureMap breakdown included; several become a table. JSON and YAML always
+// emit an array, whether one attribute was asked for or all of them, so the
+// shape never depends on how the read was phrased.
+func renderReadRecords(cmd *cobra.Command, stepper *output.Stepper, cl *clusters.ClusterInfo, format output.FormatType, records []output.ReadRecord) error {
+	w := cmd.OutOrStdout()
+	if format == output.FormatTable {
+		if len(records) == 1 {
+			displayReadRecord(w, stepper, cl, records[0])
+			return nil
+		}
+		stepper.Clear()
+		return renderReadTable(w, records)
+	}
+	stepper.Clear()
+	return output.New(string(format)).Format(w, records)
+}
+
+// renderReadTable prints one row per attribute. Values are the display strings,
+// middle-truncated to keep the columns aligned; the untruncated originals stay
+// available in JSON and YAML.
+func renderReadTable(w io.Writer, records []output.ReadRecord) error {
+	td := &output.TableData{Headers: []string{"ID", "ATTRIBUTE", "VALUE"}}
+	for _, rec := range records {
+		td.Rows = append(td.Rows, []string{
+			fmt.Sprintf("0x%04X", rec.AttributeID),
+			rec.Attribute,
+			rec.Display,
+		})
+	}
+	return output.New(string(output.FormatTable)).Format(w, td)
+}
+
+// displayReadRecord prints a single attribute the way the read command always
+// has. A FeatureMap gets its flag breakdown appended, read straight off the
+// record's native value.
+func displayReadRecord(w io.Writer, stepper *output.Stepper, cl *clusters.ClusterInfo, rec output.ReadRecord) {
+	stepper.Success(fmt.Sprintf("%s/%s = %s",
+		output.Bold(cl.DisplayName), output.Info(rec.Attribute), output.Success(rec.Display)))
+
+	if rec.AttributeID != featureMapAttrID || len(cl.Features) == 0 {
+		return
+	}
+	if n, ok := rec.Value.(uint64); ok {
+		printFeatureMap(w, cl.Features, uint32(n))
+	}
+}
+
+// emptyReadError reports a read that produced no reports at all. The
+// Interaction Model answers a path on a cluster an endpoint does not host with
+// silence, so this is what targeting the wrong endpoint looks like.
+func emptyReadError(nodeID uint64, endpoint uint16, cl *clusters.ClusterInfo) error {
+	return fmt.Errorf(
+		"node %d endpoint %d reported no %s attributes; the cluster is probably not present on that endpoint\n\n"+
+			"Run `matter @%d tree` to see which endpoints host it",
+		nodeID, endpoint, cl.DisplayName, nodeID)
 }
 
 // invokeCommand performs the actual command invoke over CASE and displays the result.
@@ -1491,12 +1693,12 @@ func registerShorthandClusters() {
 
 		// Add a "read" subcommand for reading attributes.
 		readCmd := &cobra.Command{
-			Use:   "read <attribute>",
-			Short: fmt.Sprintf("Read a %s attribute", clCopy.DisplayName),
+			Use:   "read [attribute]",
+			Short: fmt.Sprintf("Read a %s attribute, or every attribute of the cluster", clCopy.DisplayName),
 			Long: fmt.Sprintf("Read a %s attribute.\n\n", clCopy.DisplayName) +
-				attributeEscapeHatchHelp,
+				wholeClusterReadHelp + "\n\n" + attributeEscapeHatchHelp,
 			GroupID: groupShorthandAttr,
-			Args:    cobra.ExactArgs(1),
+			Args:    cobra.MaximumNArgs(1),
 			ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 				if len(args) >= 1 {
 					return nil, cobra.ShellCompDirectiveNoFileComp
@@ -1509,11 +1711,15 @@ func registerShorthandClusters() {
 				if err != nil {
 					return err
 				}
-				attr, err := resolveReadableAttribute(&clCopy, args[0])
-				if err != nil {
-					return err
+				// No attribute reads the whole cluster — see newClusterReadCmd.
+				var attr *clusters.AttributeInfo
+				if len(args) == 1 {
+					attr, err = resolveReadableAttribute(&clCopy, args[0])
+					if err != nil {
+						return err
+					}
 				}
-				return readAttribute(cmd, nodeID, endpoint, &clCopy, attr)
+				return runClusterRead(cmd, nodeID, endpoint, &clCopy, attr)
 			},
 		}
 		cmd.AddCommand(readCmd)
