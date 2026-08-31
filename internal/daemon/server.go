@@ -513,6 +513,18 @@ func (s *Server) handleInvoke(ctx context.Context, req *Request) Response {
 	return Response{OK: true, Invoke: invokeResp}
 }
 
+// attrPathFromReq translates an IPC attribute path into an Interaction Model
+// wire path. It is the only place the wildcard flag acquires wire semantics:
+// a wildcard request becomes a path with no attribute ID, which the Interaction
+// Model reads as "every attribute of this cluster", while every other request
+// keeps naming a single attribute exactly as before.
+func attrPathFromReq(p AttrPathReq) interaction.AttributePath {
+	if p.WildcardAttribute {
+		return interaction.NewWildcardAttributePath(p.Endpoint, p.ClusterID)
+	}
+	return interaction.NewAttributePath(p.Endpoint, p.ClusterID, p.AttributeID)
+}
+
 // handleRead processes a read request.
 func (s *Server) handleRead(ctx context.Context, req *Request) Response {
 	if req.Read == nil {
@@ -530,7 +542,7 @@ func (s *Server) handleRead(ctx context.Context, req *Request) Response {
 
 	paths := make([]interaction.AttributePath, len(req.Read.Paths))
 	for i, p := range req.Read.Paths {
-		paths[i] = interaction.NewAttributePath(p.Endpoint, p.ClusterID, p.AttributeID)
+		paths[i] = attrPathFromReq(p)
 	}
 
 	readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

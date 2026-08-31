@@ -57,20 +57,33 @@ func TermWidth() int {
 	return w
 }
 
+// ResolveFormat resolves a --format value to the format that will actually be
+// used, applying the documented default for an empty or unrecognised value:
+// table for a TTY stdout, JSON for a pipe. Commands that must branch on the
+// format before rendering — to decide whether their progress output belongs on
+// stdout alongside a human-readable result or on stderr away from a
+// machine-readable one — call this rather than re-deriving the rule.
+func ResolveFormat(format string) FormatType {
+	switch ft := FormatType(format); ft {
+	case FormatJSON, FormatYAML, FormatTable:
+		return ft
+	default:
+		if IsTTY() {
+			return FormatTable
+		}
+		return FormatJSON
+	}
+}
+
 // New returns a Formatter for the given format type. If format is empty, it
 // selects table for TTY and JSON for pipes.
 func New(format string) Formatter {
-	switch FormatType(format) {
+	switch ResolveFormat(format) {
 	case FormatJSON:
 		return &JSONFormatter{Pretty: IsTTY()}
 	case FormatYAML:
 		return &JSONFormatter{Pretty: true} // YAML stub — uses pretty JSON for now
-	case FormatTable:
-		return &TableFormatter{}
 	default:
-		if IsTTY() {
-			return &TableFormatter{}
-		}
-		return &JSONFormatter{Pretty: false}
+		return &TableFormatter{}
 	}
 }
