@@ -14,7 +14,7 @@ require (
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.55.0
 	gopkg.in/yaml.v3 v3.0.1
-	oss.terrastruct.com/d2 v0.7.1
+	oss.terrastruct.com/d2 v0.7.2
 	rsc.io/qr v0.2.0
 	tinygo.org/x/bluetooth v0.15.0
 )
