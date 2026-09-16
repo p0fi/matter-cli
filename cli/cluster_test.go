@@ -51,83 +51,70 @@ func TestImStatusError_ClusterStatus(t *testing.T) {
 	}
 }
 
-// TestReadResult_DaemonAndDirectParity drives the actual command-boundary
-// decision functions used by readAttribute (daemonReadResult/directReadResult)
-// with representative daemon-wire and direct-CASE response shapes for the
-// same 0x87 failure, and for a successful read, asserting both transports
-// produce identical typed errors and identical returned data.
-func TestReadResult_DaemonAndDirectParity(t *testing.T) {
-	t.Run("0x87 regression on first path", func(t *testing.T) {
-		cc := uint8(0x10)
+// TestAttrReports_DaemonAndDirectParity drives the transport-boundary
+// normalisers used by runClusterRead (daemonAttrReports/directAttrReports)
+// with equivalent daemon-wire and direct-CASE response shapes, asserting both
+// produce identical transport-neutral reports — so the records built from them
+// cannot depend on whether a session daemon happens to be running.
+func TestAttrReports_DaemonAndDirectParity(t *testing.T) {
+	cc := uint8(0x10)
+	payload := []byte{0x08} // an arbitrary encoded TLV boolean(false)
 
-		daemonReports := []daemon.AttrReportResp{
-			{Endpoint: 1, ClusterID: 0x0006, AttributeID: 0x0000, StatusCode: uint8(interaction.StatusConstraintError), ClusterStatus: &cc},
-		}
-		directReports := []interaction.AttributeReport{
-			{Status: &interaction.AttributeStatus{
-				Path:   interaction.NewAttributePath(1, 0x0006, 0x0000),
-				Status: interaction.StatusIB{Status: uint8(interaction.StatusConstraintError), ClusterStatus: &cc},
-			}},
-		}
+	daemonReports := []daemon.AttrReportResp{
+		{Endpoint: 1, ClusterID: 0x0006, AttributeID: 0x0000, Data: daemon.EncodeFields(payload)},
+		{Endpoint: 1, ClusterID: 0x0006, AttributeID: 0x4003, StatusCode: uint8(interaction.StatusConstraintError), ClusterStatus: &cc},
+	}
+	directReports := []interaction.AttributeReport{
+		{Data: &interaction.AttributeData{
+			Path: interaction.NewAttributePath(1, 0x0006, 0x0000),
+			Data: payload,
+		}},
+		{Status: &interaction.AttributeStatus{
+			Path:   interaction.NewAttributePath(1, 0x0006, 0x4003),
+			Status: interaction.StatusIB{Status: uint8(interaction.StatusConstraintError), ClusterStatus: &cc},
+		}},
+	}
 
-		_, daemonFound, daemonErr := daemonReadResult(daemonReports)
-		_, directFound, directErr := directReadResult(directReports)
+	got := daemonAttrReports(daemonReports)
+	want := directAttrReports(directReports)
 
-		if daemonFound || directFound {
-			t.Errorf("found = %v/%v, want false/false on failure", daemonFound, directFound)
+	if len(got) != 2 || len(want) != 2 {
+		t.Fatalf("report counts = %d/%d, want 2/2", len(got), len(want))
+	}
+	for i := range got {
+		if got[i].attributeID != want[i].attributeID {
+			t.Errorf("report %d attribute ID = 0x%04X (daemon) vs 0x%04X (direct)", i, got[i].attributeID, want[i].attributeID)
 		}
-		if daemonErr == nil || directErr == nil {
-			t.Fatal("expected non-nil errors from both transports")
+		if string(got[i].data) != string(want[i].data) {
+			t.Errorf("report %d data = %x (daemon) vs %x (direct)", i, got[i].data, want[i].data)
 		}
-		if daemonErr.Error() != directErr.Error() {
-			t.Errorf("daemon and direct status text diverge: %q vs %q", daemonErr.Error(), directErr.Error())
+		switch {
+		case got[i].err == nil && want[i].err == nil:
+		case got[i].err == nil || want[i].err == nil:
+			t.Errorf("report %d error presence differs: daemon=%v direct=%v", i, got[i].err, want[i].err)
+		case got[i].err.Error() != want[i].err.Error():
+			t.Errorf("report %d error = %q (daemon) vs %q (direct)", i, got[i].err, want[i].err)
 		}
-		want := "CONSTRAINT_ERROR (0x87), cluster status 0x10"
-		if daemonErr.Error() != want {
-			t.Errorf("status text = %q, want %q", daemonErr.Error(), want)
-		}
+	}
 
-		var se *interaction.StatusError
-		if !errors.As(daemonErr, &se) {
-			t.Fatal("daemon error does not unwrap to *interaction.StatusError")
-		}
-		if !errors.As(directErr, &se) {
-			t.Fatal("direct error does not unwrap to *interaction.StatusError")
-		}
-		if !interaction.IsStatus(daemonErr, interaction.StatusConstraintError) {
-			t.Error("IsStatus should recognize CONSTRAINT_ERROR from the daemon path")
-		}
-		if !interaction.IsStatus(directErr, interaction.StatusConstraintError) {
-			t.Error("IsStatus should recognize CONSTRAINT_ERROR from the direct-CASE path")
-		}
-	})
-
-	t.Run("successful read returns data on both transports", func(t *testing.T) {
-		payload := []byte{0x08} // an arbitrary encoded TLV boolean(false)
-
-		daemonReports := []daemon.AttrReportResp{
-			{Endpoint: 1, ClusterID: 0x0006, AttributeID: 0x0000, Data: daemon.EncodeFields(payload)},
-		}
-		directReports := []interaction.AttributeReport{
-			{Data: &interaction.AttributeData{
-				Path: interaction.NewAttributePath(1, 0x0006, 0x0000),
-				Data: payload,
-			}},
-		}
-
-		daemonData, daemonFound, daemonErr := daemonReadResult(daemonReports)
-		directData, directFound, directErr := directReadResult(directReports)
-
-		if daemonErr != nil || directErr != nil {
-			t.Fatalf("unexpected errors: daemon=%v direct=%v", daemonErr, directErr)
-		}
-		if !daemonFound || !directFound {
-			t.Fatalf("found = %v/%v, want true/true on success", daemonFound, directFound)
-		}
-		if string(daemonData) != string(payload) || string(directData) != string(payload) {
-			t.Errorf("data = %x/%x, want %x/%x", daemonData, directData, payload, payload)
-		}
-	})
+	// The first report carries data; the second carries the same typed status
+	// error a single-attribute read has always produced.
+	if string(got[0].data) != string(payload) {
+		t.Errorf("data = %x, want %x", got[0].data, payload)
+	}
+	if got[1].err == nil {
+		t.Fatal("expected the status report to carry an error")
+	}
+	if want := "CONSTRAINT_ERROR (0x87), cluster status 0x10"; got[1].err.Error() != want {
+		t.Errorf("status text = %q, want %q", got[1].err.Error(), want)
+	}
+	var se *interaction.StatusError
+	if !errors.As(got[1].err, &se) {
+		t.Fatal("report error does not unwrap to *interaction.StatusError")
+	}
+	if !interaction.IsStatus(got[1].err, interaction.StatusConstraintError) {
+		t.Error("IsStatus should recognize CONSTRAINT_ERROR from a normalised report")
+	}
 }
 
 // TestWriteError_DaemonAndDirectParity drives daemonWriteError/directWriteError

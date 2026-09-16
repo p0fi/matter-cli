@@ -289,7 +289,10 @@ func decodeTLVElementNative(r *tlv.Reader) (any, error) {
 // fatal rather than best-effort, since a native-typed record must not
 // silently drop data a consumer will parse programmatically.
 func decodeTLVArrayNative(r *tlv.Reader) ([]any, error) {
-	var out []any
+	// Non-nil from the start: an empty list attribute (an unpopulated
+	// AcceptedCommandList, say) must marshal as [] and not null, or a
+	// consumer iterating the value has to special-case it.
+	out := []any{}
 	err := tlvChildren(r, func(r *tlv.Reader) error {
 		elem, err := decodeTLVElementNative(r)
 		if err != nil {

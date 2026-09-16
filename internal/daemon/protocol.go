@@ -75,6 +75,13 @@ type AttrPathReq struct {
 	Endpoint    uint16 `json:"endpoint"`
 	ClusterID   uint32 `json:"cluster_id"`
 	AttributeID uint32 `json:"attribute_id"`
+	// WildcardAttribute requests every attribute of the cluster rather than
+	// the single one named by AttributeID, which is then ignored. The field
+	// is additive: requests from a CLI that predates it omit it and keep the
+	// single-attribute behaviour. A CLI newer than the running daemon is the
+	// hazard — the daemon ignores the flag and reads attribute 0 instead, so
+	// `matter session stop` is the workaround after an upgrade.
+	WildcardAttribute bool `json:"wildcard_attribute,omitempty"`
 }
 
 // WriteReq carries the parameters for a write request.

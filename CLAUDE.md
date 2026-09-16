@@ -102,6 +102,15 @@ matter @1/1 OnOff read 0xFFFA                 # read an unadvertised attribute
 matter @1/1 OnOff read 0x1234                 # unknown to the spec: raw TLV dump
 matter @1/1 OnOff write 0x4001 42             # write: registry-known IDs only
 
+# Omit the attribute to read the whole cluster in one request. Every attribute
+# the device reports is printed, sorted by ID, with global attributes
+# (ClusterRevision, FeatureMap, AttributeList, ...) at the bottom. Attributes
+# the device refuses to disclose show as `<access denied>` and do not fail the
+# command. The endpoint is never wildcarded — @1/0 reads endpoint 0 only.
+matter @1/0 cluster read --cluster BasicInformation
+matter @1/0 BasicInformation read
+matter @1/0 BasicInformation read --format json | jq '.[].attribute'
+
 # Subscribe to an attribute — prints the priming value, then streams reports
 # until Ctrl+C, --count records, or --duration elapses. Records go to stdout
 # (NDJSON with --format json, one YAML document per record with --format
@@ -115,6 +124,7 @@ matter cluster subscribe --cluster on-off --attribute on-off -d 30s --format jso
 # Shorthand cluster commands (same thing, fewer keystrokes)
 matter OnOff Toggle @1/1
 matter OnOff read OnOff @1/1
+matter OnOff read @1/1                        # every OnOff attribute
 matter LevelControl write CurrentLevel 128 @1/1
 matter OnOff subscribe OnOff @1/1
 matter OnOff subscribe OnOff -m 0 -M 30 -n 5 @1/1
@@ -128,6 +138,15 @@ back to the full spec list. Reads and subscribes accept a raw attribute ID (hex
 or decimal) that always bypasses the filter, including IDs absent from the spec
 registry (the value is dumped as raw TLV). Writes accept a raw ID only for
 attributes the registry knows, since encoding a value requires its type.
+
+`read` emits an array of records with `--format json`/`--format yaml` — the same
+record shape `subscribe --format json` uses, with native types and untruncated
+values — whether one attribute was named or the whole cluster was read. Records
+go to stdout and progress goes to stderr for those formats; the human `table`
+form keeps both on stdout. Because the documented pipe default is JSON, piping a
+read now produces JSON rather than the human-readable line it used to. Reading a
+cluster the target endpoint does not host is an error naming the cluster and
+endpoint, exit code 1.
 
 Subscribe flags: `--cluster`/`-C` and `--attribute`/`-a` (generic form only),
 `--min`/`-m` (default 1s), `--max`/`-M` (default 60s), `--count`/`-n` (stop

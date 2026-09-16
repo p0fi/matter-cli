@@ -30,6 +30,14 @@ raw attribute ID — hex (0x0006) or decimal (6) — is always accepted and alwa
 bypasses the filter, including for attributes absent from the spec registry
 (their value is printed as a raw TLV dump).`
 
+// wholeClusterReadHelp documents the wildcard form of read, shared by the
+// generic and shorthand surfaces.
+const wholeClusterReadHelp = `Omitting the attribute reads the whole cluster in a single request and prints
+every attribute the device reports, sorted by attribute ID — global attributes
+such as ClusterRevision and FeatureMap sort to the bottom. Attributes the device
+refuses to disclose are listed as ` + "`<access denied>`" + ` rather than dropped, and do
+not fail the command.`
+
 // writeAttributeEscapeHatchHelp is the write-command variant: writes need the
 // attribute's type up front to encode a value, so the raw-ID form only covers
 // attributes the spec registry knows.
