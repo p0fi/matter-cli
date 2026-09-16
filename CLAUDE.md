@@ -6,7 +6,7 @@
 
 ## Matter Specification Source for Implementation
 
-You can find the official Matter specification source files in `../connectedhomeip-spec/src/`. Those are the canonical references for all protocol details, TLV encoding rules, cryptographic algorithms, and cluster definitions. The C++ Matter SDK is the reference implementation, but the spec source files are the ultimate authority. You can find the source files for the C++ Matter SDK in `../connectedhomeip/`.
+You can find the official Matter specification source files in `../../Matter/connectedhomeip-spec/src/`. Those are the canonical references for all protocol details, TLV encoding rules, cryptographic algorithms, and cluster definitions. The C++ Matter SDK is the reference implementation, but the spec source files are the ultimate authority. You can find the source files for the C++ Matter SDK in `../../Matter/connectedhomeip/`.
 
 ## Design Principles
 
@@ -209,10 +209,10 @@ Key rules inline: branch per feature, `mise run lint` + `mise run test` before c
 
 ## Notes for AI Agents
 
-1. **Spec behavior unclear?** Check the C++ SDK in `connectedhomeip/src/` — it IS the spec in practice.
+1. **Spec behavior unclear?** Check the C++ SDK in `../../Matter/connectedhomeip/src/` — it IS the spec in practice.
 2. **Crypto code** — ALWAYS validate against known test vectors from IETF RFCs and Matter SDK test files.
 3. **Protocol messages** — Compare your encoded bytes against real captures (`chip-tool --trace_decode 1` or Wireshark).
-4. **Cluster codegen** — The single source of truth is `connectedhomeip/src/controller/data_model/controller-clusters.matter`.
+4. **Cluster codegen** — The single source of truth is `../../Matter/connectedhomeip/src/controller/data_model/controller-clusters.matter`.
 5. **CLI command patterns** — Follow [GitHub CLI](https://github.com/cli/cli) for output formatting, config, and prompts.
 6. **Package boundaries are contracts** — Don't reach into another package's internals; coordinate API changes.
 7. **Every public function and type must have a godoc comment.** No exceptions.
