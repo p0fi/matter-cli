@@ -27,7 +27,9 @@ func NewClient(em *protocol.ExchangeManager) *Client {
 
 // Read sends a ReadRequest for the given attribute paths and collects the full
 // ReportData response(s). It handles chunked responses (MoreChunkedMessages)
-// automatically by sending StatusResponse(Success) acknowledgments.
+// automatically by sending StatusResponse(Success) acknowledgments, and
+// reassembles spec-level list-chunking fragments (see reassembleListChunks)
+// so callers always get one report per attribute, never one per fragment.
 func (c *Client) Read(ctx context.Context, session *protocol.Session, paths ...AttributePath) ([]AttributeReport, error) {
 	if len(paths) == 1 {
 		slog.Debug("interaction: read", "path", paths[0])
@@ -89,7 +91,7 @@ func (c *Client) Read(ctx context.Context, session *protocol.Session, paths ...A
 		}
 	}
 
-	return allReports, nil
+	return reassembleListChunks(allReports), nil
 }
 
 // Write sends a WriteRequest with the given attribute writes and returns the
