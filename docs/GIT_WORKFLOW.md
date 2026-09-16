@@ -48,3 +48,38 @@ Before committing, agents must verify:
 3. No unrelated changes are staged — keep commits focused.
 
 If a commit includes a new feature, the commit should include the tests for that feature.
+
+## Stacked pull requests
+
+Use a stack when a change genuinely depends on another PR that hasn't merged yet — e.g. a bug fix that builds on an in-flight feature branch, or a large feature deliberately split into reviewable layers. Independent work still gets its own branch off `main` and its own standalone PR; don't stack things that don't depend on each other.
+
+This repo uses **GitHub's native stacked pull requests** (public preview), managed through the `gh stack` CLI extension (`github/gh-stack`) — not a manually chosen `--base` branch. A PR whose base happens to equal another PR's head branch is *not* the same thing: GitHub only renders the stack map, auto-rebases upper layers, and retargets a PR's base automatically when the merge below it lands if the PR was created through `gh stack`. Always use the extension; never approximate a stack with `git checkout -b` + `gh pr create --base <branch>`.
+
+Install once per machine: `gh extension install github/gh-stack`.
+
+**Starting a new stack:**
+
+```bash
+gh stack init                    # first branch of the stack, targets main
+git add . && git commit -m "..."
+gh stack add my-next-layer       # new branch on top of the current one
+git add . && git commit -m "..."
+gh stack push                    # push all branches to origin
+gh stack submit                  # create/update the linked PRs on GitHub
+```
+
+`gh stack add -Am "message" branch-name` stages, commits, and creates the next layer in one step.
+
+**Adding a layer to an existing stack** (e.g. implementing an issue that's a prerequisite for, or builds on, a PR already open in the stack):
+
+```bash
+gh stack checkout <PR#>          # discovers and tracks the stack locally if not already tracked
+gh stack add my-new-layer        # branches off the current top of the stack
+# ... commit work ...
+gh stack push
+gh stack submit
+```
+
+`gh stack checkout` accepts a stack number, PR number/URL, or branch name, and will pull an untracked-locally stack down from GitHub if needed — run it before assuming a stack has to be recreated from scratch.
+
+Other useful commands: `gh stack view` (show the current stack and its PR links), `gh stack sync` (pull remote changes into the local stack), `gh stack rebase` (rebase the whole stack after the trunk moves), `gh stack merge` (merge the stack in order).
