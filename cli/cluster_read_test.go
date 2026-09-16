@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestBuildReadRecords_Ordering(t *testing.T) {
 		{attributeID: 0x0000, data: tlvBool(t, true)},
 	}
 
-	records := buildReadRecords(testReadTarget(t), reports, time.Now())
+	records := buildReadRecords(testReadTarget(t), reports, time.Now(), fidelityFull)
 
 	want := []uint32{0x0000, 0x4001, 0xFFFC, 0xFFFD}
 	if len(records) != len(want) {
@@ -89,7 +90,7 @@ func TestBuildReadRecords_NameResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			records := buildReadRecords(testReadTarget(t),
-				[]attrReport{{attributeID: tt.attributeID, data: tlvUint(t, 1)}}, time.Now())
+				[]attrReport{{attributeID: tt.attributeID, data: tlvUint(t, 1)}}, time.Now(), fidelityFull)
 
 			if len(records) != 1 {
 				t.Fatalf("got %d records, want 1", len(records))
@@ -116,7 +117,7 @@ func TestBuildReadRecords_StatusReports(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			records := buildReadRecords(testReadTarget(t),
-				[]attrReport{{attributeID: 0x0000, err: tt.err}}, time.Now())
+				[]attrReport{{attributeID: 0x0000, err: tt.err}}, time.Now(), fidelityFull)
 
 			if len(records) != 1 {
 				t.Fatalf("got %d records, want 1", len(records))
@@ -167,7 +168,7 @@ func TestBuildReadRecords_NativeValues(t *testing.T) {
 		{attributeID: 0x4001, data: tlvUint(t, 30)},
 		{attributeID: 0xFFFB, data: arrayW.Bytes()},
 		{attributeID: 0x1234, data: structW.Bytes()},
-	}, time.Now())
+	}, time.Now(), fidelityFull)
 
 	if len(records) != 4 {
 		t.Fatalf("got %d records, want 4", len(records))
@@ -191,7 +192,7 @@ func TestBuildReadRecords_NativeValues(t *testing.T) {
 // binary breakdown while the native value stays a plain integer.
 func TestBuildReadRecords_BitmapDisplay(t *testing.T) {
 	records := buildReadRecords(testReadTarget(t),
-		[]attrReport{{attributeID: featureMapAttrID, data: tlvUint(t, 5)}}, time.Now())
+		[]attrReport{{attributeID: featureMapAttrID, data: tlvUint(t, 5)}}, time.Now(), fidelityFull)
 
 	if len(records) != 1 {
 		t.Fatalf("got %d records, want 1", len(records))
@@ -204,26 +205,46 @@ func TestBuildReadRecords_BitmapDisplay(t *testing.T) {
 	}
 }
 
-// TestBuildReadRecords_TruncationIsDisplayOnly proves the 40-character
-// middle-truncation that keeps table columns aligned never reaches the native
-// value machine consumers read.
+// TestBuildReadRecords_TruncationIsDisplayOnly proves the native value machine
+// consumers read is always the complete original regardless of fidelity, and
+// that fidelity alone decides whether Display is middle-truncated: compact
+// truncates (today's tree -L 4 behavior), full never does (cluster read).
 func TestBuildReadRecords_TruncationIsDisplayOnly(t *testing.T) {
 	long := strings.Repeat("a", 80)
-	records := buildReadRecords(testReadTarget(t),
-		[]attrReport{{attributeID: 0x1234, data: tlvString(t, long)}}, time.Now())
 
-	if len(records) != 1 {
-		t.Fatalf("got %d records, want 1", len(records))
-	}
-	if len(records[0].Display) > maxValueLen {
-		t.Errorf("display is %d chars, want at most %d", len(records[0].Display), maxValueLen)
-	}
-	if !strings.Contains(records[0].Display, "...") {
-		t.Errorf("display = %q, want it middle-truncated", records[0].Display)
-	}
-	if records[0].Value != long {
-		t.Errorf("value = %#v, want the untruncated string", records[0].Value)
-	}
+	t.Run("compact fidelity truncates the display", func(t *testing.T) {
+		records := buildReadRecords(testReadTarget(t),
+			[]attrReport{{attributeID: 0x1234, data: tlvString(t, long)}}, time.Now(), fidelityCompact)
+
+		if len(records) != 1 {
+			t.Fatalf("got %d records, want 1", len(records))
+		}
+		if len(records[0].Display) > maxValueLen {
+			t.Errorf("display is %d chars, want at most %d", len(records[0].Display), maxValueLen)
+		}
+		if !strings.Contains(records[0].Display, "...") {
+			t.Errorf("display = %q, want it middle-truncated", records[0].Display)
+		}
+		if records[0].Value != long {
+			t.Errorf("value = %#v, want the untruncated string", records[0].Value)
+		}
+	})
+
+	t.Run("full fidelity prints the display in full", func(t *testing.T) {
+		records := buildReadRecords(testReadTarget(t),
+			[]attrReport{{attributeID: 0x1234, data: tlvString(t, long)}}, time.Now(), fidelityFull)
+
+		if len(records) != 1 {
+			t.Fatalf("got %d records, want 1", len(records))
+		}
+		wantDisplay := fmt.Sprintf("%q", long)
+		if records[0].Display != wantDisplay {
+			t.Errorf("display = %q, want the untruncated %q", records[0].Display, wantDisplay)
+		}
+		if records[0].Value != long {
+			t.Errorf("value = %#v, want the untruncated string", records[0].Value)
+		}
+	})
 }
 
 // TestBuildReadRecords_UndecodableValue checks that an attribute whose TLV
@@ -231,7 +252,7 @@ func TestBuildReadRecords_TruncationIsDisplayOnly(t *testing.T) {
 // decode failure — instead of vanishing from a cluster-wide read.
 func TestBuildReadRecords_UndecodableValue(t *testing.T) {
 	records := buildReadRecords(testReadTarget(t),
-		[]attrReport{{attributeID: 0x1234, data: []byte{0x15, 0x24}}}, time.Now())
+		[]attrReport{{attributeID: 0x1234, data: []byte{0x15, 0x24}}}, time.Now(), fidelityFull)
 
 	if len(records) != 1 {
 		t.Fatalf("got %d records, want 1", len(records))

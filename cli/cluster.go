@@ -407,13 +407,34 @@ func pickBestIP(ips []net.IP) net.IP {
 }
 
 // maxValueLen is the maximum display length for a formatted TLV value before
-// it gets truncated.
+// it gets truncated, under fidelityCompact.
 const maxValueLen = 40
 
-// formatAttrValue decodes raw TLV bytes and returns a display string.
+// tlvFidelity selects how much of a decoded TLV value formatTLVContainer (and
+// the functions that call it) renders. It mirrors output.FormatType: a small,
+// named set of string values threaded explicitly through the call chain
+// rather than an implicit shared policy.
+type tlvFidelity string
+
+const (
+	// fidelityCompact elides struct fields and array elements beyond
+	// maxValueLen and middle-truncates long scalar leaves. This is the
+	// long-standing behavior, kept for consumers that scan many values at
+	// once and need the result to stay scannable — currently only
+	// `tree -L 4`'s per-attribute preview.
+	fidelityCompact tlvFidelity = "compact"
+	// fidelityFull never elides a struct field or array element and never
+	// truncates a scalar leaf. Used by consumers where the user asked about
+	// this one specific value — `cluster read`, `subscribe`, and `invoke` —
+	// so nothing they asked for is silently dropped.
+	fidelityFull tlvFidelity = "full"
+)
+
+// formatAttrValue decodes raw TLV bytes and returns a display string, eliding
+// and truncating containers/scalars per fidelity (see tlvFidelity).
 // For bitmap types, the binary representation is appended (e.g. "11 (0b1011)").
-func formatAttrValue(raw []byte, attrType string) string {
-	value := decodeTLVValue(raw)
+func formatAttrValue(raw []byte, attrType string, fidelity tlvFidelity) string {
+	value := decodeTLVValue(raw, fidelity)
 	if !strings.HasPrefix(attrType, "bitmap") {
 		return value
 	}
@@ -460,7 +481,7 @@ func printFeatureMap(w io.Writer, features []clusters.FeatureInfo, value uint32)
 
 // decodeTLVValue reads a single TLV element from raw bytes and returns a
 // human-readable string representation of the value.
-func decodeTLVValue(raw []byte) string {
+func decodeTLVValue(raw []byte, fidelity tlvFidelity) string {
 	if len(raw) == 0 {
 		return "<empty>"
 	}
@@ -468,16 +489,16 @@ func decodeTLVValue(raw []byte) string {
 	if err := r.Next(); err != nil {
 		return fmt.Sprintf("0x%s", hex.EncodeToString(raw))
 	}
-	return formatTLVElement(r)
+	return formatTLVElement(r, fidelity)
 }
 
 // formatTLVElement formats the current TLV element (after Next() has been called).
-func formatTLVElement(r *tlv.Reader) string {
+func formatTLVElement(r *tlv.Reader, fidelity tlvFidelity) string {
 	t := r.Type()
 
 	// Handle container types by iterating their elements.
 	if t == tlv.TypeArray || t == tlv.TypeList || t == tlv.TypeStructure {
-		return formatTLVContainer(r, t)
+		return formatTLVContainer(r, t, fidelity)
 	}
 
 	v := r.Value()
@@ -496,9 +517,9 @@ func formatTLVElement(r *tlv.Reader) string {
 	case float64:
 		return fmt.Sprintf("%g", val)
 	case string:
-		return truncateMiddle(fmt.Sprintf("%q", val))
+		return truncateMiddle(fmt.Sprintf("%q", val), fidelity)
 	case []byte:
-		return truncateMiddle(fmt.Sprintf("0x%s", hex.EncodeToString(val)))
+		return truncateMiddle(fmt.Sprintf("0x%s", hex.EncodeToString(val)), fidelity)
 	case nil:
 		return "null"
 	default:
@@ -531,10 +552,12 @@ func tlvChildren(r *tlv.Reader, visit func(r *tlv.Reader) error) error {
 	}
 }
 
-// formatTLVContainer formats an array, list, or structure container.
-// Long containers are truncated to show the first and last element with
-// an ellipsis in between, e.g. [0, 1, ..., 65533].
-func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
+// formatTLVContainer formats an array, list, or structure container. Under
+// fidelityCompact, a long container is elided to show the first and last
+// element with an ellipsis in between, e.g. [0, 1, ..., 65533] — a struct's
+// named fields are elided the same way as an array's elements. Under
+// fidelityFull, every field and element is shown; nothing is ever elided.
+func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType, fidelity tlvFidelity) string {
 	isStruct := ct == tlv.TypeStructure
 	open, close := "[", "]"
 	if isStruct {
@@ -546,7 +569,7 @@ func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
 	// elements were already decoded and format them, rather than losing the
 	// whole value the way a strict decoder would.
 	_ = tlvChildren(r, func(r *tlv.Reader) error {
-		elem := formatTLVElement(r)
+		elem := formatTLVElement(r, fidelity)
 		if isStruct {
 			tag := r.TagValue()
 			elem = fmt.Sprintf("%d: %s", tag.TagNum, elem)
@@ -556,7 +579,7 @@ func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
 	})
 
 	full := open + strings.Join(parts, ", ") + close
-	if len(full) <= maxValueLen || len(parts) <= 2 {
+	if fidelity == fidelityFull || len(full) <= maxValueLen || len(parts) <= 2 {
 		return full
 	}
 
@@ -576,10 +599,11 @@ func formatTLVContainer(r *tlv.Reader, ct tlv.ElementType) string {
 	return truncated
 }
 
-// truncateMiddle truncates a string that exceeds maxValueLen by replacing
-// the middle portion with "...".
-func truncateMiddle(s string) string {
-	if len(s) <= maxValueLen {
+// truncateMiddle truncates a string that exceeds maxValueLen by replacing the
+// middle portion with "...", but only under fidelityCompact; fidelityFull
+// always returns s unchanged.
+func truncateMiddle(s string, fidelity tlvFidelity) string {
+	if fidelity == fidelityFull || len(s) <= maxValueLen {
 		return s
 	}
 	// Keep slightly more of the prefix than the suffix.
@@ -803,7 +827,7 @@ func runClusterRead(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clus
 		return emptyReadError(nodeID, endpoint, cl)
 	}
 
-	records := buildReadRecords(readTarget{nodeID: nodeID, endpoint: endpoint, cl: cl}, reports, time.Now())
+	records := buildReadRecords(readTarget{nodeID: nodeID, endpoint: endpoint, cl: cl}, reports, time.Now(), fidelityFull)
 
 	// A status on an attribute the user named explicitly is the outcome of the
 	// read, so it stays a command failure exactly as it was before wildcard
@@ -899,7 +923,11 @@ func directReadPath(endpoint uint16, cl *clusters.ClusterInfo, attr *clusters.At
 // Ascending order puts the global attributes (0xFFF8–0xFFFD) last for free, so
 // the attributes a user came for appear first without a filtering rule. Nothing
 // is dropped: the output reflects what the device reported.
-func buildReadRecords(t readTarget, reports []attrReport, now time.Time) []output.ReadRecord {
+//
+// fidelity controls only Display's rendering (Value is always the complete,
+// untruncated native decode): fidelityFull for `cluster read` itself,
+// fidelityCompact for tree -L 4's compact overview.
+func buildReadRecords(t readTarget, reports []attrReport, now time.Time, fidelity tlvFidelity) []output.ReadRecord {
 	records := make([]output.ReadRecord, 0, len(reports))
 	for _, r := range reports {
 		name, attrType := readAttributeMeta(t.cl, r.attributeID)
@@ -921,7 +949,7 @@ func buildReadRecords(t readTarget, reports []attrReport, now time.Time) []outpu
 			continue
 		}
 
-		rec.Display = formatAttrValue(r.data, attrType)
+		rec.Display = formatAttrValue(r.data, attrType, fidelity)
 		value, err := decodeTLVNative(r.data)
 		if err != nil {
 			rec.Raw = fmt.Sprintf("0x%s", hex.EncodeToString(r.data))
@@ -973,9 +1001,10 @@ func renderReadRecords(cmd *cobra.Command, stepper *output.Stepper, cl *clusters
 	return output.New(string(format)).Format(w, records)
 }
 
-// renderReadTable prints one row per attribute. Values are the display strings,
-// middle-truncated to keep the columns aligned; the untruncated originals stay
-// available in JSON and YAML.
+// renderReadTable prints one row per attribute. Values are the full-fidelity
+// display strings built by buildReadRecords — nothing elided or truncated —
+// so a wide struct or array widens its column rather than losing fields; the
+// native, always-untruncated originals stay available in JSON and YAML.
 func renderReadTable(w io.Writer, records []output.ReadRecord) error {
 	td := &output.TableData{Headers: []string{"ID", "ATTRIBUTE", "VALUE"}}
 	for _, rec := range records {
@@ -1071,7 +1100,7 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 		}
 		if dresp.HasData {
 			data, _ := daemon.DecodeFields(dresp.Data)
-			stepper.Success(fmt.Sprintf("Response: %s", decodeTLVValue(data)))
+			stepper.Success(fmt.Sprintf("Response: %s", decodeTLVValue(data, fidelityFull)))
 		} else {
 			stepper.Success("Success")
 		}
@@ -1101,7 +1130,7 @@ func invokeCommand(cmd *cobra.Command, nodeID uint64, endpoint uint16, cl *clust
 	}
 
 	if resp.Command != nil && len(resp.Command.Fields) > 0 {
-		stepper.Success(fmt.Sprintf("Response: %s", decodeTLVValue(resp.Command.Fields)))
+		stepper.Success(fmt.Sprintf("Response: %s", decodeTLVValue(resp.Command.Fields, fidelityFull)))
 	} else {
 		stepper.Success("Success")
 	}
