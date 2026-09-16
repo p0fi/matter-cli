@@ -3,17 +3,24 @@
 
 package interaction
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/p0fi/matter-cli/internal/tlv"
+)
 
 // AttributePath identifies an attribute on a Matter node. Nil pointer fields
-// act as wildcards, matching all values for that path component.
+// act as wildcards, matching all values for that path component. ListIndex
+// is additionally tri-state: absent means "the whole list/attribute" (the
+// wildcard case), while an explicit TLV null (once writable) means "append
+// to the list" — a distinction a plain pointer cannot represent.
 type AttributePath struct {
-	EnableTagCompression *bool   `tlv:"0,bool"`
-	NodeID               *uint64 `tlv:"1,uint"`
-	EndpointID           *uint16 `tlv:"2,uint"`
-	ClusterID            *uint32 `tlv:"3,uint"`
-	AttributeID          *uint32 `tlv:"4,uint"`
-	ListIndex            *uint16 `tlv:"5,uint"`
+	EnableTagCompression *bool                `tlv:"0,bool"`
+	NodeID               *uint64              `tlv:"1,uint"`
+	EndpointID           *uint16              `tlv:"2,uint"`
+	ClusterID            *uint32              `tlv:"3,uint"`
+	AttributeID          *uint32              `tlv:"4,uint"`
+	ListIndex            tlv.Optional[uint16] `tlv:"5,uint"`
 }
 
 // NewAttributePath creates an AttributePath targeting a specific endpoint,

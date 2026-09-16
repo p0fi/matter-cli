@@ -19,6 +19,28 @@ type fieldInfo struct {
 	tlvType string
 }
 
+// optionalReader is implemented by Optional[T] for any T. It lets
+// marshalFields inspect a tri-state field without a type parameter of its
+// own.
+type optionalReader interface {
+	optionalState() optionalState
+	// optionalValue returns the wrapped T as an any, valid when
+	// optionalState reports optionalValuePresent.
+	optionalValue() any
+}
+
+// optionalWriter is implemented by *Optional[T] for any T. It lets
+// unmarshalValue mutate a tri-state field in place without a type
+// parameter of its own.
+type optionalWriter interface {
+	// setOptionalNull puts the field into the explicit-null state.
+	setOptionalNull()
+	// optionalDecodeTarget marks the field as value-present and returns an
+	// addressable, settable reflect.Value for the wrapped T to decode
+	// into.
+	optionalDecodeTarget() reflect.Value
+}
+
 // Marshal encodes a Go struct into TLV bytes. The struct fields must be annotated
 // with `tlv:"tagNum,type"` tags, for example `tlv:"1,uint"` or `tlv:"2,utf8"`.
 // Supported type specifiers: int, uint, bool, float32, float64, utf8, octets, struct, array, list, null.
@@ -67,6 +89,28 @@ func marshalFields(w *Writer, rv reflect.Value) error {
 
 		fv := rv.Field(i)
 		tag := ContextTag(fi.tagNum)
+
+		// Handle tri-state Optional[T] fields: absent is omitted entirely,
+		// null is encoded as TypeNull, and a present value falls through to
+		// the normal encoding for its inner type.
+		if fv.CanInterface() {
+			if or, ok := fv.Interface().(optionalReader); ok {
+				switch or.optionalState() {
+				case optionalAbsent:
+					continue
+				case optionalNull:
+					if err := w.PutNull(tag); err != nil {
+						return err
+					}
+					continue
+				default: // optionalValuePresent
+					if err := marshalValue(w, tag, reflect.ValueOf(or.optionalValue()), fi.tlvType, sf.Name); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		}
 
 		// Handle pointer (optional/nullable) fields.
 		// In Matter TLV, nil pointer fields are omitted (not encoded as null)
@@ -349,6 +393,20 @@ func unmarshalFields(r *Reader, rv reflect.Value) error {
 }
 
 func unmarshalValue(r *Reader, fv reflect.Value, tlvType string) error {
+	// Handle tri-state Optional[T] fields: a wire null decodes to the null
+	// state, anything else decodes into the wrapped T and marks it present.
+	// The absent state is only reachable by leaving the field untouched,
+	// which happens naturally when its tag is missing from the struct.
+	if fv.CanAddr() && fv.Addr().CanInterface() {
+		if ow, ok := fv.Addr().Interface().(optionalWriter); ok {
+			if r.Type() == TypeNull {
+				ow.setOptionalNull()
+				return nil
+			}
+			return unmarshalValue(r, ow.optionalDecodeTarget(), tlvType)
+		}
+	}
+
 	// Handle null for pointer fields.
 	if r.Type() == TypeNull {
 		if fv.Kind() == reflect.Ptr {
