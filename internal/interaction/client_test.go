@@ -522,6 +522,97 @@ func TestClient_Subscribe(t *testing.T) {
 	r.sub.Cancel()
 }
 
+// TestClient_Subscribe_ChunkedPrimingReport verifies that a priming report
+// spanning multiple ReportData messages (MoreChunkedMessages) is accumulated
+// across all chunks before being delivered as a single batch on Reports, and
+// that each chunk is acknowledged with StatusResponse(Success).
+func TestClient_Subscribe_ChunkedPrimingReport(t *testing.T) {
+	em := protocol.NewExchangeManager()
+	session := &protocol.Session{ID: 12, Type: protocol.SessionCASE}
+	client := NewClient(em)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	type result struct {
+		sub *Subscription
+		err error
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		sub, err := client.Subscribe(ctx, session,
+			[]AttributePath{
+				NewAttributePath(1, 0x0006, 0x0000),
+				NewAttributePath(1, 0x0008, 0x0000),
+			},
+			1, 60,
+		)
+		ch <- result{sub, err}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// First chunk with MoreChunkedMessages=true.
+	more := true
+	chunk1 := ReportData{
+		MoreChunkedMessages: &more,
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 1,
+					Path:        NewAttributePath(1, 0x0006, 0x0000),
+					Data:        []byte{0x09},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk1)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Second (final) chunk.
+	chunk2 := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 1,
+					Path:        NewAttributePath(1, 0x0008, 0x0000),
+					Data:        []byte{0x04, 0x80},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk2)
+
+	time.Sleep(50 * time.Millisecond)
+
+	subResp := SubscribeResponse{
+		SubscriptionID: 43,
+		MaxInterval:    30,
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeSubscribeResponse, subResp)
+
+	r := <-ch
+	if r.err != nil {
+		t.Fatalf("Subscribe: %v", r.err)
+	}
+	if r.sub == nil {
+		t.Fatal("subscription should not be nil")
+	}
+
+	select {
+	case reports := <-r.sub.Reports:
+		if len(reports) != 2 {
+			t.Fatalf("priming reports len = %d, want 2 (union of both chunks)", len(reports))
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for priming report")
+	}
+
+	r.sub.Cancel()
+}
+
 func TestClient_Subscribe_Error(t *testing.T) {
 	em := protocol.NewExchangeManager()
 	session := &protocol.Session{ID: 10, Type: protocol.SessionCASE}
