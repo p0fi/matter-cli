@@ -32,8 +32,16 @@ const attrListAttrID uint32 = 0xFFFB
 // Per-read budgets for the live reads that levels 3 and 4 perform, so one
 // unresponsive cluster cannot stall the whole traversal.
 const (
-	treeAttrListTimeout  = 10 * time.Second
-	treeAttrValueTimeout = 5 * time.Second
+	treeAttrListTimeout = 10 * time.Second
+
+	// treeClusterWildcardTimeout bounds a level-4 wildcard read of one
+	// cluster's attributes. Unlike the old per-attribute loop — where one
+	// slow attribute cost treeAttrValueTimeout and the rest still rendered —
+	// a wildcard read is bounded as a whole, so a stalled cluster now loses
+	// every attribute in it. It gets the same 30s budget `cluster read`
+	// uses (clusterReadTimeout), since a wildcard read returns more data
+	// than the AttributeList-only read treeAttrListTimeout was sized for.
+	treeClusterWildcardTimeout = clusterReadTimeout
 )
 
 // globalAttrNames maps the standard Matter global attribute IDs (present on
@@ -234,30 +242,36 @@ func buildTreeData(ctx context.Context, w io.Writer, node *store.Node, level int
 		defer cancel()
 		return treeReadAttrList(listCtx, dc, client, session, ep, clID)
 	}
-	readValue := func(ctx context.Context, ep uint16, clID, attrID uint32) (string, error) {
-		valCtx, cancel := context.WithTimeout(ctx, treeAttrValueTimeout)
+	readCluster := func(ctx context.Context, ep uint16, clID uint32) ([]attrReport, error) {
+		clCtx, cancel := context.WithTimeout(ctx, treeClusterWildcardTimeout)
 		defer cancel()
-		return treeReadAttrValue(valCtx, dc, client, session, ep, clID, attrID)
+		return treeReadClusterWildcard(clCtx, dc, client, session, ep, clID)
 	}
 
-	cacheUpdated := treePopulateAttributes(ctx, data, node, level, readList, readValue)
+	cacheUpdated := treePopulateAttributes(ctx, data, node, level, readList, readCluster)
 
 	// Complete step 2 with ✓ and leave the cursor on a clean line.
 	stepper.Clear()
 	return data, cacheUpdated, nil
 }
 
-// treeAttrValueReader reads one attribute's already-formatted display value.
-type treeAttrValueReader func(ctx context.Context, endpoint uint16, clusterID, attrID uint32) (string, error)
+// treeClusterReader performs one wildcard read of every attribute a cluster
+// instance reports, returning the reports in transport-neutral form.
+type treeClusterReader func(ctx context.Context, endpoint uint16, clusterID uint32) ([]attrReport, error)
 
 // treePopulateAttributes fills each cluster in data with the attribute names it
-// advertises and, at level 4, their values. Every AttributeList it reads
-// successfully is also write-through into node's completion cache, so a tree run
-// leaves attribute-name completion scoped exactly as `cluster discover` would.
-// It reports whether any cache entry changed.
+// advertises and, at level 4, their values. Level 3 uses the cheap AttributeList
+// read since it only needs names; level 4 uses one wildcard read per cluster
+// instead, since it needs every value anyway and a wildcard read returns them
+// in the same round-trip AttributeList would have cost alone. Every
+// AttributeList discovered — whether from the level-3 read or found among a
+// level-4 wildcard read's reports — is also write-through into node's
+// completion cache, so a tree run leaves attribute-name completion scoped
+// exactly as `cluster discover` would. It reports whether any cache entry
+// changed.
 //
 // The readers are injected so the traversal — including the partial-failure
-// behaviour, where a cluster whose list read failed keeps its previously cached
+// behaviour, where a cluster whose read failed keeps its previously cached
 // list — is testable without a device.
 func treePopulateAttributes(
 	ctx context.Context,
@@ -265,7 +279,7 @@ func treePopulateAttributes(
 	node *store.Node,
 	level int,
 	readList attrListReader,
-	readValue treeAttrValueReader,
+	readCluster treeClusterReader,
 ) bool {
 	cacheUpdated := false
 
@@ -273,6 +287,13 @@ func treePopulateAttributes(
 		ep := &data.Endpoints[ei]
 		for ci := range ep.Clusters {
 			cl := &ep.Clusters[ci]
+
+			if level == 4 {
+				if treePopulateClusterWildcard(ctx, node, ep.ID, cl, readCluster) {
+					cacheUpdated = true
+				}
+				continue
+			}
 
 			attrIDs, listErr := readList(ctx, ep.ID, cl.ID)
 			if recordAttrListResult(node, ep.ID, cl.ID, attrIDs, listErr) {
@@ -289,23 +310,63 @@ func treePopulateAttributes(
 					Name: treeResolveAttrName(cl.ID, attrID),
 				})
 			}
-
-			if level < 4 {
-				continue
-			}
-			for ai := range cl.Attrs {
-				attr := &cl.Attrs[ai]
-				value, valErr := readValue(ctx, ep.ID, cl.ID, attr.ID)
-				if valErr != nil {
-					attr.Err = treeFormatErr(valErr)
-				} else {
-					attr.Value = value
-				}
-			}
 		}
 	}
 
 	return cacheUpdated
+}
+
+// treePopulateClusterWildcard fills cl with the attributes a single wildcard
+// read reports and write-throughs the AttributeList found among them into
+// node's completion cache. A transport failure fails the whole cluster — it
+// becomes cl.ListErr, exactly as a failed AttributeList read does at level 3 —
+// while a per-attribute status inside a successful read stays scoped to that
+// one attribute via its TreeAttribute.Err, same as before. It reports whether
+// the cache changed.
+func treePopulateClusterWildcard(ctx context.Context, node *store.Node, endpoint uint16, cl *output.TreeCluster, readCluster treeClusterReader) bool {
+	reports, err := readCluster(ctx, endpoint, cl.ID)
+	if err != nil {
+		cl.ListErr = treeFormatErr(err)
+		return false
+	}
+
+	cacheUpdated := false
+	if attrIDs, ok := treeExtractAttributeList(reports); ok {
+		cacheUpdated = recordAttrListResult(node, endpoint, cl.ID, attrIDs, nil)
+	}
+
+	clInfo := &clusters.ClusterInfo{ID: cl.ID, DisplayName: cl.Name}
+	records := buildReadRecords(readTarget{nodeID: node.ID, endpoint: endpoint, cl: clInfo}, reports, time.Now())
+	cl.Attrs = make([]output.TreeAttribute, 0, len(records))
+	for _, rec := range records {
+		attr := output.TreeAttribute{ID: rec.AttributeID, Name: rec.Attribute}
+		if rec.Error != "" {
+			attr.Err = rec.Display
+		} else {
+			attr.Value = rec.Display
+		}
+		cl.Attrs = append(cl.Attrs, attr)
+	}
+
+	return cacheUpdated
+}
+
+// treeExtractAttributeList finds the AttributeList (0xFFFB) report among a
+// wildcard read's reports and decodes it, reporting whether one was present
+// and readable. A device that omits it, or answered it with a status instead
+// of data, reports false — the caller must not write through in that case, so
+// a partial or malformed response cannot wipe a previously cached list.
+func treeExtractAttributeList(reports []attrReport) ([]uint32, bool) {
+	for _, r := range reports {
+		if r.attributeID != attrListAttrID {
+			continue
+		}
+		if r.err != nil {
+			return nil, false
+		}
+		return treeDecodeAttrList(r.data), true
+	}
+	return nil, false
 }
 
 // treeEstablishConnection returns either a daemon connection or a direct CASE
@@ -405,16 +466,29 @@ func treeDecodeAttrList(raw []byte) []uint32 {
 	return ids
 }
 
-// treeReadAttrValue reads a single attribute and returns its formatted string value.
-func treeReadAttrValue(ctx context.Context, dc *daemonNodeConn, client *interaction.Client, session *protocol.Session, ep uint16, clID, attrID uint32) (string, error) {
-	raw, err := treeReadAttrRaw(ctx, dc, client, session, ep, clID, attrID)
+// treeReadClusterWildcard reads every attribute of one cluster instance in a
+// single wildcard ReadRequest, returning the reports in transport-neutral
+// form. It uses the daemon when dc is non-nil, otherwise the direct CASE
+// session.
+func treeReadClusterWildcard(ctx context.Context, dc *daemonNodeConn, client *interaction.Client, session *protocol.Session, ep uint16, clID uint32) ([]attrReport, error) {
+	if dc != nil {
+		dresp, err := dc.Read(daemon.AttrPathReq{
+			Endpoint:          ep,
+			ClusterID:         clID,
+			WildcardAttribute: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return daemonAttrReports(dresp.Reports), nil
+	}
+
+	path := interaction.NewWildcardAttributePath(ep, clID)
+	reports, err := client.Read(ctx, session, path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if len(raw) == 0 {
-		return "<no data>", nil
-	}
-	return decodeTLVValue(raw), nil
+	return directAttrReports(reports), nil
 }
 
 // treeResolveAttrName looks up the display name for an attribute ID within a

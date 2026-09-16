@@ -13,6 +13,7 @@ import (
 
 	"github.com/p0fi/matter-cli/cli/output"
 	"github.com/p0fi/matter-cli/internal/store"
+	"github.com/p0fi/matter-cli/internal/tlv"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,58 @@ func scriptedAttrLists(script map[attrListKey][]uint32, visited *[]attrListKey) 
 }
 
 var errBusy = errors.New("device busy")
+
+// scriptedClusterReports builds a treeClusterReader that replays a fixed
+// script and records the order in which clusters were visited, standing in
+// for a level-4 wildcard read. Clusters absent from the script fail with
+// errBusy, standing in for a device that is momentarily unreachable.
+func scriptedClusterReports(script map[attrListKey][]attrReport, visited *[]attrListKey) treeClusterReader {
+	return func(_ context.Context, endpoint uint16, clusterID uint32) ([]attrReport, error) {
+		key := attrListKey{endpoint, clusterID}
+		if visited != nil {
+			*visited = append(*visited, key)
+		}
+		reports, ok := script[key]
+		if !ok {
+			return nil, errBusy
+		}
+		return reports, nil
+	}
+}
+
+// failingListReader returns an attrListReader that fails the test if called,
+// for asserting that level 4 never performs the level-3-only AttributeList
+// read.
+func failingListReader(t *testing.T) attrListReader {
+	return func(context.Context, uint16, uint32) ([]uint32, error) {
+		t.Helper()
+		t.Fatal("level 4 must not perform a separate AttributeList read")
+		return nil, nil
+	}
+}
+
+// failingClusterReader returns a treeClusterReader that fails the test if
+// called, for asserting that level 3 never performs a wildcard cluster read.
+func failingClusterReader(t *testing.T) treeClusterReader {
+	return func(context.Context, uint16, uint32) ([]attrReport, error) {
+		t.Helper()
+		t.Fatal("level 3 must not perform a wildcard cluster read")
+		return nil, nil
+	}
+}
+
+// tlvAttrList encodes an AttributeList (0xFFFB) payload the way a device
+// would: a TLV array of attribute IDs.
+func tlvAttrList(t *testing.T, ids ...uint32) []byte {
+	t.Helper()
+	w := tlv.NewWriter()
+	require.NoError(t, w.StartArray(tlv.AnonymousTag()))
+	for _, id := range ids {
+		require.NoError(t, w.PutUnsignedInt(tlv.AnonymousTag(), uint64(id)))
+	}
+	require.NoError(t, w.EndContainer())
+	return w.Bytes()
+}
 
 // cacheTestNode is a node whose OnOff cluster already has a cached attribute
 // list from an earlier run, and whose LevelControl cluster has never been read.
@@ -209,10 +262,6 @@ func treeDataFor(node *store.Node, level int) *output.TreeData {
 // AttributeList read the tree already performs must write through to the same
 // cache `cluster discover` populates, with the same partial-failure semantics.
 func TestTreePopulateAttributes(t *testing.T) {
-	noValues := func(context.Context, uint16, uint32, uint32) (string, error) {
-		return "", errors.New("level 4 not requested")
-	}
-
 	t.Run("level 3 write-throughs every successful read", func(t *testing.T) {
 		node := cacheTestNode()
 		data := treeDataFor(node, 3)
@@ -222,7 +271,7 @@ func TestTreePopulateAttributes(t *testing.T) {
 			{1, 0x0008}: {0x0000, 0x0011},
 		}, nil)
 
-		updated := treePopulateAttributes(context.Background(), data, node, 3, read, noValues)
+		updated := treePopulateAttributes(context.Background(), data, node, 3, read, failingClusterReader(t))
 
 		assert.True(t, updated)
 		assert.Equal(t, []uint32{0x0000, 0x4001}, clusterRef(t, node, 1, 0x0006).Attributes)
@@ -240,7 +289,7 @@ func TestTreePopulateAttributes(t *testing.T) {
 			{1, 0x0008}: {0x0000, 0x0011},
 		}, nil)
 
-		updated := treePopulateAttributes(context.Background(), data, node, 3, read, noValues)
+		updated := treePopulateAttributes(context.Background(), data, node, 3, read, failingClusterReader(t))
 
 		assert.True(t, updated, "other clusters were refreshed, so the node is worth persisting")
 		assert.Equal(t, []uint32{0x0000, 0xFFFD}, clusterRef(t, node, 1, 0x0006).Attributes,
@@ -255,51 +304,104 @@ func TestTreePopulateAttributes(t *testing.T) {
 		data := treeDataFor(node, 3)
 		read := scriptedAttrLists(nil, nil)
 
-		updated := treePopulateAttributes(context.Background(), data, node, 3, read, noValues)
+		updated := treePopulateAttributes(context.Background(), data, node, 3, read, failingClusterReader(t))
 
 		assert.False(t, updated)
 		assert.Equal(t, []uint32{0x0000, 0xFFFD}, clusterRef(t, node, 1, 0x0006).Attributes)
 		assert.Nil(t, clusterRef(t, node, 1, 0x0008).Attributes)
 	})
 
-	t.Run("level 4 also reads values without changing cache semantics", func(t *testing.T) {
-		node := cacheTestNode()
-		data := treeDataFor(node, 4)
-		read := scriptedAttrLists(map[attrListKey][]uint32{
-			{0, 0x001D}: {0x0000},
-			{1, 0x0006}: {0x0000},
-			{1, 0x0008}: {0x0000},
-		}, nil)
-		readValue := func(_ context.Context, ep uint16, clID, attrID uint32) (string, error) {
-			if clID == 0x0008 {
-				return "", errBusy
-			}
-			return "42", nil
-		}
-
-		updated := treePopulateAttributes(context.Background(), data, node, 4, read, readValue)
-
-		assert.True(t, updated)
-		assert.Equal(t, "42", data.Endpoints[1].Clusters[0].Attrs[0].Value)
-		assert.NotEmpty(t, data.Endpoints[1].Clusters[1].Attrs[0].Err,
-			"a failed value read is surfaced per attribute")
-		assert.Equal(t, []uint32{0x0000}, clusterRef(t, node, 1, 0x0008).Attributes,
-			"a failed value read does not undo a successful AttributeList read")
-	})
-
-	t.Run("level 3 does not read values", func(t *testing.T) {
+	t.Run("level 3 does not perform a wildcard cluster read", func(t *testing.T) {
 		node := cacheTestNode()
 		data := treeDataFor(node, 3)
 		read := scriptedAttrLists(map[attrListKey][]uint32{{1, 0x0006}: {0x0000}}, nil)
 
-		valueReads := 0
-		readValue := func(context.Context, uint16, uint32, uint32) (string, error) {
-			valueReads++
-			return "", nil
-		}
+		treePopulateAttributes(context.Background(), data, node, 3, read, failingClusterReader(t))
+	})
 
-		treePopulateAttributes(context.Background(), data, node, 3, read, readValue)
-		assert.Zero(t, valueReads)
+	t.Run("level 4 reads every attribute in one wildcard read and caches the AttributeList it returns", func(t *testing.T) {
+		node := cacheTestNode()
+		data := treeDataFor(node, 4)
+
+		reports := map[attrListKey][]attrReport{
+			{0, 0x001D}: {
+				{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)},
+				{attributeID: 0x0000, data: tlvUint(t, 1)},
+			},
+			{1, 0x0006}: {
+				{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)},
+				{attributeID: 0x0000, data: tlvUint(t, 42)},
+			},
+			{1, 0x0008}: {
+				{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000, 0x0011)},
+				{attributeID: 0x0000, err: errBusy},
+				{attributeID: 0x0011, data: tlvUint(t, 5)},
+			},
+		}
+		var visited []attrListKey
+		read := scriptedClusterReports(reports, &visited)
+
+		updated := treePopulateAttributes(context.Background(), data, node, 4, failingListReader(t), read)
+
+		assert.True(t, updated)
+		assert.Equal(t, []attrListKey{{0, 0x001D}, {1, 0x0006}, {1, 0x0008}}, visited)
+
+		onOff := data.Endpoints[1].Clusters[0]
+		require.Len(t, onOff.Attrs, 2)
+		assert.Equal(t, uint32(0x0000), onOff.Attrs[0].ID)
+		assert.Equal(t, "42", onOff.Attrs[0].Value)
+
+		levelControl := data.Endpoints[1].Clusters[1]
+		require.Len(t, levelControl.Attrs, 3)
+		var statusAttrErr string
+		for _, a := range levelControl.Attrs {
+			if a.ID == 0x0000 {
+				statusAttrErr = a.Err
+			}
+		}
+		assert.NotEmpty(t, statusAttrErr, "a per-attribute status is surfaced without failing the whole cluster")
+
+		assert.Equal(t, []uint32{0x0000, 0x0011}, clusterRef(t, node, 1, 0x0008).Attributes,
+			"the AttributeList in a successful wildcard read is cached even though one attribute in the same response errored")
+	})
+
+	t.Run("a failed wildcard read keeps the stale cache and reports the error in the tree", func(t *testing.T) {
+		node := cacheTestNode()
+		data := treeDataFor(node, 4)
+		// OnOff's wildcard read fails; LevelControl's succeeds.
+		reports := map[attrListKey][]attrReport{
+			{0, 0x001D}: {{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)}},
+			{1, 0x0008}: {{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)}},
+		}
+		read := scriptedClusterReports(reports, nil)
+
+		updated := treePopulateAttributes(context.Background(), data, node, 4, failingListReader(t), read)
+
+		assert.True(t, updated, "other clusters were refreshed, so the node is worth persisting")
+		assert.Equal(t, []uint32{0x0000, 0xFFFD}, clusterRef(t, node, 1, 0x0006).Attributes,
+			"the failing cluster must keep its previously cached list")
+		assert.Equal(t, []uint32{0x0000}, clusterRef(t, node, 1, 0x0008).Attributes)
+		assert.NotEmpty(t, data.Endpoints[1].Clusters[0].ListErr)
+		assert.Empty(t, data.Endpoints[1].Clusters[0].Attrs)
+	})
+
+	t.Run("a wildcard read missing AttributeList leaves the cache untouched", func(t *testing.T) {
+		node := cacheTestNode()
+		data := treeDataFor(node, 4)
+		reports := map[attrListKey][]attrReport{
+			{0, 0x001D}: {{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)}},
+			{1, 0x0006}: {{attributeID: 0x0000, data: tlvUint(t, 1)}}, // no AttributeList in the response
+			{1, 0x0008}: {{attributeID: 0xFFFB, data: tlvAttrList(t, 0x0000)}},
+		}
+		read := scriptedClusterReports(reports, nil)
+
+		treePopulateAttributes(context.Background(), data, node, 4, failingListReader(t), read)
+
+		assert.Equal(t, []uint32{0x0000, 0xFFFD}, clusterRef(t, node, 1, 0x0006).Attributes,
+			"no AttributeList report means nothing to write through")
+		// The attribute the device did report is still shown, superset or not.
+		require.Len(t, data.Endpoints[1].Clusters[0].Attrs, 1)
+		assert.Equal(t, uint32(0x0000), data.Endpoints[1].Clusters[0].Attrs[0].ID)
 	})
 }
 

@@ -154,7 +154,7 @@ type TreeCluster struct {
 	ID      uint32
 	Name    string
 	Side    string          // "server" or "client"
-	ListErr string          // non-empty if AttributeList read failed
+	ListErr string          // non-empty if the attribute read (list-only at level 3, wildcard at level 4) failed
 	Attrs   []TreeAttribute // populated for level >= 3
 }
 
