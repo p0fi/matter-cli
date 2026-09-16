@@ -470,6 +470,188 @@ func TestClient_Subscribe_MultiplePeriodicReports(t *testing.T) {
 	}
 }
 
+// TestClient_Subscribe_ChunkedOngoingReport verifies that an ongoing report
+// cycle spanning multiple ReportData messages (MoreChunkedMessages) is
+// accumulated across all chunks and delivered as exactly one batch on
+// Reports, with each chunk acknowledged as it arrives.
+func TestClient_Subscribe_ChunkedOngoingReport(t *testing.T) {
+	em := protocol.NewExchangeManager()
+	session := &protocol.Session{ID: 36, Type: protocol.SessionCASE}
+	client := NewClient(em)
+
+	sub := establishSubscription(t, em, session, client)
+	defer sub.Cancel()
+
+	time.Sleep(60 * time.Millisecond)
+
+	more := true
+	chunk1 := ReportData{
+		MoreChunkedMessages: &more,
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 5,
+					Path:        NewAttributePath(1, 0x0006, 0x0000),
+					Data:        []byte{0x09},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk1)
+
+	time.Sleep(60 * time.Millisecond)
+
+	chunk2 := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 5,
+					Path:        NewAttributePath(1, 0x0008, 0x0000),
+					Data:        []byte{0x04, 0x80},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk2)
+
+	select {
+	case reports, ok := <-sub.Reports:
+		if !ok {
+			t.Fatal("Reports channel closed unexpectedly")
+		}
+		if len(reports) != 2 {
+			t.Fatalf("reports len = %d, want 2 (union of both chunks)", len(reports))
+		}
+	case err := <-sub.Errors:
+		t.Fatalf("unexpected error: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for chunked ongoing report")
+	}
+
+	// Confirm exactly one batch was delivered for the two-chunk cycle: a
+	// subsequent, unrelated report must arrive as its own separate batch,
+	// not be coalesced with (or duplicate) the chunked one above.
+	time.Sleep(60 * time.Millisecond)
+	nextReport := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 6,
+					Path:        NewAttributePath(1, 0x0006, 0x0000),
+					Data:        []byte{0x08},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, nextReport)
+
+	select {
+	case reports, ok := <-sub.Reports:
+		if !ok {
+			t.Fatal("Reports channel closed unexpectedly")
+		}
+		if len(reports) != 1 {
+			t.Fatalf("next reports len = %d, want 1", len(reports))
+		}
+		if reports[0].Data.DataVersion != 6 {
+			t.Errorf("DataVersion = %d, want 6", reports[0].Data.DataVersion)
+		}
+	case err := <-sub.Errors:
+		t.Fatalf("unexpected error: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for report after chunked cycle")
+	}
+}
+
+// TestClient_Subscribe_ChunkedOngoingReport_EmptyAfterSplit verifies that a
+// chunked report cycle whose accumulated AttributeReports contain no data and
+// no error (e.g. every entry is a per-attribute Status of Success, which
+// splitAttributeReports treats as neither data nor a terminal error) sends
+// nothing on Reports or Errors for that cycle, and does not leak into or
+// otherwise corrupt the next cycle's batch.
+func TestClient_Subscribe_ChunkedOngoingReport_EmptyAfterSplit(t *testing.T) {
+	em := protocol.NewExchangeManager()
+	session := &protocol.Session{ID: 37, Type: protocol.SessionCASE}
+	client := NewClient(em)
+
+	sub := establishSubscription(t, em, session, client)
+	defer sub.Cancel()
+
+	time.Sleep(60 * time.Millisecond)
+
+	more := true
+	chunk1 := ReportData{
+		MoreChunkedMessages: &more,
+		AttributeReports: []AttributeReport{
+			{
+				Status: &AttributeStatus{
+					Path:   NewAttributePath(1, 0x0006, 0x0000),
+					Status: StatusIB{Status: uint8(StatusSuccess)},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk1)
+
+	time.Sleep(60 * time.Millisecond)
+
+	chunk2 := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Status: &AttributeStatus{
+					Path:   NewAttributePath(1, 0x0008, 0x0000),
+					Status: StatusIB{Status: uint8(StatusSuccess)},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, chunk2)
+
+	// Neither Reports nor Errors should fire for this cycle.
+	select {
+	case reports, ok := <-sub.Reports:
+		if ok {
+			t.Fatalf("expected no report for an empty-after-split cycle, got: %+v", reports)
+		}
+	case err := <-sub.Errors:
+		t.Fatalf("unexpected error: %v", err)
+	case <-time.After(300 * time.Millisecond):
+		// No send, as expected.
+	}
+
+	// The next cycle must still be delivered as its own clean batch, proving
+	// the empty cycle didn't leave stale data in the accumulation buffer.
+	nextReport := ReportData{
+		AttributeReports: []AttributeReport{
+			{
+				Data: &AttributeData{
+					DataVersion: 7,
+					Path:        NewAttributePath(1, 0x0006, 0x0000),
+					Data:        []byte{0x09},
+				},
+			},
+		},
+	}
+	injectResponse(t, em, session.ID, 0, OpcodeReportData, nextReport)
+
+	select {
+	case reports, ok := <-sub.Reports:
+		if !ok {
+			t.Fatal("Reports channel closed unexpectedly")
+		}
+		if len(reports) != 1 {
+			t.Fatalf("next reports len = %d, want 1", len(reports))
+		}
+		if reports[0].Data.DataVersion != 7 {
+			t.Errorf("DataVersion = %d, want 7", reports[0].Data.DataVersion)
+		}
+	case err := <-sub.Errors:
+		t.Fatalf("unexpected error: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for report after empty-after-split cycle")
+	}
+}
+
 // TestClient_Subscribe_CancelDrainsChannels verifies that calling Cancel
 // causes both the Reports and Errors channels to be closed.
 func TestClient_Subscribe_CancelDrainsChannels(t *testing.T) {

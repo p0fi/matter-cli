@@ -283,7 +283,12 @@ func (c *Client) invokeInternal(ctx context.Context, session *protocol.Session, 
 
 // Subscribe sends a SubscribeRequest and returns a Subscription that delivers
 // periodic attribute reports. The subscription runs in the background and
-// delivers reports through the Subscription.Reports channel.
+// delivers reports through the Subscription.Reports channel. Both the priming
+// report and every ongoing report cycle handle chunked responses
+// (MoreChunkedMessages) the same way Client.Read does: each ReportData
+// message is acknowledged with StatusResponse(Success) as it arrives, and the
+// AttributeReports are accumulated until MoreChunkedMessages is false or
+// absent before the batch is treated as complete.
 func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths []AttributePath, minInterval, maxInterval uint16) (*Subscription, error) {
 	exchange, err := c.exchangeManager.NewExchange(ctx, session)
 	if err != nil {
@@ -303,42 +308,55 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 		return nil, fmt.Errorf("interaction: sending subscribe request: %w", err)
 	}
 
-	// Wait for the initial ReportData (priming report).
-	msg, err := exchange.Receive(ctx)
-	if err != nil {
-		c.exchangeManager.CloseExchange(exchange)
-		return nil, fmt.Errorf("interaction: receiving priming report: %w", err)
+	// Wait for the initial ReportData (priming report), accumulating across
+	// MoreChunkedMessages chunks the same way Client.Read does.
+	var primingReports []AttributeReport
+	for {
+		msg, err := exchange.Receive(ctx)
+		if err != nil {
+			c.exchangeManager.CloseExchange(exchange)
+			return nil, fmt.Errorf("interaction: receiving priming report: %w", err)
+		}
+
+		if err := checkStatusResponse(msg); err != nil {
+			c.exchangeManager.CloseExchange(exchange)
+			return nil, err
+		}
+
+		if msg.Protocol.ProtocolOpcode != OpcodeReportData {
+			c.exchangeManager.CloseExchange(exchange)
+			return nil, fmt.Errorf("interaction: unexpected opcode 0x%02X, want ReportData (0x%02X)",
+				msg.Protocol.ProtocolOpcode, OpcodeReportData)
+		}
+
+		var report ReportData
+		if err := tlv.Unmarshal(msg.Payload, &report); err != nil {
+			c.exchangeManager.CloseExchange(exchange)
+			return nil, fmt.Errorf("interaction: decoding priming report: %w", err)
+		}
+
+		primingReports = append(primingReports, report.AttributeReports...)
+
+		// Send StatusResponse(Success) to acknowledge this chunk. This
+		// happens regardless of whether the report carried a per-attribute
+		// error status or whether more chunks are coming — the ACK is a
+		// transport-level acknowledgment of receipt, not an endorsement of
+		// the report's content.
+		ack := StatusResponseMessage{
+			Status: uint8(StatusSuccess),
+		}
+		if err := sendIMMessage(ctx, exchange, OpcodeStatusResponse, ack); err != nil {
+			c.exchangeManager.CloseExchange(exchange)
+			return nil, fmt.Errorf("interaction: acknowledging priming report: %w", err)
+		}
+
+		if report.MoreChunkedMessages == nil || !*report.MoreChunkedMessages {
+			break
+		}
+		slog.Debug("interaction: subscribe priming report chunked, requesting next chunk", "so_far", len(primingReports))
 	}
 
-	if err := checkStatusResponse(msg); err != nil {
-		c.exchangeManager.CloseExchange(exchange)
-		return nil, err
-	}
-
-	if msg.Protocol.ProtocolOpcode != OpcodeReportData {
-		c.exchangeManager.CloseExchange(exchange)
-		return nil, fmt.Errorf("interaction: unexpected opcode 0x%02X, want ReportData (0x%02X)",
-			msg.Protocol.ProtocolOpcode, OpcodeReportData)
-	}
-
-	var primingReport ReportData
-	if err := tlv.Unmarshal(msg.Payload, &primingReport); err != nil {
-		c.exchangeManager.CloseExchange(exchange)
-		return nil, fmt.Errorf("interaction: decoding priming report: %w", err)
-	}
-	primingData, primingErr := splitAttributeReports(primingReport.AttributeReports)
-
-	// Send StatusResponse(Success) to acknowledge the priming report. This
-	// happens regardless of whether the report carried a per-attribute error
-	// status — the ACK is a transport-level acknowledgment of receipt, not an
-	// endorsement of the report's content.
-	ack := StatusResponseMessage{
-		Status: uint8(StatusSuccess),
-	}
-	if err := sendIMMessage(ctx, exchange, OpcodeStatusResponse, ack); err != nil {
-		c.exchangeManager.CloseExchange(exchange)
-		return nil, fmt.Errorf("interaction: acknowledging priming report: %w", err)
-	}
+	primingData, primingErr := splitAttributeReports(primingReports)
 
 	// A priming attribute-status failure must not be presented as a
 	// successful establishment.
@@ -348,7 +366,7 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 	}
 
 	// Wait for the SubscribeResponse.
-	msg, err = exchange.Receive(ctx)
+	msg, err := exchange.Receive(ctx)
 	if err != nil {
 		c.exchangeManager.CloseExchange(exchange)
 		return nil, fmt.Errorf("interaction: receiving subscribe response: %w", err)
@@ -385,11 +403,15 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 		reports <- primingData
 	}
 
-	// Run background goroutine to receive periodic reports.
+	// Run background goroutine to receive periodic reports. Each report
+	// cycle may itself span multiple ReportData messages (MoreChunkedMessages);
+	// accumulated is the buffer for the cycle currently being assembled.
 	go func() {
 		defer c.exchangeManager.CloseExchange(exchange)
 		defer close(reports)
 		defer close(errs)
+
+		var accumulated []AttributeReport
 
 		for {
 			msg, err := exchange.Receive(subCtx)
@@ -431,20 +453,12 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 				return
 			}
 
-			dataReports, statusErr := splitAttributeReports(report.AttributeReports)
+			accumulated = append(accumulated, report.AttributeReports...)
 
-			if len(dataReports) > 0 {
-				select {
-				case reports <- dataReports:
-				case <-subCtx.Done():
-					return
-				}
-			}
-
-			// Acknowledge the report. This happens regardless of whether it
-			// carried a per-attribute error status — the ACK is a
-			// transport-level acknowledgment of receipt, not an endorsement
-			// of the report's content.
+			// Acknowledge this chunk. This happens regardless of whether it
+			// carried a per-attribute error status or whether more chunks
+			// are coming — the ACK is a transport-level acknowledgment of
+			// receipt, not an endorsement of the report's content.
 			reportAck := StatusResponseMessage{
 				Status: uint8(StatusSuccess),
 			}
@@ -454,6 +468,22 @@ func (c *Client) Subscribe(ctx context.Context, session *protocol.Session, paths
 				default:
 				}
 				return
+			}
+
+			if report.MoreChunkedMessages != nil && *report.MoreChunkedMessages {
+				slog.Debug("interaction: subscription report chunked, awaiting next chunk", "so_far", len(accumulated))
+				continue
+			}
+
+			dataReports, statusErr := splitAttributeReports(accumulated)
+			accumulated = nil
+
+			if len(dataReports) > 0 {
+				select {
+				case reports <- dataReports:
+				case <-subCtx.Done():
+					return
+				}
 			}
 
 			if statusErr != nil {
