@@ -4,6 +4,7 @@
 package interaction
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/p0fi/matter-cli/internal/tlv"
@@ -23,8 +24,8 @@ func TestNewAttributePath(t *testing.T) {
 	if p.NodeID != nil {
 		t.Error("NodeID should be nil")
 	}
-	if p.ListIndex != nil {
-		t.Error("ListIndex should be nil")
+	if !p.ListIndex.IsAbsent() {
+		t.Error("ListIndex should be absent")
 	}
 }
 
@@ -86,20 +87,19 @@ func TestAttributePath_TLVRoundTrip(t *testing.T) {
 		}
 	})
 
-	t.Run("with all optional fields", func(t *testing.T) {
+	t.Run("with all optional fields, ListIndex present", func(t *testing.T) {
 		tagComp := true
 		nodeID := uint64(0x1234)
 		ep := uint16(0)
 		cl := uint32(0x0006)
 		at := uint32(0x0000)
-		li := uint16(5)
 		orig := AttributePath{
 			EnableTagCompression: &tagComp,
 			NodeID:               &nodeID,
 			EndpointID:           &ep,
 			ClusterID:            &cl,
 			AttributeID:          &at,
-			ListIndex:            &li,
+			ListIndex:            tlv.OptionalValue(uint16(5)),
 		}
 		data, err := tlv.Marshal(orig)
 		if err != nil {
@@ -115,8 +115,84 @@ func TestAttributePath_TLVRoundTrip(t *testing.T) {
 		if decoded.NodeID == nil || *decoded.NodeID != 0x1234 {
 			t.Errorf("NodeID = %v, want 0x1234", decoded.NodeID)
 		}
-		if decoded.ListIndex == nil || *decoded.ListIndex != 5 {
-			t.Errorf("ListIndex = %v, want 5", decoded.ListIndex)
+		li, ok := decoded.ListIndex.Get()
+		if !ok || li != 5 {
+			t.Errorf("ListIndex = %v, %v, want 5, true", li, ok)
+		}
+	})
+
+	t.Run("ListIndex explicit null", func(t *testing.T) {
+		ep := uint16(1)
+		cl := uint32(0x0006)
+		at := uint32(0x0000)
+		orig := AttributePath{
+			EndpointID:  &ep,
+			ClusterID:   &cl,
+			AttributeID: &at,
+			ListIndex:   tlv.OptionalNull[uint16](),
+		}
+		data, err := tlv.Marshal(orig)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var decoded AttributePath
+		if err := tlv.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if !decoded.ListIndex.IsNull() {
+			t.Errorf("ListIndex should be null, got %+v", decoded.ListIndex)
+		}
+	})
+
+	t.Run("ListIndex absent", func(t *testing.T) {
+		ep := uint16(1)
+		cl := uint32(0x0006)
+		at := uint32(0x0000)
+		orig := AttributePath{
+			EndpointID:  &ep,
+			ClusterID:   &cl,
+			AttributeID: &at,
+		}
+		data, err := tlv.Marshal(orig)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var decoded AttributePath
+		if err := tlv.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if !decoded.ListIndex.IsAbsent() {
+			t.Errorf("ListIndex should be absent, got %+v", decoded.ListIndex)
+		}
+	})
+
+	t.Run("wildcard path encodes ListIndex omitted, not null", func(t *testing.T) {
+		orig := NewWildcardAttributePath(1, 0x0006)
+		data, err := tlv.Marshal(orig)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+
+		// A wildcard AttributePath must encode with ListIndex omitted from
+		// the wire entirely, not as TypeNull -- the two carry different
+		// meanings to receivers.
+		ep := uint16(1)
+		cl := uint32(0x0006)
+		equivalent := AttributePath{EndpointID: &ep, ClusterID: &cl}
+		want, err := tlv.Marshal(equivalent)
+		if err != nil {
+			t.Fatalf("Marshal(equivalent): %v", err)
+		}
+		if !bytes.Equal(data, want) {
+			t.Errorf("Marshal(wildcard) = %x, want %x", data, want)
+		}
+
+		var decoded AttributePath
+		if err := tlv.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if !decoded.ListIndex.IsAbsent() {
+			t.Errorf("ListIndex should be absent after round-trip, got %+v", decoded.ListIndex)
 		}
 	})
 }
