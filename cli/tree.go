@@ -336,7 +336,7 @@ func treePopulateClusterWildcard(ctx context.Context, node *store.Node, endpoint
 	}
 
 	clInfo := &clusters.ClusterInfo{ID: cl.ID, DisplayName: cl.Name}
-	records := buildReadRecords(readTarget{nodeID: node.ID, endpoint: endpoint, cl: clInfo}, reports, time.Now())
+	records := buildReadRecords(readTarget{nodeID: node.ID, endpoint: endpoint, cl: clInfo}, reports, time.Now(), fidelityCompact)
 	cl.Attrs = make([]output.TreeAttribute, 0, len(records))
 	for _, rec := range records {
 		attr := output.TreeAttribute{ID: rec.AttributeID, Name: rec.Attribute}

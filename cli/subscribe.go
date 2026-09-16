@@ -233,7 +233,7 @@ func buildSubscribeRecord(opts subscribeOptions, data *interaction.AttributeData
 		AttributeID: opts.attr.ID,
 		Attribute:   opts.attr.DisplayName,
 		DataVersion: &dv,
-		Display:     formatAttrValue(data.Data, opts.attr.Type),
+		Display:     formatAttrValue(data.Data, opts.attr.Type, fidelityFull),
 	}
 
 	value, err := decodeTLVNative(data.Data)

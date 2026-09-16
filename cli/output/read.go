@@ -8,8 +8,9 @@ import "time"
 // ReadRecord is one attribute report produced by `cluster read`. Its field
 // names deliberately match SubscribeRecord so a consumer that handles one
 // attribute report handles both: Value carries the natively typed decoded
-// value for JSON/YAML, and Display carries a pre-formatted, possibly
-// truncated string used only by the table renderer.
+// value for JSON/YAML, and Display carries a pre-formatted string used only
+// by the table renderer — full fidelity (nothing elided or truncated) for
+// `cluster read` itself, elided/truncated for tree -L 4's compact overview.
 //
 // Error is populated when the device answered the path with a status instead
 // of data (a privileged attribute, say). Such a record carries no Value —
@@ -29,8 +30,11 @@ type ReadRecord struct {
 	DecodeError string    `json:"decode_error,omitempty" yaml:"decode_error,omitempty"`
 
 	// Display is a pre-formatted, human-readable rendering of Value (or of
-	// Error), used only by the table renderer. JSON/YAML consumers get Value
-	// directly so they never have to parse a display string back into a
-	// native type, and never see one truncated for column width.
+	// Error), used only by the table renderer. Whether it elides struct
+	// fields/array elements or truncates long scalars depends on the
+	// fidelity the caller of buildReadRecords chose — see tlvFidelity in
+	// cli/cluster.go. JSON/YAML consumers get Value directly so they never
+	// have to parse a display string back into a native type, and never see
+	// one truncated for column width regardless of fidelity.
 	Display string `json:"-" yaml:"-"`
 }
