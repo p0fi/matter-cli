@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"github.com/p0fi/matter-cli/internal/clusters"
 	"github.com/p0fi/matter-cli/internal/controller"
 	"github.com/p0fi/matter-cli/internal/daemon"
-	"github.com/p0fi/matter-cli/internal/discovery"
 	"github.com/p0fi/matter-cli/internal/interaction"
 	"github.com/p0fi/matter-cli/internal/protocol"
 	"github.com/p0fi/matter-cli/internal/tlv"
@@ -313,29 +311,18 @@ func connectToNode(ctx context.Context, nodeID uint64) (
 		return nil, nil, nil, fmt.Errorf("creating controller: %w", err)
 	}
 
-	session, err := ctrl.ConnectCASE(ctx, node.LastAddress, nodeID)
-	if err != nil {
-		// Stored address is unreachable — attempt operational rediscovery via
-		// mDNS so we can find the device's new IP (e.g. after DHCP renewal).
-		slog.Info("CASE failed with stored address, attempting mDNS rediscovery",
-			"node", nodeID, "addr", node.LastAddress, "err", err)
-		rediscAddr, rediscErr := rediscoverNode(ctx, ctrl, nodeID)
-		if rediscErr != nil {
-			slog.Debug("mDNS rediscovery failed", "node", nodeID, "err", rediscErr)
-			ctrl.Close()
-			s.Close()
-			return nil, nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
-		}
-		node.LastAddress = rediscAddr
+	// Persist a rediscovered address before the retry so future attempts
+	// start from it even if this retry fails for an unrelated reason.
+	session, _, err := ctrl.ConnectCASEWithRediscovery(ctx, node.LastAddress, nodeID, func(addr string) {
+		node.LastAddress = addr
 		if saveErr := s.SaveNode(fabricID, node); saveErr != nil {
 			slog.Warn("failed to persist rediscovered address", "node", nodeID, "err", saveErr)
 		}
-		session, err = ctrl.ConnectCASE(ctx, rediscAddr, nodeID)
-		if err != nil {
-			ctrl.Close()
-			s.Close()
-			return nil, nil, nil, fmt.Errorf("establishing CASE session to node %d after rediscovery: %w", nodeID, err)
-		}
+	})
+	if err != nil {
+		ctrl.Close()
+		s.Close()
+		return nil, nil, nil, fmt.Errorf("establishing CASE session to node %d: %w", nodeID, err)
 	}
 
 	node.LastSeen = time.Now()
@@ -349,61 +336,6 @@ func connectToNode(ctx context.Context, nodeID uint64) (
 		s.Close()
 	}
 	return client, session, cleanup, nil
-}
-
-// rediscoverNode attempts to locate a commissioned node's current address via
-// mDNS operational discovery. It uses the controller's compressed fabric ID
-// to build the expected instance name and waits up to 5 seconds for the device
-// to announce itself. Returns the new "host:port" address on success.
-func rediscoverNode(ctx context.Context, ctrl *controller.Controller, nodeID uint64) (string, error) {
-	compressedFabricID := ctrl.CompressedFabricID()
-	if len(compressedFabricID) == 0 {
-		return "", fmt.Errorf("controller has no fabric identity")
-	}
-	browser := discovery.NewMDNSBrowser()
-	dev, err := browser.ResolveOperational(ctx, compressedFabricID, nodeID, 5*time.Second)
-	if err != nil {
-		return "", err
-	}
-	ip := pickBestIP(dev.IPs)
-	return net.JoinHostPort(ip.String(), strconv.Itoa(dev.Port)), nil
-}
-
-// pickBestIP selects the preferred IP from a list: global/ULA IPv6 first,
-// then IPv4, then link-local IPv6 (last resort — link-local requires a zone
-// ID to be routable, which mDNS responses don't always provide).
-// Returns the first element if none match the categories above.
-func pickBestIP(ips []net.IP) net.IP {
-	if len(ips) == 0 {
-		return nil
-	}
-	var ipv6Global, ipv4, ipv6LinkLocal net.IP
-	for _, ip := range ips {
-		if ip.To4() == nil {
-			// IPv6
-			if ip.IsLinkLocalUnicast() {
-				if ipv6LinkLocal == nil {
-					ipv6LinkLocal = ip
-				}
-			} else if ipv6Global == nil {
-				ipv6Global = ip
-			}
-		} else {
-			if ipv4 == nil {
-				ipv4 = ip
-			}
-		}
-	}
-	if ipv6Global != nil {
-		return ipv6Global
-	}
-	if ipv4 != nil {
-		return ipv4
-	}
-	if ipv6LinkLocal != nil {
-		return ipv6LinkLocal
-	}
-	return ips[0]
 }
 
 // maxValueLen is the maximum display length for a formatted TLV value before

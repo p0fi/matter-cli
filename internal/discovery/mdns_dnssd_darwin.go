@@ -23,7 +23,27 @@ import (
 // mDNS multicast packets on macOS because mDNSResponder monopolizes UDP port
 // 5353 — Go's net.ListenMulticastUDP receives zero traffic. The dns-sd tool
 // communicates with mDNSResponder via IPC and works reliably.
-type dnssdResolver struct{}
+type dnssdResolver struct {
+	// command builds the dns-sd invocation. Nil means the real dns-sd binary;
+	// tests substitute a fake that mimics its never-exiting behaviour.
+	command func(ctx context.Context, args ...string) *exec.Cmd
+}
+
+// dnssdStepTimeout caps each dns-sd -L / -G lookup in case the record never
+// arrives.
+const dnssdStepTimeout = 5 * time.Second
+
+// dnssdSettle is how long to keep reading after the first answer line so that
+// records delivered in the same burst (the TXT line after -L's answer, the
+// other address family for -G) are captured before dns-sd is stopped.
+const dnssdSettle = 250 * time.Millisecond
+
+func (d *dnssdResolver) cmd(ctx context.Context, args ...string) *exec.Cmd {
+	if d.command != nil {
+		return d.command(ctx, args...)
+	}
+	return exec.CommandContext(ctx, "dns-sd", args...)
+}
 
 func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entries chan<- *zeroconf.ServiceEntry) error {
 	defer close(entries)
@@ -32,7 +52,7 @@ func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entr
 	service = strings.TrimSuffix(service, ".")
 	domain = strings.TrimSuffix(domain, ".")
 
-	cmd := exec.CommandContext(ctx, "dns-sd", "-B", service, domain)
+	cmd := d.cmd(ctx, "-B", service, domain)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("dns-sd stdout pipe: %w", err)
@@ -115,19 +135,18 @@ func (d *dnssdResolver) Browse(ctx context.Context, service, domain string, entr
 
 // resolveInstance looks up a specific service instance to get its hostname,
 // port, TXT records, and IP addresses. It runs dns-sd -L (lookup) and then
-// dns-sd -G (getaddrinfo) as short-lived subprocesses.
+// dns-sd -G (getaddrinfo), stopping each as soon as it has answered.
 func (d *dnssdResolver) resolveInstance(ctx context.Context, instance, service, domain string) (*zeroconf.ServiceEntry, error) {
 	// Step 1: Lookup (dns-sd -L) — get hostname, port, TXT records.
-	lookupCtx, lookupCancel := context.WithTimeout(ctx, 5*time.Second)
+	lookupCtx, lookupCancel := context.WithTimeout(ctx, dnssdStepTimeout)
 	defer lookupCancel()
 
-	cmd := exec.CommandContext(lookupCtx, "dns-sd", "-L", instance, service, domain)
-	out, err := cmd.Output()
-	if err != nil && lookupCtx.Err() == nil {
+	out, err := d.runUntilAnswer(lookupCtx, isLookupAnswer, "-L", instance, service, domain)
+	if err != nil {
 		return nil, fmt.Errorf("dns-sd -L: %w", err)
 	}
 
-	hostname, port, txtRecords := parseLookupOutput(string(out))
+	hostname, port, txtRecords := parseLookupOutput(out)
 	if hostname == "" || port == 0 {
 		return nil, fmt.Errorf("dns-sd -L: could not parse hostname/port from output")
 	}
@@ -135,10 +154,10 @@ func (d *dnssdResolver) resolveInstance(ctx context.Context, instance, service, 
 	slog.Debug("dns-sd: lookup result", "instance", instance, "host", hostname, "port", port)
 
 	// Step 2: Get address (dns-sd -G) — resolve hostname to IP.
-	addrCtx, addrCancel := context.WithTimeout(ctx, 5*time.Second)
+	addrCtx, addrCancel := context.WithTimeout(ctx, dnssdStepTimeout)
 	defer addrCancel()
 
-	ipv4s, ipv6s := resolveHostname(addrCtx, hostname)
+	ipv4s, ipv6s := d.resolveHostname(addrCtx, hostname)
 
 	entry := zeroconf.NewServiceEntry(instance, service, domain)
 	entry.HostName = hostname
@@ -147,6 +166,92 @@ func (d *dnssdResolver) resolveInstance(ctx context.Context, instance, service, 
 	entry.AddrIPv6 = ipv6s
 	entry.Text = txtRecords
 	return entry, nil
+}
+
+// runUntilAnswer runs dns-sd with args and returns its output. dns-sd -L and
+// -G never exit on their own — they print answers and keep listening until
+// killed — so waiting for the process to finish always costs the full
+// timeout. Instead, stop once isAnswer has matched a line and dnssdSettle has
+// passed, or when ctx ends.
+func (d *dnssdResolver) runUntilAnswer(ctx context.Context, isAnswer func(line string) bool, args ...string) (string, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := d.cmd(ctx, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("starting dns-sd: %w", err)
+	}
+
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	var out strings.Builder
+	settle := time.NewTimer(dnssdSettle)
+	settle.Stop() // armed by the first answer line
+	defer settle.Stop()
+	answered := false
+read:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break read
+			}
+			out.WriteString(line)
+			out.WriteByte('\n')
+			if !answered && isAnswer(line) {
+				answered = true
+				settle.Reset(dnssdSettle)
+			}
+		case <-settle.C:
+			break read
+		case <-ctx.Done():
+			break read
+		}
+	}
+
+	// Kill dns-sd and let the reader observe EOF before reaping the process;
+	// Wait must not run while the pipe is still being read. The exit status is
+	// meaningless here because we killed it.
+	cancel()
+	for range lines {
+	}
+	_ = cmd.Wait()
+	return out.String(), nil
+}
+
+// isLookupAnswer reports whether a dns-sd -L output line carries the resolved
+// host and port.
+func isLookupAnswer(line string) bool {
+	return strings.Contains(line, "can be reached at")
+}
+
+// parseGetAddrLine extracts the address from a dns-sd -G "Add" line, e.g.
+//
+//	10:21:04.693  Add  40000002  12  host.local.  192.168.1.5  120
+//
+// It returns nil for any other line.
+func parseGetAddrLine(line string) net.IP {
+	fields := strings.Fields(line)
+	if len(fields) < 6 || fields[1] != "Add" {
+		return nil
+	}
+	// Address is the second-to-last field (before TTL).
+	return net.ParseIP(fields[len(fields)-2])
 }
 
 // parseLookupOutput parses dns-sd -L output to extract hostname, port, and TXT records.
@@ -199,23 +304,15 @@ func parseLookupOutput(output string) (hostname string, port int, txt []string) 
 }
 
 // resolveHostname resolves a hostname to IPv4 and IPv6 addresses using dns-sd -G.
-func resolveHostname(ctx context.Context, hostname string) (ipv4s []net.IP, ipv6s []net.IP) {
-	// Try IPv4 first.
-	cmd := exec.CommandContext(ctx, "dns-sd", "-G", "v4v6", hostname+".")
-	out, _ := cmd.Output()
+func (d *dnssdResolver) resolveHostname(ctx context.Context, hostname string) (ipv4s []net.IP, ipv6s []net.IP) {
+	isAnswer := func(line string) bool { return parseGetAddrLine(line) != nil }
+	out, err := d.runUntilAnswer(ctx, isAnswer, "-G", "v4v6", hostname+".")
+	if err != nil {
+		slog.Debug("dns-sd -G failed", "host", hostname, "err", err)
+	}
 
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 6 {
-			continue
-		}
-		action := fields[1]
-		if action != "Add" {
-			continue
-		}
-		// Address is the second-to-last field (before TTL).
-		addrStr := fields[len(fields)-2]
-		ip := net.ParseIP(addrStr)
+	for _, line := range strings.Split(out, "\n") {
+		ip := parseGetAddrLine(line)
 		if ip == nil {
 			continue
 		}
